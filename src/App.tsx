@@ -1,20 +1,47 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AuthGate } from './components/AuthGate';
-import { GardenSetup } from './components/GardenSetup';
 import { Dashboard } from './components/Dashboard';
 import { InventoryPage } from './components/InventoryPage';
 import { BedsPage } from './components/BedsPage';
 import { PlannerPage } from './components/PlannerPage';
 import type { Garden } from './lib/types';
+import { myGardens } from './lib/api/gardens';
 
 export default function App() {
   const [garden, setGarden] = useState<Garden | null>(null);
   const [page, setPage] = useState<'dashboard' | 'inventory' | 'beds' | 'planner'>('dashboard');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
+      try {
+        const gs = await myGardens();
+        if (gs.length > 0) {
+          setGarden(gs[0]); // pak gewoon de eerste tuin
+        }
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  if (loading) {
+    return (
+      <AuthGate>
+        <p style={{ textAlign: 'center', marginTop: '2rem' }}>Laden…</p>
+      </AuthGate>
+    );
+  }
 
   if (!garden) {
     return (
       <AuthGate>
-        <GardenSetup onSelected={(g) => setGarden(g)} />
+        <p style={{ textAlign: 'center', marginTop: '2rem' }}>
+          Er is nog geen tuin gekoppeld aan jouw account.<br />
+          Vraag de beheerder om je toe te voegen.
+        </p>
       </AuthGate>
     );
   }
