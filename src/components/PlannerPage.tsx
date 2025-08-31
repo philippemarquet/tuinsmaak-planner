@@ -5,131 +5,41 @@ import { listSeeds } from "../lib/api/seeds";
 import { createPlanting, listPlantings, deletePlanting } from "../lib/api/plantings";
 import { DndContext, useDraggable, useDroppable } from "@dnd-kit/core";
 
-//
-// Toast
-//
 function Toast({ message, type, onClose }: { message: string; type: "success" | "error"; onClose: () => void }) {
   useEffect(() => {
     const t = setTimeout(onClose, 3000);
     return () => clearTimeout(t);
   }, [onClose]);
-
   return (
-    <div
-      className={`fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg text-sm ${
-        type === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white"
-      }`}
-    >
+    <div className={`fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg text-sm ${
+      type === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white"
+    }`}>
       <div className="flex items-center gap-2">
         <span>{message}</span>
-        <button onClick={onClose} className="ml-2 text-white hover:text-gray-200">
-          ✕
-        </button>
+        <button onClick={onClose} className="ml-2 text-white hover:text-gray-200">✕</button>
       </div>
     </div>
   );
 }
 
-//
-// Drag & Drop seeds
-//
 function DraggableSeed({ seed }: { seed: Seed }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: `seed-${seed.id}` });
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...listeners}
-      {...attributes}
-      className="p-2 border rounded-md bg-secondary cursor-move text-sm"
-    >
+    <div ref={setNodeRef} style={style} {...listeners} {...attributes}
+      className="p-2 border rounded-md bg-secondary cursor-move text-sm">
       {seed.name}
     </div>
   );
 }
 
-function DroppableSegment({
-  bed,
-  segmentIndex,
-  occupied,
-  children,
-}: {
-  bed: GardenBed;
-  segmentIndex: number;
-  occupied: boolean;
-  children: React.ReactNode;
-}) {
+function DroppableSegment({ bed, segmentIndex, occupied, children }: { bed: GardenBed; segmentIndex: number; occupied: boolean; children: React.ReactNode; }) {
   const { setNodeRef, isOver } = useDroppable({ id: `bed__${bed.id}__segment__${segmentIndex}` });
   const base = "flex items-center justify-center border border-dashed rounded-sm min-h-[60px] transition";
   const color = isOver ? "bg-green-200" : occupied ? "bg-emerald-50" : "bg-muted";
   return <div ref={setNodeRef} className={`${base} ${color}`}>{children}</div>;
 }
 
-//
-// Timeline component
-//
-function Timeline({ plantings, seeds }: { plantings: Planting[]; seeds: Seed[] }) {
-  const [weeks, setWeeks] = useState<Date[]>([]);
-
-  useEffect(() => {
-    const start = new Date();
-    const arr: Date[] = [];
-    for (let i = 0; i < 52; i++) {
-      const d = new Date(start);
-      d.setDate(start.getDate() + i * 7);
-      arr.push(d);
-    }
-    setWeeks(arr);
-  }, []);
-
-  function weekLabel(d: Date) {
-    return `${d.getDate()}/${d.getMonth() + 1}`;
-  }
-
-  function barStyle(p: Planting) {
-    const start = new Date(p.planned_plant_date ?? p.planned_sow_date ?? "");
-    const end = new Date(p.planned_harvest_end ?? "");
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) return { left: 0, width: 0 };
-    const startIdx = weeks.findIndex((w) => w >= start);
-    const endIdx = weeks.findIndex((w) => w >= end);
-    const left = Math.max(0, startIdx) * 60;
-    const width = Math.max(1, (endIdx - startIdx + 1)) * 60;
-    return { left, width };
-  }
-
-  return (
-    <div className="overflow-x-auto border rounded-md bg-white shadow">
-      <div className="flex">
-        {weeks.map((w, idx) => (
-          <div key={idx} className="w-[60px] text-[10px] text-center border-r">
-            {weekLabel(w)}
-          </div>
-        ))}
-      </div>
-      <div className="relative h-32 border-t">
-        {plantings.map((p, idx) => {
-          const seed = seeds.find((s) => s.id === p.seed_id);
-          const { left, width } = barStyle(p);
-          return (
-            <div
-              key={p.id + idx}
-              className={`${p.color ?? "bg-primary"} text-white text-xs px-1 rounded absolute h-6 flex items-center`}
-              style={{ left, top: 10 + (idx % 4) * 25, width }}
-              title={`${seed?.name ?? "Onbekend"}`}
-            >
-              {seed?.name}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-//
-// Main PlannerPage
-//
 export function PlannerPage({ garden }: { garden: Garden }) {
   const [beds, setBeds] = useState<GardenBed[]>([]);
   const [seeds, setSeeds] = useState<Seed[]>([]);
@@ -137,25 +47,22 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   const [popup, setPopup] = useState<{ seed: Seed; bed: GardenBed; segmentIndex: number } | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
+  // 👇 nieuwe state voor weeknavigatie
+  const [currentWeek, setCurrentWeek] = useState<Date>(() => {
+    const now = new Date();
+    // begin van de week (maandag)
+    const d = new Date(now);
+    d.setDate(now.getDate() - now.getDay() + 1);
+    return d;
+  });
+
   useEffect(() => {
     Promise.all([listBeds(garden.id), listSeeds(garden.id), listPlantings(garden.id)])
-      .then(([b, s, p]) => {
-        setBeds(b);
-        setSeeds(s);
-        setPlantings(p);
-      })
+      .then(([b, s, p]) => { setBeds(b); setSeeds(s); setPlantings(p); })
       .catch(console.error);
   }, [garden.id]);
 
-  async function handleConfirmPlanting(
-    seed: Seed,
-    bed: GardenBed,
-    segmentIndex: number,
-    segmentsUsed: number,
-    method: "direct" | "presow",
-    date: string,
-    color: string
-  ) {
+  async function handleConfirmPlanting(seed: Seed, bed: GardenBed, segmentIndex: number, segmentsUsed: number, method: "direct" | "presow", date: string, color: string) {
     try {
       const planting = await createPlanting({
         seed_id: seed.id,
@@ -190,21 +97,53 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     }
   }
 
-  function getPhase(p: Planting): string {
-    const today = new Date();
-    const start = new Date(p.planned_plant_date ?? p.planned_sow_date ?? today);
+  // Bereken of planting actief is in currentWeek
+  function isActiveInWeek(p: Planting, week: Date) {
+    const start = new Date(p.planned_plant_date ?? p.planned_sow_date ?? "");
+    const end = new Date(p.planned_harvest_end ?? "");
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return false;
+    return start <= week && end >= week;
+  }
+
+  function getPhase(p: Planting, week: Date): string {
+    const start = new Date(p.planned_plant_date ?? p.planned_sow_date ?? "");
     const harvestStart = p.planned_harvest_start ? new Date(p.planned_harvest_start) : null;
     const harvestEnd = p.planned_harvest_end ? new Date(p.planned_harvest_end) : null;
 
-    if (harvestEnd && harvestEnd < today) return "afgelopen";
-    if (harvestStart && harvestStart <= today && (!harvestEnd || harvestEnd >= today)) return "oogsten";
-    if (start <= today && (!harvestStart || harvestStart > today)) return "groeit";
+    if (harvestEnd && harvestEnd < week) return "afgelopen";
+    if (harvestStart && harvestStart <= week && (!harvestEnd || harvestEnd >= week)) return "oogsten";
+    if (start <= week && (!harvestStart || harvestStart > week)) return "groeit";
     return "gepland";
+  }
+
+  // week navigatie helpers
+  function nextWeek() {
+    const d = new Date(currentWeek);
+    d.setDate(d.getDate() + 7);
+    setCurrentWeek(d);
+  }
+  function prevWeek() {
+    const d = new Date(currentWeek);
+    d.setDate(d.getDate() - 7);
+    setCurrentWeek(d);
+  }
+
+  function formatWeek(d: Date) {
+    const end = new Date(d);
+    end.setDate(d.getDate() + 6);
+    return `${d.getDate()}/${d.getMonth() + 1} – ${end.getDate()}/${end.getMonth() + 1}`;
   }
 
   return (
     <div className="space-y-10">
-      <h2 className="text-3xl font-bold">Planner</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-3xl font-bold">Planner</h2>
+        <div className="flex items-center gap-4">
+          <button onClick={prevWeek} className="px-2 py-1 border rounded">← Vorige week</button>
+          <span className="font-medium">{formatWeek(currentWeek)}</span>
+          <button onClick={nextWeek} className="px-2 py-1 border rounded">Volgende week →</button>
+        </div>
+      </div>
 
       <DndContext
         onDragEnd={(event) => {
@@ -229,11 +168,11 @@ export function PlannerPage({ garden }: { garden: Garden }) {
             {seeds.map((seed) => <DraggableSeed key={seed.id} seed={seed} />)}
           </div>
 
-          {/* Beds visual + timeline */}
+          {/* Beds */}
           <div className="col-span-3 space-y-8">
             {beds.map((bed) => {
-              const activePlantings = plantings.filter((p) => p.garden_bed_id === bed.id && getPhase(p) !== "afgelopen");
-              const historyPlantings = plantings.filter((p) => p.garden_bed_id === bed.id && getPhase(p) === "afgelopen");
+              const activePlantings = plantings.filter((p) => p.garden_bed_id === bed.id && isActiveInWeek(p, currentWeek));
+              const historyPlantings = plantings.filter((p) => p.garden_bed_id === bed.id && getPhase(p, currentWeek) === "afgelopen");
 
               return (
                 <div key={bed.id} className="space-y-4">
@@ -258,7 +197,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                                       <button onClick={() => handleDeletePlanting(p.id)} className="ml-2 text-red-200 hover:text-red-500">✕</button>
                                     )}
                                   </div>
-                                  <span className="italic text-[10px]">{getPhase(p)}</span>
+                                  <span className="italic text-[10px]">{getPhase(p, currentWeek)}</span>
                                 </div>
                               );
                             })}
@@ -284,9 +223,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                       </ul>
                     </div>
                   )}
-
-                  {/* Tijdlijn */}
-                  <Timeline plantings={plantings.filter((p) => p.garden_bed_id === bed.id)} seeds={seeds} />
                 </div>
               );
             })}
