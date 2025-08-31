@@ -1,87 +1,134 @@
-import { useEffect, useState } from 'react';
-import type { Garden, Planting, Seed, GardenBed } from '../lib/types';
-import { listPlantings, deletePlanting } from '../lib/api/plantings';
-import { listSeeds } from '../lib/api/seeds';
-import { listBeds } from '../lib/api/beds';
-import PlantingEditor from './PlantingEditor';
+import { useEffect, useState } from "react";
+import { DndContext, useDraggable, useDroppable } from "@dnd-kit/core";
+import type { Garden, Seed, GardenBed, Planting } from "../lib/types";
+import { listSeeds } from "../lib/api/seeds";
+import { listBeds } from "../lib/api/beds";
+import { listPlantings, createPlanting } from "../lib/api/plantings";
 
 export function PlannerPage({ garden }: { garden: Garden }) {
-  const [plantings, setPlantings] = useState<Planting[]>([]);
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [beds, setBeds] = useState<GardenBed[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [plantings, setPlantings] = useState<Planting[]>([]);
 
-  const [showEditor, setShowEditor] = useState(false);
-  const [editPlanting, setEditPlanting] = useState<Planting | null>(null);
+  useEffect(() => {
+    Promise.all([listSeeds(garden.id), listBeds(garden.id), listPlantings(garden.id)]).then(
+      ([s, b, p]) => {
+        setSeeds(s);
+        setBeds(b);
+        setPlantings(p);
+      }
+    );
+  }, [garden.id]);
 
-  async function load() {
-    setLoading(true);
-    const [p, s, b] = await Promise.all([listPlantings(garden.id), listSeeds(garden.id), listBeds(garden.id)]);
-    setPlantings(p); setSeeds(s); setBeds(b); setLoading(false);
+  async function handleDrop(seedId: string, bedId: string) {
+    const planting = await createPlanting({
+      garden_id: garden.id,
+      seed_id: seedId,
+      garden_bed_id: bedId,
+      method: "direct",
+      planned_sow_date: new Date().toISOString().slice(0, 10),
+    });
+    setPlantings([...plantings, planting]);
   }
 
-  useEffect(() => { load(); }, [garden.id]);
+  return (
+    <DndContext
+      onDragEnd={(event) => {
+        const { over, active } = event;
+        if (over && active) {
+          const seedId = active.id as string;
+          const bedId = over.id as string;
+          handleDrop(seedId, bedId);
+        }
+      }}
+    >
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Seeds list */}
+        <div className="bg-card border border-border rounded-lg p-4 shadow-sm">
+          <h3 className="font-semibold mb-3">Voorraad</h3>
+          <div className="space-y-2">
+            {seeds.map((s) => (
+              <DraggableSeed key={s.id} seed={s} />
+            ))}
+          </div>
+        </div>
+
+        {/* Beds grid */}
+        <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {beds.map((b) => (
+            <DroppableBed
+              key={b.id}
+              bed={b}
+              plantings={plantings.filter((p) => p.garden_bed_id === b.id)}
+              seeds={seeds}
+            />
+          ))}
+        </div>
+      </div>
+    </DndContext>
+  );
+}
+
+function DraggableSeed({ seed }: { seed: Seed }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: seed.id,
+  });
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-semibold">Planner — {garden.name}</h2>
-        <button
-          onClick={() => { setEditPlanting(null); setShowEditor(true); }}
-          className="inline-flex items-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-2"
-        >
-          + Nieuwe teelt
-        </button>
-      </div>
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className={`px-3 py-2 rounded-md border cursor-grab select-none transition
+        ${isDragging ? "opacity-50 bg-muted" : "bg-secondary hover:bg-secondary/80"}
+      `}
+      style={{
+        transform: transform ? `translate(${transform.x}px, ${transform.y}px)` : undefined,
+      }}
+    >
+      {seed.name}
+    </div>
+  );
+}
 
-      <section className="bg-card text-card-foreground border border-border rounded-xl p-4 shadow-sm">
-        <h3 className="text-lg font-semibold mb-3">Geplande teelten</h3>
-        {loading ? (
-          <p className="text-sm text-muted-foreground">Laden…</p>
-        ) : plantings.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nog niets gepland.</p>
-        ) : (
-          <ul className="divide-y divide-border">
-            {plantings.map((p) => (
-              <li key={p.id} className="py-2 flex items-center justify-between">
-                <div className="text-sm">
-                  <div className="font-medium">
-                    {seeds.find((s) => s.id === p.seed_id)?.name ?? 'Onbekend'}
-                    {' '}→{' '}
-                    {beds.find((b) => b.id === p.garden_bed_id)?.name ?? 'Onbekende bak'}
-                    {' '}{p.method === 'presow' ? <span className="ml-1 text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded">voorzaai</span> : <span className="ml-1 text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">direct</span>}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    Zaaien: {p.planned_sow_date ?? '—'} · Uitplanten: {p.planned_plant_date ?? '—'} · Oogst: {p.planned_harvest_start ?? '—'} → {p.planned_harvest_end ?? '—'} · {p.rows} rijen × {p.plants_per_row}
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => { setEditPlanting(p); setShowEditor(true); }}
-                    className="inline-flex items-center rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 px-2 py-1 text-sm"
-                  >
-                    Bewerken
-                  </button>
-                  <button
-                    onClick={async () => { if (!confirm('Verwijderen?')) return; await deletePlanting(p.id); load(); }}
-                    className="inline-flex items-center rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 px-2 py-1 text-sm"
-                  >
-                    Verwijder
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+function DroppableBed({
+  bed,
+  plantings,
+  seeds,
+}: {
+  bed: GardenBed;
+  plantings: Planting[];
+  seeds: Seed[];
+}) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: bed.id,
+  });
 
-      {showEditor && (
-        <PlantingEditor
-          gardenId={garden.id}
-          planting={editPlanting}
-          onClose={() => setShowEditor(false)}
-          onSaved={_ => { setShowEditor(false); load(); }}
-        />
+  return (
+    <div
+      ref={setNodeRef}
+      className={`p-4 rounded-lg border-2 transition
+        ${isOver ? "border-primary bg-accent" : "border-border bg-card"}
+      `}
+      style={{ minHeight: "150px" }}
+    >
+      <h4 className="font-medium mb-2">{bed.name}</h4>
+      {plantings.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Sleep hier gewassen naartoe</p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {plantings.map((p) => {
+            const seed = seeds.find((s) => s.id === p.seed_id);
+            return (
+              <span
+                key={p.id}
+                className="inline-flex items-center rounded-md bg-primary text-primary-foreground px-2 py-1 text-xs"
+              >
+                {seed?.name ?? "Onbekend"}
+              </span>
+            );
+          })}
+        </div>
       )}
     </div>
   );
