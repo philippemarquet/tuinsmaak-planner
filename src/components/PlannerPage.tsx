@@ -97,26 +97,21 @@ export function PlannerPage({ garden }: { garden: Garden }) {
 
   return (
     <div className="space-y-10">
-      <h2 className="text-3xl font-bold">Planner</h2>
+      <h2 className="text-3xl font-bold">Planner (debug mode)</h2>
 
       <DndContext
         onDragEnd={(event) => {
+          console.log("DragEnd fired:", event);
           if (!event.over) return;
-          const overId = event.over.id as string;
+
           const activeId = event.active.id as string;
-
-          if (!overId.startsWith("bed__") || !activeId.startsWith("seed-")) return;
-
-          const parts = overId.split("__");
-          const bedId = parts[1];
-          const segIdx = parseInt(parts[3], 10);
-
-          const bed = beds.find((b) => b.id === bedId);
           const seedId = activeId.replace("seed-", "");
           const seed = seeds.find((s) => s.id === seedId);
 
-          if (bed && seed) {
-            setPopup({ seed, bed, segmentIndex: segIdx });
+          // 🚨 Debug: pak altijd de eerste bak en segment 0
+          const bed = beds[0];
+          if (seed && bed) {
+            setPopup({ seed, bed, segmentIndex: 0 });
           }
         }}
       >
