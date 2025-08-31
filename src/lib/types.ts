@@ -1,8 +1,8 @@
 export type UUID = string;
 
-/**
- * Gebruikersprofiel
- */
+//
+// Profielen (gebruikersinstellingen, notificaties)
+//
 export interface Profile {
   id: UUID;
   display_name: string | null;
@@ -11,9 +11,9 @@ export interface Profile {
   updated_at: string;
 }
 
-/**
- * Tuin en gebruikers
- */
+//
+// Tuin & gebruikers
+//
 export interface Garden {
   id: UUID;
   name: string;
@@ -29,39 +29,53 @@ export interface GardenUser {
   created_at: string;
 }
 
-/**
- * Zaad / gewas
- */
+//
+// Gewassoorten
+//
+export interface CropType {
+  id: UUID;
+  name: string;
+  created_at: string;
+}
+
+//
+// Zaden (voorraad)
+//
 export interface Seed {
   id: UUID;
   garden_id: UUID;
   name: string;
+  crop_type_id: UUID | null;
   purchase_date: string | null;
-
-  sowing_type: "direct" | "presow" | "both";
   stock_status: "adequate" | "low" | "out";
+  stock_quantity: number;
 
-  // Kleuren in HEX (#rrggbb)
-  default_color: string;
+  row_spacing_cm: number | null;
+  plant_spacing_cm: number | null;
+  greenhouse_compatible: boolean;
+  sowing_type: "direct" | "presow" | "both";
 
-  // Duurtijden in weken
-  presow_duration_weeks: number;
-  grow_duration_weeks: number;
-  harvest_duration_weeks: number;
+  presow_duration_weeks: number | null;
+  grow_duration_weeks: number | null;
+  harvest_duration_weeks: number | null;
 
-  // Maanden (arrays van 1–12)
-  presow_months: number[];
-  direct_sow_months: number[];
-  plant_months: number[];
-  harvest_months: number[];
+  presow_months: number[] | null;
+  direct_sow_months: number[] | null;
+  plant_months: number[] | null;
+  harvest_months: number[] | null;
 
-  created_at?: string;
-  updated_at?: string;
+  notes: string | null;
+
+  // 👇 Nieuw: standaardkleur (optioneel, handig als default bij planting)
+  default_color: string | null;
+
+  created_at: string;
+  updated_at: string;
 }
 
-/**
- * Bedden in de tuin
- */
+//
+// Tuinbakken
+//
 export interface GardenBed {
   id: UUID;
   garden_id: UUID;
@@ -71,19 +85,19 @@ export interface GardenBed {
   location_x: number;
   location_y: number;
   is_greenhouse: boolean;
-  segments: number; // aantal visuele delen van de bak
-  created_at?: string;
-  updated_at?: string;
+  segments: number; // aantal segmenten waarin bak verdeeld is
+  created_at: string;
+  updated_at: string;
 }
 
-/**
- * Planting: geplande teelt
- */
+//
+// Plantings (ingeplande / actuele beplanting)
+//
 export interface Planting {
   id: UUID;
-  seed_id: UUID;
-  garden_bed_id: UUID;
   garden_id: UUID;
+  garden_bed_id: UUID;
+  seed_id: UUID;
 
   planned_sow_date: string | null;
   planned_plant_date: string | null;
@@ -95,23 +109,27 @@ export interface Planting {
   actual_harvest_start: string | null;
   actual_harvest_end: string | null;
 
-  // Segmenten
-  start_segment: number;
-  segments_used: number;
-
-  method: "direct" | "presow";
+  method: "direct" | "presow" | null;
   status: "planned" | "sown" | "planted" | "growing" | "harvesting" | "completed";
 
-  // Kleur in HEX
-  color: string;
+  // Segment-gebaseerde indeling
+  start_segment: number | null;
+  segments_used: number | null;
+  color: string | null;
 
-  created_at?: string;
-  updated_at?: string;
+  rows: number | null;
+  plants_per_row: number | null;
+  area_percentage: number | null;
+
+  notes: string | null;
+
+  created_at: string;
+  updated_at: string;
 }
 
-/**
- * Taken (afgeleid van plantings)
- */
+//
+// Taken (automatisch gegenereerd)
+//
 export interface Task {
   id: UUID;
   garden_id: UUID;
@@ -125,12 +143,12 @@ export interface Task {
   updated_at: string;
 }
 
-/**
- * Bezetting view
- */
+//
+// Bezetting per week (view)
+//
 export interface BedOccupancyWeek {
   garden_bed_id: UUID;
   garden_id: UUID;
-  week_start: string; // ISO date
+  week_start: string;
   occupancy_pct: number;
 }
