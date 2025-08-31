@@ -10,25 +10,40 @@ type Prefs = {
 
 export function SettingsPage({ garden }: { garden: Garden }) {
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [prefs, setPrefs] = useState<Prefs>({ remind_sow: true, remind_plant: true, remind_harvest: true });
+  const [prefs, setPrefs] = useState<Prefs>({
+    remind_sow: true,
+    remind_plant: true,
+    remind_harvest: true,
+  });
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    getMyProfile().then(p => {
-      setProfile(p);
-      if (p?.notification_prefs) {
-        setPrefs({ ...prefs, ...p.notification_prefs });
-      }
-      setLoading(false);
-    });
+    getMyProfile()
+      .then((p) => {
+        setProfile(p);
+        if (p?.notification_prefs) {
+          setPrefs({ ...prefs, ...p.notification_prefs });
+        }
+      })
+      .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function save() {
     if (!profile) return;
-    const newProfile = await updateMyProfile({ notification_prefs: prefs });
-    setProfile(newProfile);
-    alert('Voorkeuren opgeslagen!');
+    setSaving(true);
+    try {
+      const newProfile = await updateMyProfile({
+        notification_prefs: prefs,
+      });
+      setProfile(newProfile);
+      alert('Voorkeuren opgeslagen ✅');
+    } catch (e: any) {
+      alert('Opslaan mislukt: ' + e.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -38,14 +53,16 @@ export function SettingsPage({ garden }: { garden: Garden }) {
       {loading ? (
         <p className="text-sm text-muted-foreground">Laden…</p>
       ) : (
-        <div className="bg-card text-card-foreground border border-border rounded-xl p-4 shadow-sm space-y-3">
+        <div className="bg-card text-card-foreground border border-border rounded-xl p-4 shadow-sm space-y-4">
           <h3 className="text-lg font-semibold">Notificatie voorkeuren</h3>
 
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
               checked={prefs.remind_sow}
-              onChange={(e) => setPrefs({ ...prefs, remind_sow: e.target.checked })}
+              onChange={(e) =>
+                setPrefs({ ...prefs, remind_sow: e.target.checked })
+              }
             />
             Herinnering voor zaaien / voorzaaien
           </label>
@@ -54,7 +71,9 @@ export function SettingsPage({ garden }: { garden: Garden }) {
             <input
               type="checkbox"
               checked={prefs.remind_plant}
-              onChange={(e) => setPrefs({ ...prefs, remind_plant: e.target.checked })}
+              onChange={(e) =>
+                setPrefs({ ...prefs, remind_plant: e.target.checked })
+              }
             />
             Herinnering voor uitplanten
           </label>
@@ -63,16 +82,19 @@ export function SettingsPage({ garden }: { garden: Garden }) {
             <input
               type="checkbox"
               checked={prefs.remind_harvest}
-              onChange={(e) => setPrefs({ ...prefs, remind_harvest: e.target.checked })}
+              onChange={(e) =>
+                setPrefs({ ...prefs, remind_harvest: e.target.checked })
+              }
             />
             Herinnering voor oogsten
           </label>
 
           <button
             onClick={save}
-            className="inline-flex items-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-2"
+            disabled={saving}
+            className="inline-flex items-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-2 disabled:opacity-50"
           >
-            Opslaan
+            {saving ? 'Opslaan…' : 'Opslaan'}
           </button>
         </div>
       )}
