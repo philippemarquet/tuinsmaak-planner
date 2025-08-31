@@ -47,7 +47,7 @@ export function InventoryPage({ garden }: { garden: Garden }) {
 
     try {
       const saved = await saveSeed(editing?.id, fields);
-      if (editing) {
+      if (editing && editing.id) {
         setSeeds(seeds.map((s) => (s.id === editing.id ? saved : s)));
       } else {
         setSeeds([...seeds, saved]);
@@ -76,7 +76,24 @@ export function InventoryPage({ garden }: { garden: Garden }) {
       <div className="flex justify-between items-center">
         <h2 className="text-3xl font-bold">Voorraad</h2>
         <button
-          onClick={() => setEditing({} as Seed)}
+          onClick={() =>
+            setEditing({
+              id: "" as any,
+              garden_id: garden.id,
+              name: "",
+              purchase_date: null,
+              sowing_type: "both",
+              stock_status: "adequate",
+              default_color: "#22c55e",
+              presow_duration_weeks: 0,
+              grow_duration_weeks: 0,
+              harvest_duration_weeks: 0,
+              presow_months: [],
+              direct_sow_months: [],
+              plant_months: [],
+              harvest_months: [],
+            } as Seed)
+          }
           className="px-3 py-1 rounded bg-primary text-primary-foreground"
         >
           Nieuw zaad
@@ -135,24 +152,24 @@ export function InventoryPage({ garden }: { garden: Garden }) {
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm">Voorzaai (weken)</label>
-                  <input type="number" name="presow_duration_weeks" defaultValue={editing.presow_duration_weeks ?? ""} required className="border rounded px-2 py-1 w-full" />
+                  <input type="number" name="presow_duration_weeks" defaultValue={editing.presow_duration_weeks ?? 0} required className="border rounded px-2 py-1 w-full" />
                 </div>
                 <div>
                   <label className="block text-sm">Groei (weken)</label>
-                  <input type="number" name="grow_duration_weeks" defaultValue={editing.grow_duration_weeks ?? ""} required className="border rounded px-2 py-1 w-full" />
+                  <input type="number" name="grow_duration_weeks" defaultValue={editing.grow_duration_weeks ?? 0} required className="border rounded px-2 py-1 w-full" />
                 </div>
                 <div>
                   <label className="block text-sm">Oogst (weken)</label>
-                  <input type="number" name="harvest_duration_weeks" defaultValue={editing.harvest_duration_weeks ?? ""} required className="border rounded px-2 py-1 w-full" />
+                  <input type="number" name="harvest_duration_weeks" defaultValue={editing.harvest_duration_weeks ?? 0} required className="border rounded px-2 py-1 w-full" />
                 </div>
               </div>
 
               {/* Maand selectors */}
               {[
-                { name: "presow_months", label: "Voorzaaimaanden", values: editing.presow_months },
-                { name: "direct_sow_months", label: "Direct zaaimaanden", values: editing.direct_sow_months },
-                { name: "plant_months", label: "Plantmaanden", values: editing.plant_months },
-                { name: "harvest_months", label: "Oogstmaanden", values: editing.harvest_months },
+                { name: "presow_months", label: "Voorzaaimaanden", values: editing.presow_months ?? [] },
+                { name: "direct_sow_months", label: "Direct zaaimaanden", values: editing.direct_sow_months ?? [] },
+                { name: "plant_months", label: "Plantmaanden", values: editing.plant_months ?? [] },
+                { name: "harvest_months", label: "Oogstmaanden", values: editing.harvest_months ?? [] },
               ].map((section) => (
                 <div key={section.name}>
                   <label className="block text-sm mb-1">{section.label}</label>
@@ -163,7 +180,7 @@ export function InventoryPage({ garden }: { garden: Garden }) {
                           type="checkbox"
                           name={section.name}
                           value={idx + 1}
-                          defaultChecked={section.values?.includes(idx + 1)}
+                          defaultChecked={(section.values ?? []).includes(idx + 1)}
                         />
                         {m}
                       </label>
