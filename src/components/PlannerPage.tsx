@@ -1,234 +1,266 @@
 import { useEffect, useState } from "react";
-import { DndContext, useDraggable, useDroppable } from "@dnd-kit/core";
-import type { Garden, Seed, GardenBed, Planting, BedOccupancyWeek } from "../lib/types";
-import { listSeeds } from "../lib/api/seeds";
+import type { Garden, GardenBed, Planting, Seed } from "../lib/types";
 import { listBeds } from "../lib/api/beds";
-import {
-  listPlantings,
-  createPlanting,
-  deletePlanting,
-} from "../lib/api/plantings";
-import { occupancyBetween } from "../lib/api/occupancy";
+import { listSeeds } from "../lib/api/seeds";
+import { createPlanting, listPlantings } from "../lib/api/plantings";
+import { DndContext, useDraggable, useDroppable } from "@dnd-kit/core";
 
-export function PlannerPage({ garden }: { garden: Garden }) {
-  const [seeds, setSeeds] = useState<Seed[]>([]);
-  const [beds, setBeds] = useState<GardenBed[]>([]);
-  const [plantings, setPlantings] = useState<Planting[]>([]);
-  const [occupancy, setOccupancy] = useState<BedOccupancyWeek[]>([]);
-  const [weekOffset, setWeekOffset] = useState(0); // 0 = huidige week
-
-  // basisdata laden
-  useEffect(() => {
-    Promise.all([listSeeds(garden.id), listBeds(garden.id), listPlantings(garden.id)]).then(
-      ([s, b, p]) => {
-        setSeeds(s);
-        setBeds(b);
-        setPlantings(p);
-      }
-    );
-  }, [garden.id]);
-
-  // occupancy per week laden
-  useEffect(() => {
-    const today = new Date();
-    const from = new Date(today);
-    from.setDate(from.getDate() + (weekOffset - 1) * 7);
-    const to = new Date(today);
-    to.setDate(to.getDate() + (weekOffset + 1) * 7);
-
-    occupancyBetween(garden.id, iso(from), iso(to))
-      .then(setOccupancy)
-      .catch(console.error);
-  }, [garden.id, weekOffset]);
-
-  // nieuwe planting maken
-  async function handleDrop(seedId: string, bedId: string) {
-    try {
-      const planting = await createPlanting({
-        garden_id: garden.id,
-        seed_id: seedId,
-        garden_bed_id: bedId,
-        method: "direct",
-        planned_sow_date: new Date().toISOString().slice(0, 10),
-        status: "planned",
-      });
-      setPlantings([...plantings, planting]);
-    } catch (e: any) {
-      console.error("createPlanting error:", e.message);
-      alert("Kon planting niet opslaan: " + e.message);
-    }
-  }
-
-  // planting verwijderen
-  async function handleDelete(plantingId: string) {
-    if (!confirm("Weet je zeker dat je deze planting wilt verwijderen?")) return;
-    try {
-      await deletePlanting(plantingId);
-      setPlantings(plantings.filter((p) => p.id !== plantingId));
-    } catch (e: any) {
-      console.error("deletePlanting error:", e.message);
-      alert("Kon planting niet verwijderen: " + e.message);
-    }
-  }
-
-  return (
-    <DndContext
-      onDragEnd={(event) => {
-        const { over, active } = event;
-        if (over && active) {
-          const seedId = active.id as string;
-          const bedId = over.id as string;
-          handleDrop(seedId, bedId);
-        }
-      }}
-    >
-      <div className="space-y-6">
-        {/* Week slider */}
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => setWeekOffset(weekOffset - 1)}
-            className="px-2 py-1 bg-secondary rounded-md"
-          >
-            ←
-          </button>
-          <span className="font-medium">
-            Week {getWeekLabel(weekOffset)}
-          </span>
-          <button
-            onClick={() => setWeekOffset(weekOffset + 1)}
-            className="px-2 py-1 bg-secondary rounded-md"
-          >
-            →
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Seeds list */}
-          <div className="bg-card border border-border rounded-lg p-4 shadow-sm">
-            <h3 className="font-semibold mb-3">Voorraad</h3>
-            <div className="space-y-2">
-              {seeds.map((s) => (
-                <DraggableSeed key={s.id} seed={s} />
-              ))}
-            </div>
-          </div>
-
-          {/* Beds grid */}
-          <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {beds.map((b) => (
-              <DroppableBed
-                key={b.id}
-                bed={b}
-                plantings={plantings.filter((p) => p.garden_bed_id === b.id)}
-                seeds={seeds}
-                occupancy={occupancy.find((o) => o.garden_bed_id === b.id)}
-                onDelete={handleDelete}
-              />
-            ))}
-          </div>
-        </div>
-      </div>
-    </DndContext>
-  );
+interface DraggableSeedProps {
+  seed: Seed;
 }
 
-function DraggableSeed({ seed }: { seed: Seed }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } =
-    useDraggable({
-      id: seed.id,
-    });
-
+function DraggableSeed({ seed }: DraggableSeedProps) {
+  const { attributes, listeners, setNodeRef, transform } = useDraggable({
+    id: `seed-${seed.id}`,
+  });
+  const style = transform
+    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
+    : undefined;
   return (
     <div
       ref={setNodeRef}
+      style={style}
       {...listeners}
       {...attributes}
-      className={`px-3 py-2 rounded-md border cursor-grab select-none transition
-        ${isDragging ? "opacity-50 bg-muted" : "bg-secondary hover:bg-secondary/80"}
-      `}
-      style={{
-        transform: transform
-          ? `translate(${transform.x}px, ${transform.y}px)`
-          : undefined,
-      }}
+      className="p-2 border rounded-md bg-secondary cursor-move text-sm"
     >
       {seed.name}
     </div>
   );
 }
 
-function DroppableBed({
-  bed,
-  plantings,
-  seeds,
-  occupancy,
-  onDelete,
-}: {
+interface DroppableSegmentProps {
   bed: GardenBed;
-  plantings: Planting[];
-  seeds: Seed[];
-  occupancy?: BedOccupancyWeek;
-  onDelete: (id: string) => void;
-}) {
-  const { isOver, setNodeRef } = useDroppable({
-    id: bed.id,
-  });
+  segmentIndex: number;
+  children: React.ReactNode;
+}
 
+function DroppableSegment({ bed, segmentIndex, children }: DroppableSegmentProps) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `bed-${bed.id}-segment-${segmentIndex}`,
+  });
   return (
     <div
       ref={setNodeRef}
-      className={`p-4 rounded-lg border-2 transition
-        ${isOver ? "border-primary bg-accent" : "border-border bg-card"}
-      `}
-      style={{ minHeight: "150px" }}
+      className={`flex items-center justify-center border border-dashed rounded-sm min-h-[60px] ${
+        isOver ? "bg-green-100" : "bg-muted"
+      }`}
     >
-      <h4 className="font-medium mb-2">{bed.name}</h4>
-      {occupancy && (
-        <div className="w-full bg-muted rounded-full h-2 mb-2">
-          <div
-            className="bg-primary h-2 rounded-full"
-            style={{ width: `${occupancy.occupancy_pct}%` }}
-          />
-        </div>
-      )}
-      {plantings.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Sleep hier gewassen naartoe</p>
-      ) : (
-        <div className="flex flex-wrap gap-2">
-          {plantings.map((p) => {
-            const seed = seeds.find((s) => s.id === p.seed_id);
-            return (
-              <button
-                key={p.id}
-                onClick={() => onDelete(p.id)}
-                className="inline-flex items-center rounded-md bg-primary text-primary-foreground px-2 py-1 text-xs hover:bg-destructive hover:text-destructive-foreground"
-                title="Klik om te verwijderen"
-              >
-                {seed?.name ?? "Onbekend"} ✕
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {children}
     </div>
   );
 }
 
-function iso(d: Date) {
-  return d.toISOString().slice(0, 10);
-}
+export function PlannerPage({ garden }: { garden: Garden }) {
+  const [beds, setBeds] = useState<GardenBed[]>([]);
+  const [seeds, setSeeds] = useState<Seed[]>([]);
+  const [plantings, setPlantings] = useState<Planting[]>([]);
+  const [popup, setPopup] = useState<{
+    seed: Seed;
+    bed: GardenBed;
+    segmentIndex: number;
+  } | null>(null);
 
-function getWeekLabel(offset: number) {
-  const d = new Date();
-  d.setDate(d.getDate() + offset * 7);
-  const week = getWeekNumber(d);
-  return `${week} (${d.toLocaleDateString()})`;
-}
+  useEffect(() => {
+    Promise.all([listBeds(garden.id), listSeeds(garden.id), listPlantings(garden.id)])
+      .then(([b, s, p]) => {
+        setBeds(b);
+        setSeeds(s);
+        setPlantings(p);
+      })
+      .catch(console.error);
+  }, [garden.id]);
 
-function getWeekNumber(d: Date) {
-  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  const dayNum = date.getUTCDay() || 7;
-  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-  return Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  async function handleConfirmPlanting(
+    seed: Seed,
+    bed: GardenBed,
+    segmentIndex: number,
+    segmentsUsed: number,
+    method: "direct" | "presow",
+    date: string
+  ) {
+    try {
+      const planting = await createPlanting({
+        seed_id: seed.id,
+        garden_bed_id: bed.id,
+        planned_sow_date: date,
+        method,
+        segments_used: segmentsUsed,
+        status: "planned",
+      });
+      setPlantings([...plantings, planting]);
+      setPopup(null);
+    } catch (e: any) {
+      alert("Kon planting niet opslaan: " + e.message);
+    }
+  }
+
+  return (
+    <div className="space-y-10">
+      <h2 className="text-3xl font-bold">Planner</h2>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        {/* Sidebar met seeds */}
+        <div className="col-span-1 space-y-4">
+          <h3 className="text-lg font-semibold">Beschikbare zaden</h3>
+          {seeds.length === 0 && (
+            <p className="text-sm text-muted-foreground">Geen zaden</p>
+          )}
+          {seeds.map((seed) => (
+            <DraggableSeed key={seed.id} seed={seed} />
+          ))}
+        </div>
+
+        {/* Beds visual */}
+        <div className="col-span-3 space-y-8">
+          <DndContext
+            onDragEnd={(event) => {
+              if (!event.over) return;
+              const [_, bedId, __, segIdx] = event.over.id.split("-");
+              const bed = beds.find((b) => b.id === bedId);
+              const seedId = event.active.id.replace("seed-", "");
+              const seed = seeds.find((s) => s.id === seedId);
+              if (bed && seed) {
+                setPopup({
+                  seed,
+                  bed,
+                  segmentIndex: parseInt(segIdx),
+                });
+              }
+            }}
+          >
+            {beds.map((bed) => (
+              <div key={bed.id} className="space-y-2">
+                <h4 className="font-semibold">
+                  {bed.name} ({bed.segments} segmenten)
+                </h4>
+                <div
+                  className="grid gap-2"
+                  style={{ gridTemplateColumns: `repeat(${bed.segments}, 1fr)` }}
+                >
+                  {Array.from({ length: bed.segments }, (_, i) => (
+                    <DroppableSegment
+                      key={i}
+                      bed={bed}
+                      segmentIndex={i}
+                    >
+                      {plantings
+                        .filter(
+                          (p) =>
+                            p.garden_bed_id === bed.id &&
+                            p.segments_used > i // heel simplistische check
+                        )
+                        .map((p) => {
+                          const seed = seeds.find((s) => s.id === p.seed_id);
+                          return (
+                            <div
+                              key={p.id}
+                              className="bg-primary text-primary-foreground text-xs rounded px-2 py-1"
+                            >
+                              {seed?.name ?? "Onbekend"}
+                            </div>
+                          );
+                        })}
+                    </DroppableSegment>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </DndContext>
+        </div>
+      </div>
+
+      {/* Popup */}
+      {popup && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-card p-6 rounded-lg shadow-lg w-full max-w-md space-y-4">
+            <h3 className="text-lg font-semibold">Nieuwe planting</h3>
+            <p>
+              <strong>{popup.seed.name}</strong> in{" "}
+              <em>{popup.bed.name}</em>, segment {popup.segmentIndex + 1}
+            </p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                const segmentsUsed = Number(formData.get("segmentsUsed"));
+                const method = formData.get("method") as "direct" | "presow";
+                const date = formData.get("date") as string;
+                handleConfirmPlanting(
+                  popup.seed,
+                  popup.bed,
+                  popup.segmentIndex,
+                  segmentsUsed,
+                  method,
+                  date
+                );
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Aantal segmenten gebruiken
+                </label>
+                <input
+                  type="number"
+                  name="segmentsUsed"
+                  min={1}
+                  max={popup.bed.segments}
+                  defaultValue={1}
+                  className="border rounded-md px-2 py-1 w-full"
+                />
+              </div>
+              {popup.seed.sowing_type === "both" && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Zaaimethode
+                  </label>
+                  <select
+                    name="method"
+                    className="border rounded-md px-2 py-1 w-full"
+                    defaultValue="direct"
+                  >
+                    <option value="direct">Direct</option>
+                    <option value="presow">Voorzaaien</option>
+                  </select>
+                </div>
+              )}
+              {popup.seed.sowing_type !== "both" && (
+                <input
+                  type="hidden"
+                  name="method"
+                  value={popup.seed.sowing_type}
+                />
+              )}
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Plantdatum
+                </label>
+                <input
+                  type="date"
+                  name="date"
+                  defaultValue={new Date().toISOString().slice(0, 10)}
+                  className="border rounded-md px-2 py-1 w-full"
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPopup(null)}
+                  className="px-3 py-1 border border-border rounded-md bg-muted"
+                >
+                  Annuleren
+                </button>
+                <button
+                  type="submit"
+                  className="px-3 py-1 rounded-md bg-primary text-primary-foreground"
+                >
+                  Opslaan
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
