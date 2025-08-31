@@ -1,44 +1,78 @@
 import { supabase } from "../supabaseClient";
-import type { UUID, Seed } from "../types";
+import type { Seed, UUID } from "../types";
 
-// Ophalen alle seeds per tuin
+/**
+ * Alle zaden ophalen voor een tuin
+ */
 export async function listSeeds(gardenId: UUID): Promise<Seed[]> {
   const { data, error } = await supabase
     .from("seeds")
     .select("*")
-    .eq("garden_id", gardenId);
+    .eq("garden_id", gardenId)
+    .order("name");
 
   if (error) throw error;
-  // Cast losjes naar Seed[]
-  return (data ?? []) as unknown as Seed[];
+  return data as Seed[];
 }
 
-// Toevoegen of updaten
-export async function saveSeed(id: UUID | undefined, fields: Partial<Seed>): Promise<Seed> {
-  if (id) {
-    const { data, error } = await supabase
-      .from("seeds")
-      .update(fields)
-      .eq("id", id)
-      .select()
-      .single();
+/**
+ * Eén zaad ophalen
+ */
+export async function getSeed(id: UUID): Promise<Seed | null> {
+  const { data, error } = await supabase
+    .from("seeds")
+    .select("*")
+    .eq("id", id)
+    .single();
 
-    if (error) throw error;
-    return data as unknown as Seed;
-  } else {
-    const { data, error } = await supabase
-      .from("seeds")
-      .insert(fields)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data as unknown as Seed;
+  if (error) {
+    if (error.code === "PGRST116") return null; // not found
+    throw error;
   }
+  return data as Seed;
 }
 
-// Verwijderen
-export async function deleteSeed(id: UUID) {
+/**
+ * Nieuw zaad aanmaken
+ */
+export async function createSeed(values: Partial<Seed>): Promise<Seed> {
+  const { data, error } = await supabase
+    .from("seeds")
+    .insert([
+      {
+        stock_status: "adequate",
+        ...values,
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as Seed;
+}
+
+/**
+ * Zaad bijwerken
+ */
+export async function updateSeed(
+  id: UUID,
+  values: Partial<Seed>
+): Promise<Seed> {
+  const { data, error } = await supabase
+    .from("seeds")
+    .update(values)
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as Seed;
+}
+
+/**
+ * Zaad verwijderen
+ */
+export async function deleteSeed(id: UUID): Promise<void> {
   const { error } = await supabase.from("seeds").delete().eq("id", id);
   if (error) throw error;
 }
