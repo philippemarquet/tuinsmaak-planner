@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react';
 import type { Garden, Planting, Seed, GardenBed } from '../lib/types';
-import { listPlantings, createPlanting, deletePlanting } from '../lib/api/plantings';
+import { listPlantings, deletePlanting } from '../lib/api/plantings';
 import { listSeeds } from '../lib/api/seeds';
 import { listBeds } from '../lib/api/beds';
+import PlantingEditor from './PlantingEditor';
 
 export function PlannerPage({ garden }: { garden: Garden }) {
   const [plantings, setPlantings] = useState<Planting[]>([]);
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [beds, setBeds] = useState<GardenBed[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedSeed, setSelectedSeed] = useState<string>('');
-  const [selectedBed, setSelectedBed] = useState<string>('');
+
+  const [showEditor, setShowEditor] = useState(false);
+  const [editPlanting, setEditPlanting] = useState<Planting | null>(null);
 
   async function load() {
     setLoading(true);
@@ -22,7 +24,15 @@ export function PlannerPage({ garden }: { garden: Garden }) {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-semibold">Planner — {garden.name}</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-semibold">Planner — {garden.name}</h2>
+        <button
+          onClick={() => { setEditPlanting(null); setShowEditor(true); }}
+          className="inline-flex items-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-2"
+        >
+          + Nieuwe teelt
+        </button>
+      </div>
 
       <section className="bg-card text-card-foreground border border-border rounded-xl p-4 shadow-sm">
         <h3 className="text-lg font-semibold mb-3">Geplande teelten</h3>
@@ -34,58 +44,45 @@ export function PlannerPage({ garden }: { garden: Garden }) {
           <ul className="divide-y divide-border">
             {plantings.map((p) => (
               <li key={p.id} className="py-2 flex items-center justify-between">
-                <span>
-                  {seeds.find((s) => s.id === p.seed_id)?.name ?? 'Onbekend'} → {beds.find((b) => b.id === p.garden_bed_id)?.name ?? 'Onbekende bak'}
-                </span>
-                <button
-                  onClick={async () => { await deletePlanting(p.id); load(); }}
-                  className="inline-flex items-center rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 px-2 py-1 text-sm"
-                >
-                  Verwijder
-                </button>
+                <div className="text-sm">
+                  <div className="font-medium">
+                    {seeds.find((s) => s.id === p.seed_id)?.name ?? 'Onbekend'}
+                    {' '}→{' '}
+                    {beds.find((b) => b.id === p.garden_bed_id)?.name ?? 'Onbekende bak'}
+                    {' '}{p.method === 'presow' ? <span className="ml-1 text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded">voorzaai</span> : <span className="ml-1 text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">direct</span>}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Zaaien: {p.planned_sow_date ?? '—'} · Uitplanten: {p.planned_plant_date ?? '—'} · Oogst: {p.planned_harvest_start ?? '—'} → {p.planned_harvest_end ?? '—'} · {p.rows} rijen × {p.plants_per_row}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setEditPlanting(p); setShowEditor(true); }}
+                    className="inline-flex items-center rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 px-2 py-1 text-sm"
+                  >
+                    Bewerken
+                  </button>
+                  <button
+                    onClick={async () => { if (!confirm('Verwijderen?')) return; await deletePlanting(p.id); load(); }}
+                    className="inline-flex items-center rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 px-2 py-1 text-sm"
+                  >
+                    Verwijder
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
         )}
       </section>
 
-      <section className="bg-card text-card-foreground border border-border rounded-xl p-4 shadow-sm">
-        <h3 className="text-lg font-semibold mb-3">Nieuwe planting</h3>
-        <div className="flex flex-col sm:flex-row gap-2">
-          <select
-            className="flex-1 rounded-md border border-input bg-background px-3 py-2"
-            value={selectedSeed}
-            onChange={(e) => setSelectedSeed(e.target.value)}
-          >
-            <option value="">Kies gewas</option>
-            {seeds.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-          <select
-            className="flex-1 rounded-md border border-input bg-background px-3 py-2"
-            value={selectedBed}
-            onChange={(e) => setSelectedBed(e.target.value)}
-          >
-            <option value="">Kies bak</option>
-            {beds.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
-          <button
-            onClick={async () => {
-              if (!selectedSeed || !selectedBed) return alert('Kies zowel gewas als bak');
-              await createPlanting({
-                garden_id: garden.id,
-                seed_id: selectedSeed,
-                garden_bed_id: selectedBed,
-                method: 'direct',
-                planned_sow_date: new Date().toISOString().slice(0, 10),
-              });
-              setSelectedSeed(''); setSelectedBed(''); load();
-            }}
-            className="inline-flex items-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-2"
-          >
-            Toevoegen
-          </button>
-        </div>
-      </section>
+      {showEditor && (
+        <PlantingEditor
+          gardenId={garden.id}
+          planting={editPlanting}
+          onClose={() => setShowEditor(false)}
+          onSaved={_ => { setShowEditor(false); load(); }}
+        />
+      )}
     </div>
   );
 }
