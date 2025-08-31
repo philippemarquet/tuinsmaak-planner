@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { Garden, GardenBed, Planting, Seed } from "../lib/types";
 import { listBeds } from "../lib/api/beds";
 import { listSeeds } from "../lib/api/seeds";
-import { createPlanting, listPlantings } from "../lib/api/plantings";
+import { createPlanting, listPlantings, deletePlanting } from "../lib/api/plantings";
 import { DndContext, useDraggable, useDroppable } from "@dnd-kit/core";
 
 interface DraggableSeedProps {
@@ -83,6 +83,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       const planting = await createPlanting({
         seed_id: seed.id,
         garden_bed_id: bed.id,
+        garden_id: bed.garden_id, // ✅ BELANGRIJK voor RLS policy
         planned_sow_date: date,
         method,
         segments_used: segmentsUsed,
@@ -95,23 +96,38 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     }
   }
 
+  async function handleDeletePlanting(id: string) {
+    if (!confirm("Weet je zeker dat je deze planting wilt verwijderen?")) return;
+    try {
+      await deletePlanting(id);
+      setPlantings(plantings.filter((p) => p.id !== id));
+    } catch (e: any) {
+      alert("Kon planting niet verwijderen: " + e.message);
+    }
+  }
+
   return (
     <div className="space-y-10">
-      <h2 className="text-3xl font-bold">Planner (debug mode)</h2>
+      <h2 className="text-3xl font-bold">Planner</h2>
 
       <DndContext
         onDragEnd={(event) => {
-          console.log("DragEnd fired:", event);
           if (!event.over) return;
-
+          const overId = event.over.id as string;
           const activeId = event.active.id as string;
+
+          if (!overId.startsWith("bed__") || !activeId.startsWith("seed-")) return;
+
+          const parts = overId.split("__");
+          const bedId = parts[1];
+          const segIdx = parseInt(parts[3], 10);
+
+          const bed = beds.find((b) => b.id === bedId);
           const seedId = activeId.replace("seed-", "");
           const seed = seeds.find((s) => s.id === seedId);
 
-          // 🚨 Debug: pak altijd de eerste bak en segment 0
-          const bed = beds[0];
-          if (seed && bed) {
-            setPopup({ seed, bed, segmentIndex: 0 });
+          if (bed && seed) {
+            setPopup({ seed, bed, segmentIndex: segIdx });
           }
         }}
       >
@@ -147,9 +163,15 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                           return (
                             <div
                               key={p.id}
-                              className="bg-primary text-primary-foreground text-xs rounded px-2 py-1"
+                              className="bg-primary text-primary-foreground text-xs rounded px-2 py-1 flex justify-between items-center"
                             >
-                              {seed?.name ?? "Onbekend"}
+                              <span>{seed?.name ?? "Onbekend"}</span>
+                              <button
+                                onClick={() => handleDeletePlanting(p.id)}
+                                className="ml-2 text-red-200 hover:text-red-500"
+                              >
+                                ✕
+                              </button>
                             </div>
                           );
                         })}
