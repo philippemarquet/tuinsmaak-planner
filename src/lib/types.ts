@@ -136,3 +136,13 @@ export interface Task {
   created_at: string;
   updated_at: string;
 }
+
+/**
+ * Bezetting per week per bak (view: bed_occupancy_by_week)
+ */
+export interface BedOccupancyWeek {
+  garden_bed_id: UUID;
+  garden_id: UUID;
+  week_start: string; // YYYY-MM-DD
+  occupancy_pct: number;
+}
