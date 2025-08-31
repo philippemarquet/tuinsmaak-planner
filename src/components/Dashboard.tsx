@@ -17,11 +17,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
       tasksUpcoming(garden.id, 21),
       occupancyCurrentWeeks(garden.id, 8),
     ])
-      .then(([b, t, o]) => {
-        setBeds(b);
-        setTasks(t);
-        setOcc(o);
-      })
+      .then(([b, t, o]) => { setBeds(b); setTasks(t); setOcc(o); })
       .finally(() => setLoading(false));
   }, [garden.id]);
 
@@ -36,70 +32,78 @@ export function Dashboard({ garden }: { garden: Garden }) {
   }, [occ]);
 
   return (
-    <div style={{ display: 'grid', gap: 24 }}>
-      <header style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-        <h2 style={{ margin: 0 }}>Dashboard — {garden.name}</h2>
-        <span style={{ fontSize: 12, opacity: 0.6 }}>Join code: {garden.join_code}</span>
+    <div className="space-y-6">
+      <header className="flex items-baseline gap-3">
+        <h2 className="text-2xl font-semibold">Dashboard — {garden.name}</h2>
+        <span className="text-xs text-muted-foreground">Join code: {garden.join_code}</span>
       </header>
 
-      {loading && <p>Bezig met laden…</p>}
+      {loading && (
+        <div className="bg-card text-card-foreground border border-border rounded-xl p-4 shadow-sm">
+          Laden…
+        </div>
+      )}
 
-      <section style={{ padding: 16, border: '1px solid #eee', borderRadius: 12 }}>
-        <h3 style={{ marginTop: 0 }}>Bakken</h3>
+      <section className="bg-card text-card-foreground border border-border rounded-xl p-4 shadow-sm">
+        <h3 className="text-lg font-semibold mb-3">Bakken</h3>
         {beds.length === 0 ? (
-          <p>Nog geen bakken. Voeg er een paar toe onder “Bakken”.</p>
+          <p className="text-sm text-muted-foreground">Nog geen bakken. Voeg er een paar toe onder “Bakken”.</p>
         ) : (
-          <ul style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8, listStyle: 'none', padding: 0 }}>
-            {beds.map(b => (
-              <li key={b.id} style={{ border: '1px solid #f0f0f0', borderRadius: 10, padding: 10 }}>
-                <div style={{ fontWeight: 600 }}>{b.name}</div>
-                <div style={{ fontSize: 12, opacity: 0.7 }}>{b.width_cm} × {b.length_cm} cm {b.is_greenhouse ? '· kas' : ''}</div>
+          <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {beds.map((b) => (
+              <li key={b.id} className="border border-border rounded-lg p-3 bg-background">
+                <div className="font-medium">{b.name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {b.width_cm} × {b.length_cm} cm {b.is_greenhouse ? '· kas' : ''}
+                </div>
               </li>
             ))}
           </ul>
         )}
       </section>
 
-      <section style={{ padding: 16, border: '1px solid #eee', borderRadius: 12 }}>
-        <h3 style={{ marginTop: 0 }}>Acties (komende 3 weken)</h3>
+      <section className="bg-card text-card-foreground border border-border rounded-xl p-4 shadow-sm">
+        <h3 className="text-lg font-semibold mb-3">Acties (komende 3 weken)</h3>
         {tasks.length === 0 ? (
-          <p>Geen taken gepland. Plan een teelt in de Planner.</p>
+          <p className="text-sm text-muted-foreground">Geen taken gepland.</p>
         ) : (
-          <ul style={{ listStyle: 'none', padding: 0 }}>
-            {tasks.map(t => (
-              <li key={t.id} style={{ padding: '6px 0', borderBottom: '1px dashed #eee' }}>
-                <strong>{new Date(t.due_date).toLocaleDateString()}</strong>
-                <span style={{ marginLeft: 8, textTransform: 'capitalize' }}>{t.type.replace('_', ' ')}</span>
-                <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.7 }}>({t.status})</span>
+          <ul className="divide-y divide-border">
+            {tasks.map((t) => (
+              <li key={t.id} className="py-2 flex items-center justify-between">
+                <span className="text-sm">{new Date(t.due_date).toLocaleDateString()}</span>
+                <span className="inline-flex items-center rounded-md bg-secondary text-secondary-foreground px-2 py-1 text-xs capitalize">
+                  {t.type.replace('_',' ')}
+                </span>
               </li>
             ))}
           </ul>
         )}
       </section>
 
-      <section style={{ padding: 16, border: '1px solid #eee', borderRadius: 12 }}>
-        <h3 style={{ marginTop: 0 }}>Bezetting (8 weken)</h3>
+      <section className="bg-card text-card-foreground border border-border rounded-xl p-4 shadow-sm">
+        <h3 className="text-lg font-semibold mb-4">Bezetting (8 weken)</h3>
         {occByWeek.length === 0 ? (
-          <p>Nog geen bezettingsdata. Voeg plantings toe in de Planner.</p>
+          <p className="text-sm text-muted-foreground">Nog geen bezettingsdata. Voeg plantings toe in de Planner.</p>
         ) : (
-          <div style={{ display: 'grid', gap: 8 }}>
+          <div className="space-y-3">
             {occByWeek.map(([week, rows]) => (
-              <div key={week} style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 8, alignItems: 'center' }}>
-                <div style={{ fontSize: 12, opacity: 0.8 }}>{new Date(week).toLocaleDateString()}</div>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {rows.map(r => (
-                    <div key={r.garden_bed_id}
-                         title={`Bed bezetting: ${Math.round(r.occupancy_pct)}%`}
-                         style={{
-                           background: '#e8f5e9',
-                           border: '1px solid #dcefe0',
-                           borderRadius: 8,
-                           padding: '2px 8px',
-                           fontSize: 12
-                         }}>
-                      {r.garden_bed_id.slice(0, 4)}: {Math.round(r.occupancy_pct)}%
-                    </div>
-                  ))}
+              <div key={week} className="grid grid-cols-1 md:grid-cols-[140px_1fr] gap-3 items-center">
+                <div className="text-xs text-muted-foreground">{new Date(week).toLocaleDateString()}</div>
+                <div className="space-y-2">
+                  {rows.map((r) => {
+                    const pct = Math.round(r.occupancy_pct);
+                    return (
+                      <div key={r.garden_bed_id}>
+                        <div className="flex justify-between text-xs mb-1">
+                          <span>Bed {r.garden_bed_id.slice(0,4)}</span>
+                          <span className="text-muted-foreground">{pct}%</span>
+                        </div>
+                        <div className="h-2 rounded bg-secondary">
+                          <div className="h-2 rounded bg-primary" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ))}
