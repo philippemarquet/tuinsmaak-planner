@@ -6,7 +6,7 @@ import { createPlanting, listPlantings, deletePlanting } from "../lib/api/planti
 import { DndContext, useDraggable, useDroppable } from "@dnd-kit/core";
 
 //
-// Kleine Toast component
+// Toast component
 //
 function Toast({
   message,
@@ -20,9 +20,7 @@ function Toast({
   return (
     <div
       className={`fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg text-sm ${
-        type === "success"
-          ? "bg-green-600 text-white"
-          : "bg-red-600 text-white"
+        type === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white"
       }`}
     >
       <div className="flex items-center gap-2">
@@ -99,7 +97,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     segmentIndex: number;
   } | null>(null);
 
-  // Toast state
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   useEffect(() => {
@@ -118,7 +115,8 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     segmentIndex: number,
     segmentsUsed: number,
     method: "direct" | "presow",
-    date: string
+    date: string,
+    color: string
   ) {
     try {
       const planting = await createPlanting({
@@ -129,6 +127,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         method,
         segments_used: segmentsUsed,
         start_segment: segmentIndex,
+        color,
         status: "planned",
       });
 
@@ -152,7 +151,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       await deletePlanting(id);
       setPlantings(plantings.filter((p) => p.id !== id));
       setToast({ message: "Planting verwijderd.", type: "success" });
-    } catch (e: any) {
+    } catch {
       setToast({ message: "Kon planting niet verwijderen.", type: "error" });
     }
   }
@@ -214,11 +213,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                       return i >= start && i < start + used;
                     });
 
-                    const starting = covering.filter((p) => {
-                      const start = p.start_segment ?? 0;
-                      return i === start;
-                    });
-
                     return (
                       <DroppableSegment
                         key={i}
@@ -227,12 +221,12 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                         occupied={covering.length > 0}
                       >
                         <div className="flex flex-col gap-1 w-full px-1">
-                          {starting.map((p) => {
+                          {covering.map((p) => {
                             const seed = seeds.find((s) => s.id === p.seed_id);
                             return (
                               <div
-                                key={p.id}
-                                className="bg-primary text-primary-foreground text-xs rounded px-2 py-1 flex justify-between items-center"
+                                key={`${p.id}-${i}`}
+                                className={`${p.color ?? "bg-primary"} text-primary-foreground text-xs rounded px-2 py-1 flex justify-between items-center`}
                                 title={
                                   seed?.name
                                     ? `${seed.name} — segment ${p.start_segment! + 1} t/m ${
@@ -242,12 +236,14 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                                 }
                               >
                                 <span>{seed?.name ?? "Onbekend"}</span>
-                                <button
-                                  onClick={() => handleDeletePlanting(p.id)}
-                                  className="ml-2 text-red-200 hover:text-red-500"
-                                >
-                                  ✕
-                                </button>
+                                {i === p.start_segment && (
+                                  <button
+                                    onClick={() => handleDeletePlanting(p.id)}
+                                    className="ml-2 text-red-200 hover:text-red-500"
+                                  >
+                                    ✕
+                                  </button>
+                                )}
                               </div>
                             );
                           })}
@@ -278,13 +274,15 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 const segmentsUsed = Number(formData.get("segmentsUsed"));
                 const method = formData.get("method") as "direct" | "presow";
                 const date = formData.get("date") as string;
+                const color = formData.get("color") as string;
                 handleConfirmPlanting(
                   popup.seed,
                   popup.bed,
                   popup.segmentIndex,
                   segmentsUsed,
                   method,
-                  date
+                  date,
+                  color
                 );
               }}
               className="space-y-4"
@@ -321,15 +319,27 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 <input type="hidden" name="method" value={popup.seed.sowing_type} />
               )}
               <div>
-                <label className="block text-sm font-medium mb-1">
-                  Plantdatum
-                </label>
+                <label className="block text-sm font-medium mb-1">Plantdatum</label>
                 <input
                   type="date"
                   name="date"
                   defaultValue={new Date().toISOString().slice(0, 10)}
                   className="border rounded-md px-2 py-1 w-full"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Kleur</label>
+                <select
+                  name="color"
+                  className="border rounded-md px-2 py-1 w-full"
+                  defaultValue="bg-green-500"
+                >
+                  <option value="bg-green-500">Groen</option>
+                  <option value="bg-blue-500">Blauw</option>
+                  <option value="bg-yellow-500">Geel</option>
+                  <option value="bg-red-500">Rood</option>
+                  <option value="bg-purple-500">Paars</option>
+                </select>
               </div>
               <div className="flex justify-end gap-2">
                 <button
@@ -351,7 +361,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         </div>
       )}
 
-      {/* Toast */}
       {toast && (
         <Toast
           message={toast.message}
