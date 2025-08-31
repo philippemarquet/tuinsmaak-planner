@@ -2,11 +2,25 @@ import { useEffect, useState } from "react";
 import type { Seed, Garden } from "../lib/types";
 import { listSeeds, createSeed, updateSeed, deleteSeed } from "../lib/api/seeds";
 
-function SeedCard({ seed, onEdit, onDelete }: { seed: Seed; onEdit: (s: Seed) => void; onDelete: (s: Seed) => void }) {
+function SeedCard({
+  seed,
+  onEdit,
+  onDelete,
+}: {
+  seed: Seed;
+  onEdit: (s: Seed) => void;
+  onDelete: (s: Seed) => void;
+}) {
   return (
     <div className="bg-card border rounded-lg shadow-sm p-4 flex flex-col gap-2">
       <div className="flex justify-between items-center">
-        <h3 className="font-semibold text-lg">{seed.name}</h3>
+        <h3 className="font-semibold text-lg flex items-center gap-2">
+          <span
+            className={`inline-block w-4 h-4 rounded ${seed.default_color ?? "bg-green-500"}`}
+            title="Standaardkleur"
+          />
+          {seed.name}
+        </h3>
         <div className="flex gap-2">
           <button
             onClick={() => onEdit(seed)}
@@ -39,10 +53,6 @@ function SeedCard({ seed, onEdit, onDelete }: { seed: Seed; onEdit: (s: Seed) =>
           {seed.stock_status}
         </span>
       </p>
-      <div className="flex items-center gap-2">
-        <span className={`w-5 h-5 rounded ${seed.default_color ?? "bg-green-500"}`} />
-        <span className="text-sm">Kleur</span>
-      </div>
     </div>
   );
 }
@@ -67,7 +77,7 @@ export function InventoryPage({ garden }: { garden: Garden }) {
     };
 
     try {
-      if (editing) {
+      if (editing && editing.id) {
         const updated = await updateSeed(editing.id, fields);
         setSeeds(seeds.map((s) => (s.id === editing.id ? updated : s)));
       } else {
@@ -92,21 +102,35 @@ export function InventoryPage({ garden }: { garden: Garden }) {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-3xl font-bold">Voorraad</h2>
+      {/* Titel + knop */}
+      <div className="flex justify-between items-center">
+        <h2 className="text-3xl font-bold">Voorraad</h2>
+        <button
+          onClick={() => setEditing({} as Seed)}
+          className="px-3 py-1 rounded bg-primary text-primary-foreground"
+        >
+          Nieuw zaad
+        </button>
+      </div>
 
       {/* Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {seeds.map((seed) => (
-          <SeedCard key={seed.id} seed={seed} onEdit={setEditing} onDelete={handleDelete} />
+          <SeedCard
+            key={seed.id}
+            seed={seed}
+            onEdit={setEditing}
+            onDelete={handleDelete}
+          />
         ))}
       </div>
 
       {/* Popup editor */}
-      {(editing || true) && (
+      {editing && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-card p-6 rounded-lg shadow-lg w-full max-w-md space-y-4">
             <h3 className="text-lg font-semibold">
-              {editing ? "Zaad bewerken" : "Nieuw zaad"}
+              {editing.id ? "Zaad bewerken" : "Nieuw zaad"}
             </h3>
             <form onSubmit={handleSave} className="space-y-4">
               <div>
