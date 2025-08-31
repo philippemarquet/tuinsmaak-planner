@@ -67,6 +67,22 @@ export function BedModal({ bed, onClose, onUpdated }: BedModalProps) {
           </div>
         </div>
 
+        {/* Segmenten */}
+        <div>
+          <label className="block text-sm font-medium mb-1">Aantal segmenten</label>
+          <input
+            type="number"
+            min={1}
+            max={12}
+            value={form.segments ?? 1}
+            onChange={(e) => handleChange("segments", Number(e.target.value))}
+            className="w-full border rounded-md px-2 py-1"
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            Splits de bak in {form.segments ?? 1} deel(len).
+          </p>
+        </div>
+
         {/* Kas */}
         <div className="flex items-center gap-2">
           <input
