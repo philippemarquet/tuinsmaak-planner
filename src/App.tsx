@@ -1,12 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AuthGate } from './components/AuthGate';
 import { Dashboard } from './components/Dashboard';
 import { InventoryPage } from './components/InventoryPage';
 import { BedsPage } from './components/BedsPage';
 import { PlannerPage } from './components/PlannerPage';
+import { TopNav } from './components/TopNav';   // 👈 nieuw
 import type { Garden } from './lib/types';
 import { myGardens } from './lib/api/gardens';
-import { useEffect } from 'react';
 
 export default function App() {
   const [garden, setGarden] = useState<Garden | null>(null);
@@ -18,6 +18,7 @@ export default function App() {
 
   return (
     <AuthGate>
+      <TopNav />   {/* 👈 altijd bovenaan zichtbaar */}
       {!garden ? (
         <div className="container mx-auto max-w-5xl px-4 py-10">
           <div className="bg-card text-card-foreground border border-border rounded-xl p-6 shadow-sm">
