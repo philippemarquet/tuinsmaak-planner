@@ -41,7 +41,8 @@ function DroppableSegment({ bed, segmentIndex, occupied, children }: DroppableSe
     id: `bed__${bed.id}__segment__${segmentIndex}`,
   });
 
-  const base = "flex items-center justify-center border border-dashed rounded-sm min-h-[60px] transition";
+  const base =
+    "flex items-center justify-center border border-dashed rounded-sm min-h-[60px] transition";
   const color = isOver
     ? "bg-green-200"
     : occupied
@@ -84,16 +85,39 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     date: string
   ) {
     try {
+      // 1. Check: past dit binnen de bak?
+      if (segmentIndex + segmentsUsed > bed.segments) {
+        alert("Deze planting past niet: teveel segmenten voor dit bed.");
+        return;
+      }
+
+      // 2. Check: overlap met bestaande plantings?
+      const overlap = plantings.some((p) => {
+        if (p.garden_bed_id !== bed.id) return false;
+        const start = p.start_segment ?? 0;
+        const used = p.segments_used ?? 1;
+        const end = start + used - 1;
+        const newEnd = segmentIndex + segmentsUsed - 1;
+        return !(newEnd < start || segmentIndex > end);
+      });
+
+      if (overlap) {
+        alert("Dit overlapt met een bestaande planting in dit bed.");
+        return;
+      }
+
+      // ✅ Alleen opslaan als checks goed zijn
       const planting = await createPlanting({
         seed_id: seed.id,
         garden_bed_id: bed.id,
-        garden_id: bed.garden_id, // RLS-proof
+        garden_id: bed.garden_id,
         planned_sow_date: date,
         method,
         segments_used: segmentsUsed,
-        start_segment: segmentIndex, // <— BELANGRIJK
+        start_segment: segmentIndex,
         status: "planned",
       });
+
       setPlantings([...plantings, planting]);
       setPopup(null);
     } catch (e: any) {
@@ -161,17 +185,15 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                   style={{ gridTemplateColumns: `repeat(${bed.segments}, 1fr)` }}
                 >
                   {Array.from({ length: bed.segments }, (_, i) => {
-                    // Welke plantings dekken dit segment af?
                     const covering = plantings.filter((p) => {
                       if (p.garden_bed_id !== bed.id) return false;
-                      const start = (p as any).start_segment ?? 0;
-                      const used = (p as any).segments_used ?? 1;
+                      const start = p.start_segment ?? 0;
+                      const used = p.segments_used ?? 1;
                       return i >= start && i < start + used;
                     });
 
-                    // Alleen in het startsegment tonen we 1 label per planting
                     const starting = covering.filter((p) => {
-                      const start = (p as any).start_segment ?? 0;
+                      const start = p.start_segment ?? 0;
                       return i === start;
                     });
 
@@ -191,7 +213,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                                 className="bg-primary text-primary-foreground text-xs rounded px-2 py-1 flex justify-between items-center"
                                 title={
                                   seed?.name
-                                    ? `${seed.name} — segment ${((p as any).start_segment ?? 0) + 1} t/m ${((p as any).start_segment ?? 0) + ((p as any).segments_used ?? 1)}`
+                                    ? `${seed.name} — segment ${p.start_segment! + 1} t/m ${
+                                        p.start_segment! + p.segments_used!
+                                      }`
                                     : undefined
                                 }
                               >
