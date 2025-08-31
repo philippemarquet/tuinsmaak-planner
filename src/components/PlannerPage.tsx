@@ -6,7 +6,7 @@ import { createPlanting, listPlantings, deletePlanting } from "../lib/api/planti
 import { DndContext, useDraggable, useDroppable } from "@dnd-kit/core";
 
 //
-// Toast component
+// Toast
 //
 function Toast({ message, type, onClose }: { message: string; type: "success" | "error"; onClose: () => void }) {
   useEffect(() => {
@@ -73,7 +73,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   const [popup, setPopup] = useState<{ seed: Seed; bed: GardenBed; segmentIndex: number } | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
-  // 👇 weeknavigatie
+  // Week navigatie
   const [currentWeek, setCurrentWeek] = useState<Date>(() => {
     const now = new Date();
     const d = new Date(now);
@@ -105,7 +105,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         seed_id: seed.id,
         garden_bed_id: bed.id,
         garden_id: bed.garden_id,
-        planned_sow_date: date,
+        planned_plant_date: date,   // 👈 altijd plantdatum opslaan
         method,
         segments_used: segmentsUsed,
         start_segment: segmentIndex,
@@ -116,10 +116,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       setPopup(null);
       setToast({ message: "Planting succesvol toegevoegd!", type: "success" });
     } catch (e: any) {
-      let message = "Kon planting niet opslaan.";
-      if (e.message?.includes("Overlap")) message = "Deze planting overlapt met een bestaande in dit bed.";
-      else if (e.message?.includes("past niet binnen")) message = "Deze planting past niet binnen het aantal segmenten van de bak.";
-      setToast({ message, type: "error" });
+      setToast({ message: "Kon planting niet opslaan: " + e.message, type: "error" });
     }
   }
 
@@ -134,21 +131,12 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     }
   }
 
-  // 🟢 veilige start/eind berekening
+  // Helpers
   function getDateRange(p: Planting) {
-    const start = p.planned_plant_date
-      ? new Date(p.planned_plant_date)
-      : p.planned_sow_date
-      ? new Date(p.planned_sow_date)
-      : null;
-
+    const start = p.planned_plant_date ? new Date(p.planned_plant_date) : null;
     let end: Date | null = null;
     if (p.planned_harvest_end) {
       end = new Date(p.planned_harvest_end);
-    } else if (p.planned_harvest_start) {
-      const d = new Date(p.planned_harvest_start);
-      d.setDate(d.getDate() + (p.harvest_duration_weeks ?? 4) * 7);
-      end = d;
     }
     return { start, end };
   }
@@ -160,17 +148,18 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   }
 
   function getPhase(p: Planting, week: Date): string {
-    const { start, end } = getDateRange(p);
+    const start = p.planned_plant_date ? new Date(p.planned_plant_date) : null;
     const harvestStart = p.planned_harvest_start ? new Date(p.planned_harvest_start) : null;
-    if (!start || !end) return "onbekend";
+    const harvestEnd = p.planned_harvest_end ? new Date(p.planned_harvest_end) : null;
+    if (!start) return "onbekend";
 
-    if (end < week) return "afgelopen";
-    if (harvestStart && harvestStart <= week && end >= week) return "oogsten";
+    if (harvestEnd && harvestEnd < week) return "afgelopen";
+    if (harvestStart && harvestStart <= week && (!harvestEnd || harvestEnd >= week)) return "oogsten";
     if (start <= week && (!harvestStart || harvestStart > week)) return "groeit";
     return "gepland";
   }
 
-  // navigatie helpers
+  // Week navigatie
   function nextWeek() {
     const d = new Date(currentWeek);
     d.setDate(d.getDate() + 7);
