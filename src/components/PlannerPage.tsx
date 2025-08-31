@@ -37,7 +37,7 @@ interface DroppableSegmentProps {
 
 function DroppableSegment({ bed, segmentIndex, children }: DroppableSegmentProps) {
   const { setNodeRef, isOver } = useDroppable({
-    id: `bed-${bed.id}-segment-${segmentIndex}`,
+    id: `bed__${bed.id}__segment__${segmentIndex}`,
   });
   return (
     <div
@@ -101,14 +101,13 @@ export function PlannerPage({ garden }: { garden: Garden }) {
 
       <DndContext
         onDragEnd={(event) => {
-          console.log("Drag ended:", event); // ✅ debug
           if (!event.over) return;
           const overId = event.over.id as string;
           const activeId = event.active.id as string;
 
-          if (!overId.startsWith("bed-") || !activeId.startsWith("seed-")) return;
+          if (!overId.startsWith("bed__") || !activeId.startsWith("seed-")) return;
 
-          const parts = overId.split("-");
+          const parts = overId.split("__");
           const bedId = parts[1];
           const segIdx = parseInt(parts[3], 10);
 
