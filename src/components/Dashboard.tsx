@@ -42,54 +42,65 @@ export function Dashboard({ garden }: { garden: Garden }) {
   }
 
   return (
-    <div className="space-y-8">
-      <h2 className="text-2xl font-semibold">Dashboard</h2>
+    <div className="space-y-10">
+      <h2 className="text-3xl font-bold">Dashboard</h2>
 
-      {/* Beds Overview */}
+      {/* Bakken overzicht */}
       <section>
-        <h3 className="text-lg font-medium mb-2">Bakken</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {beds.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              Nog geen bakken toegevoegd.
-            </p>
-          )}
-          {beds.map((bed) => (
-            <div
-              key={bed.id}
-              className="p-4 border rounded-lg bg-card shadow-sm space-y-2"
-            >
-              <h4 className="font-semibold">{bed.name}</h4>
-              <p className="text-xs text-muted-foreground">
-                {bed.width_cm}×{bed.length_cm} cm
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {plantings
-                  .filter((p) => p.garden_bed_id === bed.id)
-                  .map((p) => (
-                    <span
-                      key={p.id}
-                      className="inline-flex items-center rounded-md bg-primary text-primary-foreground px-2 py-1 text-xs"
-                    >
-                      {seedName(p.seed_id)}
-                    </span>
-                  ))}
-                {plantings.filter((p) => p.garden_bed_id === bed.id).length ===
-                  0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Geen plantings
+        <h3 className="text-xl font-semibold mb-4">Mijn bakken</h3>
+        {beds.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Nog geen bakken toegevoegd.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {beds.map((bed) => {
+              const bedPlantings = plantings.filter((p) => p.garden_bed_id === bed.id);
+              return (
+                <div
+                  key={bed.id}
+                  className="p-5 border rounded-xl bg-card shadow-md hover:shadow-lg transition"
+                >
+                  <div className="flex justify-between items-center mb-2">
+                    <h4 className="font-semibold">{bed.name}</h4>
+                    {bed.is_greenhouse && (
+                      <span className="text-xs bg-green-600 text-white px-2 py-0.5 rounded">
+                        Kas
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    {bed.width_cm}×{bed.length_cm} cm
                   </p>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+
+                  {/* Plantings */}
+                  {bedPlantings.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Geen plantings
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {bedPlantings.map((p) => (
+                        <span
+                          key={p.id}
+                          className="inline-flex items-center rounded-full bg-primary text-primary-foreground px-3 py-1 text-xs"
+                        >
+                          {seedName(p.seed_id)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
 
-      {/* Tasks */}
+      {/* Actielijst */}
       <section>
-        <h3 className="text-lg font-medium mb-2">Actielijst</h3>
-        <div className="bg-card border border-border rounded-lg divide-y shadow-sm">
+        <h3 className="text-xl font-semibold mb-4">Actielijst</h3>
+        <div className="bg-card border border-border rounded-lg shadow-sm divide-y">
           {tasks.length === 0 && (
             <p className="p-4 text-sm text-muted-foreground">
               Geen openstaande taken.
@@ -100,24 +111,37 @@ export function Dashboard({ garden }: { garden: Garden }) {
             .map((t) => (
               <div
                 key={t.id}
-                className="flex items-center justify-between p-3"
+                className="flex items-center justify-between p-4 hover:bg-muted/40 transition"
               >
-                <label className="flex items-center gap-2 text-sm flex-1">
+                <label className="flex items-center gap-3 flex-1 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={t.status === "done"}
                     onChange={() => toggleTask(t)}
+                    className="h-4 w-4"
                   />
                   <span
-                    className={
+                    className={`text-sm ${
                       t.status === "done"
                         ? "line-through text-muted-foreground"
                         : ""
-                    }
+                    }`}
                   >
-                    {labelForTask(t)} ({t.due_date})
+                    {labelForTask(t)}{" "}
+                    <span className="text-xs text-muted-foreground">
+                      ({t.due_date})
+                    </span>
                   </span>
                 </label>
+                <span
+                  className={`text-xs px-2 py-0.5 rounded ${
+                    t.status === "done"
+                      ? "bg-green-100 text-green-700"
+                      : "bg-yellow-100 text-yellow-700"
+                  }`}
+                >
+                  {t.status === "done" ? "Afgerond" : "Open"}
+                </span>
               </div>
             ))}
         </div>
