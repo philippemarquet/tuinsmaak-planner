@@ -87,7 +87,13 @@ export function InventoryPage({ garden }: { garden: Garden }) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {seeds.map((seed) => (
           <div key={seed.id} className="border rounded-lg p-4 shadow-sm bg-card">
-            <h3 className="font-semibold">{seed.name}</h3>
+            <h3 className="font-semibold flex items-center gap-2">
+              <span
+                className="inline-block w-4 h-4 rounded"
+                style={{ backgroundColor: seed.default_color ?? "#22c55e" }}
+              />
+              {seed.name}
+            </h3>
             <p className="text-sm text-muted-foreground">
               Aangekocht: {seed.purchase_date ?? "-"}
             </p>
@@ -128,7 +134,7 @@ export function InventoryPage({ garden }: { garden: Garden }) {
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm">Voorzaaien (weken)</label>
+                  <label className="block text-sm">Voorzaai (weken)</label>
                   <input type="number" name="presow_duration_weeks" defaultValue={editing.presow_duration_weeks ?? ""} required className="border rounded px-2 py-1 w-full" />
                 </div>
                 <div>
@@ -184,13 +190,12 @@ export function InventoryPage({ garden }: { garden: Garden }) {
               </div>
               <div>
                 <label className="block text-sm">Standaardkleur</label>
-                <select name="default_color" defaultValue={editing.default_color ?? "bg-green-500"} className="border rounded px-2 py-1 w-full">
-                  <option value="bg-green-500">Groen</option>
-                  <option value="bg-blue-500">Blauw</option>
-                  <option value="bg-yellow-500">Geel</option>
-                  <option value="bg-red-500">Rood</option>
-                  <option value="bg-purple-500">Paars</option>
-                </select>
+                <input
+                  type="color"
+                  name="default_color"
+                  defaultValue={editing.default_color ?? "#22c55e"}
+                  className="w-16 h-8 p-0 border-none cursor-pointer"
+                />
               </div>
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setEditing(null)} className="px-3 py-1 border rounded bg-muted">
