@@ -1,41 +1,71 @@
 import { useEffect, useState } from 'react';
-import { signInWithEmail, signOut } from '../lib/auth';
+import { signIn, signUp, signOut } from '../lib/auth';
 import { supabase } from '../lib/supabaseClient';
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<any>(null);
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Initial session load
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    // Subscribe to auth state changes
     const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess));
     return () => sub.subscription.unsubscribe();
   }, []);
 
   if (!session) {
     return (
-      <div style={{ maxWidth: 460, margin: '4rem auto', padding: 16, border: '1px solid #eee', borderRadius: 12 }}>
-        <h2 style={{ marginTop: 0 }}>Log in met e-mail</h2>
-        <p>We sturen je een <em>magic link</em>.</p>
+      <div style={{ maxWidth: 420, margin: '4rem auto', padding: 16, border: '1px solid #eee', borderRadius: 12 }}>
+        <h2 style={{ marginTop: 0 }}>{mode === 'login' ? 'Inloggen' : 'Registreren'}</h2>
+
+        {error && <div style={{ color: 'crimson', marginBottom: 8 }}>{error}</div>}
+
         <input
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="jij@example.com"
-          style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd' }}
+          placeholder="Email"
+          style={{ width: '100%', padding: 10, marginBottom: 8, borderRadius: 8, border: '1px solid #ddd' }}
         />
-        <div style={{ marginTop: 12 }}>
-          <button
-            onClick={async () => {
-              if (!email) return alert('Vul je e-mail in');
-              await signInWithEmail(email);
-              alert('Check je e-mail voor de login link.');
-            }}
-            style={{ padding: '10px 14px', borderRadius: 10 }}
-          >
-            Stuur magic link
-          </button>
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Wachtwoord"
+          style={{ width: '100%', padding: 10, marginBottom: 12, borderRadius: 8, border: '1px solid #ddd' }}
+        />
+
+        <button
+          onClick={async () => {
+            try {
+              setError(null);
+              if (mode === 'login') {
+                await signIn(email, password);
+              } else {
+                await signUp(email, password);
+              }
+            } catch (e: any) {
+              setError(e.message);
+            }
+          }}
+          style={{ padding: '10px 14px', borderRadius: 10, width: '100%' }}
+        >
+          {mode === 'login' ? 'Log in' : 'Account aanmaken'}
+        </button>
+
+        <div style={{ marginTop: 12, fontSize: 12 }}>
+          {mode === 'login' ? (
+            <>
+              Nog geen account?{' '}
+              <a href="#" onClick={() => setMode('signup')}>Registreer</a>
+            </>
+          ) : (
+            <>
+              Heb je al een account?{' '}
+              <a href="#" onClick={() => setMode('login')}>Log in</a>
+            </>
+          )}
         </div>
       </div>
     );
