@@ -42,8 +42,8 @@ function DroppableSegment({ bed, segmentIndex, children }: DroppableSegmentProps
   return (
     <div
       ref={setNodeRef}
-      className={`flex items-center justify-center border border-dashed rounded-sm min-h-[60px] ${
-        isOver ? "bg-green-100" : "bg-muted"
+      className={`flex items-center justify-center border border-dashed rounded-sm min-h-[60px] transition ${
+        isOver ? "bg-green-200" : "bg-muted"
       }`}
     >
       {children}
@@ -98,36 +98,43 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   return (
     <div className="space-y-10">
       <h2 className="text-3xl font-bold">Planner</h2>
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        {/* Sidebar met seeds */}
-        <div className="col-span-1 space-y-4">
-          <h3 className="text-lg font-semibold">Beschikbare zaden</h3>
-          {seeds.length === 0 && (
-            <p className="text-sm text-muted-foreground">Geen zaden</p>
-          )}
-          {seeds.map((seed) => (
-            <DraggableSeed key={seed.id} seed={seed} />
-          ))}
-        </div>
 
-        {/* Beds visual */}
-        <div className="col-span-3 space-y-8">
-          <DndContext
-            onDragEnd={(event) => {
-              if (!event.over) return;
-              const [_, bedId, __, segIdx] = event.over.id.split("-");
-              const bed = beds.find((b) => b.id === bedId);
-              const seedId = event.active.id.replace("seed-", "");
-              const seed = seeds.find((s) => s.id === seedId);
-              if (bed && seed) {
-                setPopup({
-                  seed,
-                  bed,
-                  segmentIndex: parseInt(segIdx),
-                });
-              }
-            }}
-          >
+      <DndContext
+        onDragEnd={(event) => {
+          console.log("Drag ended:", event); // ✅ debug
+          if (!event.over) return;
+          const overId = event.over.id as string;
+          const activeId = event.active.id as string;
+
+          if (!overId.startsWith("bed-") || !activeId.startsWith("seed-")) return;
+
+          const parts = overId.split("-");
+          const bedId = parts[1];
+          const segIdx = parseInt(parts[3], 10);
+
+          const bed = beds.find((b) => b.id === bedId);
+          const seedId = activeId.replace("seed-", "");
+          const seed = seeds.find((s) => s.id === seedId);
+
+          if (bed && seed) {
+            setPopup({ seed, bed, segmentIndex: segIdx });
+          }
+        }}
+      >
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          {/* Sidebar met seeds */}
+          <div className="col-span-1 space-y-4">
+            <h3 className="text-lg font-semibold">Beschikbare zaden</h3>
+            {seeds.length === 0 && (
+              <p className="text-sm text-muted-foreground">Geen zaden</p>
+            )}
+            {seeds.map((seed) => (
+              <DraggableSeed key={seed.id} seed={seed} />
+            ))}
+          </div>
+
+          {/* Beds visual */}
+          <div className="col-span-3 space-y-8">
             {beds.map((bed) => (
               <div key={bed.id} className="space-y-2">
                 <h4 className="font-semibold">
@@ -138,17 +145,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                   style={{ gridTemplateColumns: `repeat(${bed.segments}, 1fr)` }}
                 >
                   {Array.from({ length: bed.segments }, (_, i) => (
-                    <DroppableSegment
-                      key={i}
-                      bed={bed}
-                      segmentIndex={i}
-                    >
+                    <DroppableSegment key={i} bed={bed} segmentIndex={i}>
                       {plantings
-                        .filter(
-                          (p) =>
-                            p.garden_bed_id === bed.id &&
-                            p.segments_used > i // heel simplistische check
-                        )
+                        .filter((p) => p.garden_bed_id === bed.id)
                         .map((p) => {
                           const seed = seeds.find((s) => s.id === p.seed_id);
                           return (
@@ -165,9 +164,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 </div>
               </div>
             ))}
-          </DndContext>
+          </div>
         </div>
-      </div>
+      </DndContext>
 
       {/* Popup */}
       {popup && (
@@ -225,11 +224,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 </div>
               )}
               {popup.seed.sowing_type !== "both" && (
-                <input
-                  type="hidden"
-                  name="method"
-                  value={popup.seed.sowing_type}
-                />
+                <input type="hidden" name="method" value={popup.seed.sowing_type} />
               )}
               <div>
                 <label className="block text-sm font-medium mb-1">
