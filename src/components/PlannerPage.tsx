@@ -32,20 +32,24 @@ function DraggableSeed({ seed }: DraggableSeedProps) {
 interface DroppableSegmentProps {
   bed: GardenBed;
   segmentIndex: number;
+  occupied: boolean;
   children: React.ReactNode;
 }
 
-function DroppableSegment({ bed, segmentIndex, children }: DroppableSegmentProps) {
+function DroppableSegment({ bed, segmentIndex, occupied, children }: DroppableSegmentProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: `bed__${bed.id}__segment__${segmentIndex}`,
   });
+
+  const base = "flex items-center justify-center border border-dashed rounded-sm min-h-[60px] transition";
+  const color = isOver
+    ? "bg-green-200"
+    : occupied
+    ? "bg-emerald-50"
+    : "bg-muted";
+
   return (
-    <div
-      ref={setNodeRef}
-      className={`flex items-center justify-center border border-dashed rounded-sm min-h-[60px] transition ${
-        isOver ? "bg-green-200" : "bg-muted"
-      }`}
-    >
+    <div ref={setNodeRef} className={`${base} ${color}`}>
       {children}
     </div>
   );
@@ -83,11 +87,11 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       const planting = await createPlanting({
         seed_id: seed.id,
         garden_bed_id: bed.id,
-        garden_id: bed.garden_id, // ✅ Belangrijk
+        garden_id: bed.garden_id, // RLS-proof
         planned_sow_date: date,
         method,
         segments_used: segmentsUsed,
-        start_segment: segmentIndex, // ✅ nieuw
+        start_segment: segmentIndex, // <— BELANGRIJK
         status: "planned",
       });
       setPlantings([...plantings, planting]);
@@ -151,38 +155,60 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 <h4 className="font-semibold">
                   {bed.name} ({bed.segments} segmenten)
                 </h4>
+
                 <div
                   className="grid gap-2"
                   style={{ gridTemplateColumns: `repeat(${bed.segments}, 1fr)` }}
                 >
-                  {Array.from({ length: bed.segments }, (_, i) => (
-                    <DroppableSegment key={i} bed={bed} segmentIndex={i}>
-                      {plantings
-                        .filter((p) => p.garden_bed_id === bed.id)
-                        .filter(
-                          (p) =>
-                            i >= (p.start_segment ?? 0) &&
-                            i < (p.start_segment ?? 0) + (p.segments_used ?? 1)
-                        )
-                        .map((p) => {
-                          const seed = seeds.find((s) => s.id === p.seed_id);
-                          return (
-                            <div
-                              key={p.id}
-                              className="bg-primary text-primary-foreground text-xs rounded px-2 py-1 flex justify-between items-center"
-                            >
-                              <span>{seed?.name ?? "Onbekend"}</span>
-                              <button
-                                onClick={() => handleDeletePlanting(p.id)}
-                                className="ml-2 text-red-200 hover:text-red-500"
+                  {Array.from({ length: bed.segments }, (_, i) => {
+                    // Welke plantings dekken dit segment af?
+                    const covering = plantings.filter((p) => {
+                      if (p.garden_bed_id !== bed.id) return false;
+                      const start = (p as any).start_segment ?? 0;
+                      const used = (p as any).segments_used ?? 1;
+                      return i >= start && i < start + used;
+                    });
+
+                    // Alleen in het startsegment tonen we 1 label per planting
+                    const starting = covering.filter((p) => {
+                      const start = (p as any).start_segment ?? 0;
+                      return i === start;
+                    });
+
+                    return (
+                      <DroppableSegment
+                        key={i}
+                        bed={bed}
+                        segmentIndex={i}
+                        occupied={covering.length > 0}
+                      >
+                        <div className="flex flex-col gap-1 w-full px-1">
+                          {starting.map((p) => {
+                            const seed = seeds.find((s) => s.id === p.seed_id);
+                            return (
+                              <div
+                                key={p.id}
+                                className="bg-primary text-primary-foreground text-xs rounded px-2 py-1 flex justify-between items-center"
+                                title={
+                                  seed?.name
+                                    ? `${seed.name} — segment ${((p as any).start_segment ?? 0) + 1} t/m ${((p as any).start_segment ?? 0) + ((p as any).segments_used ?? 1)}`
+                                    : undefined
+                                }
                               >
-                                ✕
-                              </button>
-                            </div>
-                          );
-                        })}
-                    </DroppableSegment>
-                  ))}
+                                <span>{seed?.name ?? "Onbekend"}</span>
+                                <button
+                                  onClick={() => handleDeletePlanting(p.id)}
+                                  className="ml-2 text-red-200 hover:text-red-500"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </DroppableSegment>
+                    );
+                  })}
                 </div>
               </div>
             ))}
