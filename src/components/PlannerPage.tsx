@@ -83,10 +83,11 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       const planting = await createPlanting({
         seed_id: seed.id,
         garden_bed_id: bed.id,
-        garden_id: bed.garden_id, // ✅ BELANGRIJK voor RLS policy
+        garden_id: bed.garden_id, // ✅ Belangrijk
         planned_sow_date: date,
         method,
         segments_used: segmentsUsed,
+        start_segment: segmentIndex, // ✅ nieuw
         status: "planned",
       });
       setPlantings([...plantings, planting]);
@@ -158,6 +159,11 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                     <DroppableSegment key={i} bed={bed} segmentIndex={i}>
                       {plantings
                         .filter((p) => p.garden_bed_id === bed.id)
+                        .filter(
+                          (p) =>
+                            i >= (p.start_segment ?? 0) &&
+                            i < (p.start_segment ?? 0) + (p.segments_used ?? 1)
+                        )
                         .map((p) => {
                           const seed = seeds.find((s) => s.id === p.seed_id);
                           return (
