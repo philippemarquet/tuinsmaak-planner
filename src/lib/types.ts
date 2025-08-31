@@ -1,23 +1,19 @@
 export type UUID = string;
 
-/**
- * Profiel van een gebruiker
- */
+//
+// Profielen (gebruikersinstellingen, notificaties)
+//
 export interface Profile {
-  id: UUID; // gelijk aan auth.users.id
+  id: UUID;
   display_name: string | null;
-  notification_prefs: {
-    remind_sow?: boolean;
-    remind_plant?: boolean;
-    remind_harvest?: boolean;
-  } | null;
+  notification_prefs: Record<string, any>;
   created_at: string;
   updated_at: string;
 }
 
-/**
- * Een tuin (garden)
- */
+//
+// Tuin & gebruikers
+//
 export interface Garden {
   id: UUID;
   name: string;
@@ -25,9 +21,6 @@ export interface Garden {
   created_at: string;
 }
 
-/**
- * Relatie tussen gebruiker en tuin
- */
 export interface GardenUser {
   id: UUID;
   garden_id: UUID;
@@ -36,18 +29,18 @@ export interface GardenUser {
   created_at: string;
 }
 
-/**
- * Categorie van een gewas (bv. Bladgroenten, Peulvruchten)
- */
+//
+// Gewassoorten
+//
 export interface CropType {
   id: UUID;
   name: string;
   created_at: string;
 }
 
-/**
- * Zaad/plantsoort in de voorraad
- */
+//
+// Zaden (voorraad)
+//
 export interface Seed {
   id: UUID;
   garden_id: UUID;
@@ -55,75 +48,88 @@ export interface Seed {
   crop_type_id: UUID | null;
   purchase_date: string | null;
   stock_status: "adequate" | "low" | "out";
-  stock_quantity?: number | null;
+  stock_quantity: number;
 
-  // Teelt-informatie
-  row_spacing_cm?: number | null;
-  plant_spacing_cm?: number | null;
-  greenhouse_compatible?: boolean;
-  sowing_type?: "direct" | "presow" | "both";
-  presow_duration_weeks?: number | null;
-  grow_duration_weeks?: number | null;
-  harvest_duration_weeks?: number | null;
-  presow_months?: number[] | null;
-  direct_sow_months?: number[] | null;
-  plant_months?: number[] | null;
-  harvest_months?: number[] | null;
+  row_spacing_cm: number | null;
+  plant_spacing_cm: number | null;
+  greenhouse_compatible: boolean;
+  sowing_type: "direct" | "presow" | "both";
 
-  notes?: string | null;
+  presow_duration_weeks: number | null;
+  grow_duration_weeks: number | null;
+  harvest_duration_weeks: number | null;
+
+  presow_months: number[] | null;
+  direct_sow_months: number[] | null;
+  plant_months: number[] | null;
+  harvest_months: number[] | null;
+
+  notes: string | null;
+
+  // 👇 Nieuw: standaardkleur (optioneel, handig als default bij planting)
+  default_color: string | null;
+
   created_at: string;
   updated_at: string;
 }
 
-/**
- * Moestuinbak
- */
+//
+// Tuinbakken
+//
 export interface GardenBed {
   id: UUID;
   garden_id: UUID;
   name: string;
   width_cm: number;
   length_cm: number;
-  location_x?: number | null;
-  location_y?: number | null;
-  is_greenhouse?: boolean;
+  location_x: number;
+  location_y: number;
+  is_greenhouse: boolean;
+  segments: number; // aantal segmenten waarin bak verdeeld is
   created_at: string;
   updated_at: string;
 }
 
-/**
- * Planting = een zaad dat in een bak staat (planning of realiteit)
- */
+//
+// Plantings (ingeplande / actuele beplanting)
+//
 export interface Planting {
   id: UUID;
   garden_id: UUID;
-  seed_id: UUID;
   garden_bed_id: UUID;
+  seed_id: UUID;
 
-  // Data
-  planned_sow_date?: string | null;
-  planned_plant_date?: string | null;
-  planned_harvest_start?: string | null;
-  planned_harvest_end?: string | null;
-  actual_sow_date?: string | null;
-  actual_plant_date?: string | null;
-  actual_harvest_start?: string | null;
-  actual_harvest_end?: string | null;
+  planned_sow_date: string | null;
+  planned_plant_date: string | null;
+  planned_harvest_start: string | null;
+  planned_harvest_end: string | null;
 
-  // Overige
-  method?: "direct" | "presow" | null;
-  rows?: number | null;
-  plants_per_row?: number | null;
-  area_percentage?: number | null;
+  actual_sow_date: string | null;
+  actual_plant_date: string | null;
+  actual_harvest_start: string | null;
+  actual_harvest_end: string | null;
+
+  method: "direct" | "presow" | null;
   status: "planned" | "sown" | "planted" | "growing" | "harvesting" | "completed";
-  notes?: string | null;
+
+  // Segment-gebaseerde indeling
+  start_segment: number | null;
+  segments_used: number | null;
+  color: string | null;
+
+  rows: number | null;
+  plants_per_row: number | null;
+  area_percentage: number | null;
+
+  notes: string | null;
+
   created_at: string;
   updated_at: string;
 }
 
-/**
- * Taken die automatisch uit plantings komen
- */
+//
+// Taken (automatisch gegenereerd)
+//
 export interface Task {
   id: UUID;
   garden_id: UUID;
@@ -131,18 +137,18 @@ export interface Task {
   type: "sow" | "plant_out" | "harvest_start" | "harvest_end";
   due_date: string;
   status: "pending" | "done" | "skipped";
-  assignee_user_id?: UUID | null;
-  notes?: string | null;
+  assignee_user_id: UUID | null;
+  notes: string | null;
   created_at: string;
   updated_at: string;
 }
 
-/**
- * Bezetting per week per bak (view: bed_occupancy_by_week)
- */
+//
+// Bezetting per week (view)
+//
 export interface BedOccupancyWeek {
   garden_bed_id: UUID;
   garden_id: UUID;
-  week_start: string; // YYYY-MM-DD
+  week_start: string;
   occupancy_pct: number;
 }
