@@ -14,49 +14,59 @@ export function PlannerPage({ garden }: { garden: Garden }) {
 
   async function load() {
     setLoading(true);
-    const [p, s, b] = await Promise.all([
-      listPlantings(garden.id),
-      listSeeds(garden.id),
-      listBeds(garden.id),
-    ]);
-    setPlantings(p);
-    setSeeds(s);
-    setBeds(b);
-    setLoading(false);
+    const [p, s, b] = await Promise.all([listPlantings(garden.id), listSeeds(garden.id), listBeds(garden.id)]);
+    setPlantings(p); setSeeds(s); setBeds(b); setLoading(false);
   }
 
   useEffect(() => { load(); }, [garden.id]);
 
   return (
-    <div style={{ maxWidth: 720, margin: '1rem auto', display: 'grid', gap: 24 }}>
-      <h2>Planner — {garden.name}</h2>
+    <div className="space-y-6">
+      <h2 className="text-2xl font-semibold">Planner — {garden.name}</h2>
 
-      <section style={{ padding: 16, border: '1px solid #eee', borderRadius: 12 }}>
-        <h3 style={{ marginTop: 0 }}>Geplande teelten</h3>
-        {loading && <p>Laden…</p>}
-        {!loading && plantings.length === 0 && <p>Nog niets gepland.</p>}
-        <ul style={{ listStyle: 'none', padding: 0 }}>
-          {plantings.map(p => (
-            <li key={p.id} style={{ padding: '6px 0', borderBottom: '1px dashed #eee', display: 'flex', justifyContent: 'space-between' }}>
-              <span>
-                {seeds.find(s => s.id === p.seed_id)?.name ?? 'Onbekend'} → {beds.find(b => b.id === p.garden_bed_id)?.name ?? 'Onbekende bak'}
-              </span>
-              <button onClick={async () => { await deletePlanting(p.id); load(); }}>❌</button>
-            </li>
-          ))}
-        </ul>
+      <section className="bg-card text-card-foreground border border-border rounded-xl p-4 shadow-sm">
+        <h3 className="text-lg font-semibold mb-3">Geplande teelten</h3>
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Laden…</p>
+        ) : plantings.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nog niets gepland.</p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {plantings.map((p) => (
+              <li key={p.id} className="py-2 flex items-center justify-between">
+                <span>
+                  {seeds.find((s) => s.id === p.seed_id)?.name ?? 'Onbekend'} → {beds.find((b) => b.id === p.garden_bed_id)?.name ?? 'Onbekende bak'}
+                </span>
+                <button
+                  onClick={async () => { await deletePlanting(p.id); load(); }}
+                  className="inline-flex items-center rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 px-2 py-1 text-sm"
+                >
+                  Verwijder
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
-      <section style={{ padding: 16, border: '1px solid #eee', borderRadius: 12 }}>
-        <h3 style={{ marginTop: 0 }}>Nieuwe planting</h3>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <select value={selectedSeed} onChange={e => setSelectedSeed(e.target.value)} style={{ flex: 1 }}>
+      <section className="bg-card text-card-foreground border border-border rounded-xl p-4 shadow-sm">
+        <h3 className="text-lg font-semibold mb-3">Nieuwe planting</h3>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <select
+            className="flex-1 rounded-md border border-input bg-background px-3 py-2"
+            value={selectedSeed}
+            onChange={(e) => setSelectedSeed(e.target.value)}
+          >
             <option value="">Kies gewas</option>
-            {seeds.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            {seeds.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
-          <select value={selectedBed} onChange={e => setSelectedBed(e.target.value)} style={{ flex: 1 }}>
+          <select
+            className="flex-1 rounded-md border border-input bg-background px-3 py-2"
+            value={selectedBed}
+            onChange={(e) => setSelectedBed(e.target.value)}
+          >
             <option value="">Kies bak</option>
-            {beds.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            {beds.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
           <button
             onClick={async () => {
@@ -68,11 +78,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 method: 'direct',
                 planned_sow_date: new Date().toISOString().slice(0, 10),
               });
-              setSelectedSeed('');
-              setSelectedBed('');
-              load();
+              setSelectedSeed(''); setSelectedBed(''); load();
             }}
-            style={{ padding: '10px 14px', borderRadius: 10 }}
+            className="inline-flex items-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-2"
           >
             Toevoegen
           </button>
