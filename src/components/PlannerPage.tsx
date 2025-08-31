@@ -5,125 +5,56 @@ import { listSeeds } from "../lib/api/seeds";
 import { createPlanting, listPlantings, deletePlanting } from "../lib/api/plantings";
 import { DndContext, useDraggable, useDroppable } from "@dnd-kit/core";
 
-//
-// Toast component
-//
-function Toast({
-  message,
-  type,
-  onClose,
-}: {
-  message: string;
-  type: "success" | "error";
-  onClose: () => void;
-}) {
-  // Auto-dismiss na 3 seconden
+function Toast({ message, type, onClose }: { message: string; type: "success" | "error"; onClose: () => void }) {
   useEffect(() => {
     const t = setTimeout(onClose, 3000);
     return () => clearTimeout(t);
   }, [onClose]);
 
   return (
-    <div
-      className={`fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg text-sm ${
-        type === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white"
-      }`}
-    >
+    <div className={`fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg text-sm ${
+      type === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white"
+    }`}>
       <div className="flex items-center gap-2">
         <span>{message}</span>
-        <button
-          onClick={onClose}
-          className="ml-2 text-white hover:text-gray-200"
-        >
-          ✕
-        </button>
+        <button onClick={onClose} className="ml-2 text-white hover:text-gray-200">✕</button>
       </div>
     </div>
   );
 }
 
-interface DraggableSeedProps {
-  seed: Seed;
-}
-
-function DraggableSeed({ seed }: DraggableSeedProps) {
-  const { attributes, listeners, setNodeRef, transform } = useDraggable({
-    id: `seed-${seed.id}`,
-  });
-  const style = transform
-    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
-    : undefined;
+function DraggableSeed({ seed }: { seed: Seed }) {
+  const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: `seed-${seed.id}` });
+  const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...listeners}
-      {...attributes}
-      className="p-2 border rounded-md bg-secondary cursor-move text-sm"
-    >
+    <div ref={setNodeRef} style={style} {...listeners} {...attributes}
+      className="p-2 border rounded-md bg-secondary cursor-move text-sm">
       {seed.name}
     </div>
   );
 }
 
-interface DroppableSegmentProps {
-  bed: GardenBed;
-  segmentIndex: number;
-  occupied: boolean;
-  children: React.ReactNode;
-}
-
-function DroppableSegment({ bed, segmentIndex, occupied, children }: DroppableSegmentProps) {
-  const { setNodeRef, isOver } = useDroppable({
-    id: `bed__${bed.id}__segment__${segmentIndex}`,
-  });
-
-  const base =
-    "flex items-center justify-center border border-dashed rounded-sm min-h-[60px] transition";
-  const color = isOver
-    ? "bg-green-200"
-    : occupied
-    ? "bg-emerald-50"
-    : "bg-muted";
-
-  return (
-    <div ref={setNodeRef} className={`${base} ${color}`}>
-      {children}
-    </div>
-  );
+function DroppableSegment({ bed, segmentIndex, occupied, children }: { bed: GardenBed; segmentIndex: number; occupied: boolean; children: React.ReactNode; }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `bed__${bed.id}__segment__${segmentIndex}` });
+  const base = "flex items-center justify-center border border-dashed rounded-sm min-h-[60px] transition";
+  const color = isOver ? "bg-green-200" : occupied ? "bg-emerald-50" : "bg-muted";
+  return <div ref={setNodeRef} className={`${base} ${color}`}>{children}</div>;
 }
 
 export function PlannerPage({ garden }: { garden: Garden }) {
   const [beds, setBeds] = useState<GardenBed[]>([]);
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [plantings, setPlantings] = useState<Planting[]>([]);
-  const [popup, setPopup] = useState<{
-    seed: Seed;
-    bed: GardenBed;
-    segmentIndex: number;
-  } | null>(null);
-
+  const [popup, setPopup] = useState<{ seed: Seed; bed: GardenBed; segmentIndex: number } | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   useEffect(() => {
     Promise.all([listBeds(garden.id), listSeeds(garden.id), listPlantings(garden.id)])
-      .then(([b, s, p]) => {
-        setBeds(b);
-        setSeeds(s);
-        setPlantings(p);
-      })
+      .then(([b, s, p]) => { setBeds(b); setSeeds(s); setPlantings(p); })
       .catch(console.error);
   }, [garden.id]);
 
-  async function handleConfirmPlanting(
-    seed: Seed,
-    bed: GardenBed,
-    segmentIndex: number,
-    segmentsUsed: number,
-    method: "direct" | "presow",
-    date: string,
-    color: string
-  ) {
+  async function handleConfirmPlanting(seed: Seed, bed: GardenBed, segmentIndex: number, segmentsUsed: number, method: "direct" | "presow", date: string, color: string) {
     try {
       const planting = await createPlanting({
         seed_id: seed.id,
@@ -133,20 +64,16 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         method,
         segments_used: segmentsUsed,
         start_segment: segmentIndex,
-        color,
+        color: color || seed.default_color || "bg-green-500",
         status: "planned",
       });
-
       setPlantings([...plantings, planting]);
       setPopup(null);
       setToast({ message: "Planting succesvol toegevoegd!", type: "success" });
     } catch (e: any) {
       let message = "Kon planting niet opslaan.";
-      if (e.message?.includes("Overlap")) {
-        message = "Deze planting overlapt met een bestaande in dit bed.";
-      } else if (e.message?.includes("past niet binnen")) {
-        message = "Deze planting past niet binnen het aantal segmenten van de bak.";
-      }
+      if (e.message?.includes("Overlap")) message = "Deze planting overlapt met een bestaande in dit bed.";
+      else if (e.message?.includes("past niet binnen")) message = "Deze planting past niet binnen het aantal segmenten van de bak.";
       setToast({ message, type: "error" });
     }
   }
@@ -162,6 +89,19 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     }
   }
 
+  // Bereken fase
+  function getPhase(p: Planting): string {
+    const today = new Date();
+    const start = new Date(p.planned_plant_date ?? p.planned_sow_date ?? today);
+    const harvestStart = p.planned_harvest_start ? new Date(p.planned_harvest_start) : null;
+    const harvestEnd = p.planned_harvest_end ? new Date(p.planned_harvest_end) : null;
+
+    if (harvestEnd && harvestEnd < today) return "afgelopen";
+    if (harvestStart && harvestStart <= today && (!harvestEnd || harvestEnd >= today)) return "oogsten";
+    if (start <= today && (!harvestStart || harvestStart > today)) return "groeit";
+    return "gepland";
+  }
+
   return (
     <div className="space-y-10">
       <h2 className="text-3xl font-bold">Planner</h2>
@@ -171,95 +111,81 @@ export function PlannerPage({ garden }: { garden: Garden }) {
           if (!event.over) return;
           const overId = event.over.id as string;
           const activeId = event.active.id as string;
-
           if (!overId.startsWith("bed__") || !activeId.startsWith("seed-")) return;
 
           const parts = overId.split("__");
           const bedId = parts[1];
           const segIdx = parseInt(parts[3], 10);
-
           const bed = beds.find((b) => b.id === bedId);
           const seedId = activeId.replace("seed-", "");
           const seed = seeds.find((s) => s.id === seedId);
-
-          if (bed && seed) {
-            setPopup({ seed, bed, segmentIndex: segIdx });
-          }
+          if (bed && seed) setPopup({ seed, bed, segmentIndex: segIdx });
         }}
       >
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          {/* Sidebar met seeds */}
+          {/* Sidebar */}
           <div className="col-span-1 space-y-4">
             <h3 className="text-lg font-semibold">Beschikbare zaden</h3>
-            {seeds.length === 0 && (
-              <p className="text-sm text-muted-foreground">Geen zaden</p>
-            )}
-            {seeds.map((seed) => (
-              <DraggableSeed key={seed.id} seed={seed} />
-            ))}
+            {seeds.map((seed) => <DraggableSeed key={seed.id} seed={seed} />)}
           </div>
 
           {/* Beds visual */}
           <div className="col-span-3 space-y-8">
-            {beds.map((bed) => (
-              <div key={bed.id} className="space-y-2">
-                <h4 className="font-semibold">
-                  {bed.name} ({bed.segments} segmenten)
-                </h4>
+            {beds.map((bed) => {
+              const activePlantings = plantings.filter((p) => p.garden_bed_id === bed.id && getPhase(p) !== "afgelopen");
+              const historyPlantings = plantings.filter((p) => p.garden_bed_id === bed.id && getPhase(p) === "afgelopen");
 
-                <div
-                  className="grid gap-2"
-                  style={{ gridTemplateColumns: `repeat(${bed.segments}, 1fr)` }}
-                >
-                  {Array.from({ length: bed.segments }, (_, i) => {
-                    const covering = plantings.filter((p) => {
-                      if (p.garden_bed_id !== bed.id) return false;
-                      const start = p.start_segment ?? 0;
-                      const used = p.segments_used ?? 1;
-                      return i >= start && i < start + used;
-                    });
+              return (
+                <div key={bed.id} className="space-y-4">
+                  <h4 className="font-semibold">{bed.name} ({bed.segments} segmenten)</h4>
+                  <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${bed.segments}, 1fr)` }}>
+                    {Array.from({ length: bed.segments }, (_, i) => {
+                      const covering = activePlantings.filter((p) => {
+                        const start = p.start_segment ?? 0;
+                        const used = p.segments_used ?? 1;
+                        return i >= start && i < start + used;
+                      });
+                      return (
+                        <DroppableSegment key={i} bed={bed} segmentIndex={i} occupied={covering.length > 0}>
+                          <div className="flex flex-col gap-1 w-full px-1">
+                            {covering.map((p) => {
+                              const seed = seeds.find((s) => s.id === p.seed_id);
+                              return (
+                                <div key={`${p.id}-${i}`} className={`${p.color ?? "bg-primary"} text-white text-xs rounded px-2 py-1 flex flex-col`}>
+                                  <div className="flex justify-between items-center">
+                                    <span>{seed?.name ?? "Onbekend"}</span>
+                                    {i === p.start_segment && (
+                                      <button onClick={() => handleDeletePlanting(p.id)} className="ml-2 text-red-200 hover:text-red-500">✕</button>
+                                    )}
+                                  </div>
+                                  <span className="italic text-[10px]">{getPhase(p)}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </DroppableSegment>
+                      );
+                    })}
+                  </div>
 
-                    return (
-                      <DroppableSegment
-                        key={i}
-                        bed={bed}
-                        segmentIndex={i}
-                        occupied={covering.length > 0}
-                      >
-                        <div className="flex flex-col gap-1 w-full px-1">
-                          {covering.map((p) => {
-                            const seed = seeds.find((s) => s.id === p.seed_id);
-                            return (
-                              <div
-                                key={`${p.id}-${i}`}
-                                className={`${p.color ?? "bg-primary"} text-white text-xs rounded px-2 py-1 flex justify-between items-center`}
-                                title={
-                                  seed?.name
-                                    ? `${seed.name} — segment ${p.start_segment! + 1} t/m ${
-                                        p.start_segment! + p.segments_used!
-                                      }`
-                                    : undefined
-                                }
-                              >
-                                <span>{seed?.name ?? "Onbekend"}</span>
-                                {i === p.start_segment && (
-                                  <button
-                                    onClick={() => handleDeletePlanting(p.id)}
-                                    className="ml-2 text-red-200 hover:text-red-500"
-                                  >
-                                    ✕
-                                  </button>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </DroppableSegment>
-                    );
-                  })}
+                  {historyPlantings.length > 0 && (
+                    <div>
+                      <h5 className="text-sm font-semibold mt-2">Historie</h5>
+                      <ul className="text-xs space-y-1">
+                        {historyPlantings.map((p) => {
+                          const seed = seeds.find((s) => s.id === p.seed_id);
+                          return (
+                            <li key={p.id} className="text-muted-foreground">
+                              {seed?.name ?? "Onbekend"} (geoogst tot {p.planned_harvest_end ?? p.actual_harvest_end})
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </DndContext>
@@ -269,10 +195,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-card p-6 rounded-lg shadow-lg w-full max-w-md space-y-4">
             <h3 className="text-lg font-semibold">Nieuwe planting</h3>
-            <p>
-              <strong>{popup.seed.name}</strong> in{" "}
-              <em>{popup.bed.name}</em>, segment {popup.segmentIndex + 1}
-            </p>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -281,65 +203,35 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 const method = formData.get("method") as "direct" | "presow";
                 const date = formData.get("date") as string;
                 const color = formData.get("color") as string;
-                handleConfirmPlanting(
-                  popup.seed,
-                  popup.bed,
-                  popup.segmentIndex,
-                  segmentsUsed,
-                  method,
-                  date,
-                  color
-                );
+                handleConfirmPlanting(popup.seed, popup.bed, popup.segmentIndex, segmentsUsed, method, date, color);
               }}
               className="space-y-4"
             >
               <div>
-                <label className="block text-sm font-medium mb-1">
-                  Aantal segmenten gebruiken
-                </label>
-                <input
-                  type="number"
-                  name="segmentsUsed"
-                  min={1}
-                  max={popup.bed.segments}
-                  defaultValue={1}
-                  className="border rounded-md px-2 py-1 w-full"
-                />
+                <label className="block text-sm font-medium mb-1">Aantal segmenten</label>
+                <input type="number" name="segmentsUsed" min={1} max={popup.bed.segments} defaultValue={1}
+                  className="border rounded-md px-2 py-1 w-full" />
               </div>
-              {popup.seed.sowing_type === "both" && (
+              {popup.seed.sowing_type === "both" ? (
                 <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Zaaimethode
-                  </label>
-                  <select
-                    name="method"
-                    className="border rounded-md px-2 py-1 w-full"
-                    defaultValue="direct"
-                  >
+                  <label className="block text-sm font-medium mb-1">Zaaimethode</label>
+                  <select name="method" defaultValue="direct" className="border rounded-md px-2 py-1 w-full">
                     <option value="direct">Direct</option>
                     <option value="presow">Voorzaaien</option>
                   </select>
                 </div>
-              )}
-              {popup.seed.sowing_type !== "both" && (
+              ) : (
                 <input type="hidden" name="method" value={popup.seed.sowing_type} />
               )}
               <div>
                 <label className="block text-sm font-medium mb-1">Plantdatum</label>
-                <input
-                  type="date"
-                  name="date"
-                  defaultValue={new Date().toISOString().slice(0, 10)}
-                  className="border rounded-md px-2 py-1 w-full"
-                />
+                <input type="date" name="date" defaultValue={new Date().toISOString().slice(0, 10)}
+                  className="border rounded-md px-2 py-1 w-full" />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Kleur</label>
-                <select
-                  name="color"
-                  className="border rounded-md px-2 py-1 w-full"
-                  defaultValue={popup.seed.default_color ?? "bg-green-500"}
-                >
+                <select name="color" defaultValue={popup.seed.default_color ?? "bg-green-500"}
+                  className="border rounded-md px-2 py-1 w-full">
                   <option value="bg-green-500">Groen</option>
                   <option value="bg-blue-500">Blauw</option>
                   <option value="bg-yellow-500">Geel</option>
@@ -348,32 +240,16 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 </select>
               </div>
               <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPopup(null)}
-                  className="px-3 py-1 border border-border rounded-md bg-muted"
-                >
-                  Annuleren
-                </button>
-                <button
-                  type="submit"
-                  className="px-3 py-1 rounded-md bg-primary text-primary-foreground"
-                >
-                  Opslaan
-                </button>
+                <button type="button" onClick={() => setPopup(null)}
+                  className="px-3 py-1 border border-border rounded-md bg-muted">Annuleren</button>
+                <button type="submit" className="px-3 py-1 rounded-md bg-primary text-primary-foreground">Opslaan</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
-      )}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );
 }
