@@ -17,36 +17,49 @@ export function BedsPage({ garden }: { garden: Garden }) {
   useEffect(() => { load(); }, [garden.id]);
 
   return (
-    <div style={{ maxWidth: 720, margin: '1rem auto', display: 'grid', gap: 24 }}>
-      <h2>Bakken — {garden.name}</h2>
+    <div className="space-y-6">
+      <h2 className="text-2xl font-semibold">Bakken — {garden.name}</h2>
 
-      <section style={{ padding: 16, border: '1px solid #eee', borderRadius: 12 }}>
-        <h3 style={{ marginTop: 0 }}>Mijn bakken</h3>
-        {loading && <p>Laden…</p>}
-        {!loading && beds.length === 0 && <p>Nog geen bakken toegevoegd.</p>}
-        <ul style={{ listStyle: 'none', padding: 0 }}>
-          {beds.map(b => (
-            <li key={b.id} style={{ padding: '6px 0', borderBottom: '1px dashed #eee', display: 'flex', justifyContent: 'space-between' }}>
-              <span>{b.name} ({b.width_cm}×{b.length_cm} cm)</span>
-              <button onClick={async () => { await deleteBed(b.id); load(); }}>❌</button>
-            </li>
-          ))}
-        </ul>
+      <section className="bg-card text-card-foreground border border-border rounded-xl p-4 shadow-sm">
+        <h3 className="text-lg font-semibold mb-3">Mijn bakken</h3>
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Laden…</p>
+        ) : beds.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nog geen bakken toegevoegd.</p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {beds.map((b) => (
+              <li key={b.id} className="py-2 flex items-center justify-between">
+                <span>{b.name} ({b.width_cm}×{b.length_cm} cm)</span>
+                <button
+                  onClick={async () => { await deleteBed(b.id); load(); }}
+                  className="inline-flex items-center rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 px-2 py-1 text-sm"
+                >
+                  Verwijder
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
-      <section style={{ padding: 16, border: '1px solid #eee', borderRadius: 12 }}>
-        <h3 style={{ marginTop: 0 }}>Nieuwe bak toevoegen</h3>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Naam van de bak"
-                 style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid #ddd' }} />
+      <section className="bg-card text-card-foreground border border-border rounded-xl p-4 shadow-sm">
+        <h3 className="text-lg font-semibold mb-3">Nieuwe bak toevoegen</h3>
+        <div className="flex gap-2">
+          <input
+            className="flex-1 rounded-md border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring"
+            placeholder="Naam van de bak"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+          />
           <button
             onClick={async () => {
-              if (!newName) return;
-              await createBed({ garden_id: garden.id, name: newName, width_cm: 120, length_cm: 200 });
+              if (!newName.trim()) return;
+              await createBed({ garden_id: garden.id, name: newName.trim(), width_cm: 120, length_cm: 200 });
               setNewName('');
               load();
             }}
-            style={{ padding: '10px 14px', borderRadius: 10 }}
+            className="inline-flex items-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-2"
           >
             Toevoegen
           </button>
