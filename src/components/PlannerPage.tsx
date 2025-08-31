@@ -17,6 +17,12 @@ function Toast({
   type: "success" | "error";
   onClose: () => void;
 }) {
+  // Auto-dismiss na 3 seconden
+  useEffect(() => {
+    const t = setTimeout(onClose, 3000);
+    return () => clearTimeout(t);
+  }, [onClose]);
+
   return (
     <div
       className={`fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg text-sm ${
@@ -226,7 +232,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                             return (
                               <div
                                 key={`${p.id}-${i}`}
-                                className={`${p.color ?? "bg-primary"} text-primary-foreground text-xs rounded px-2 py-1 flex justify-between items-center`}
+                                className={`${p.color ?? "bg-primary"} text-white text-xs rounded px-2 py-1 flex justify-between items-center`}
                                 title={
                                   seed?.name
                                     ? `${seed.name} — segment ${p.start_segment! + 1} t/m ${
@@ -332,7 +338,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 <select
                   name="color"
                   className="border rounded-md px-2 py-1 w-full"
-                  defaultValue="bg-green-500"
+                  defaultValue={popup.seed.default_color ?? "bg-green-500"}
                 >
                   <option value="bg-green-500">Groen</option>
                   <option value="bg-blue-500">Blauw</option>
