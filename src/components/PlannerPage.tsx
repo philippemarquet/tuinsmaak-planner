@@ -105,11 +105,11 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         seed_id: seed.id,
         garden_bed_id: bed.id,
         garden_id: bed.garden_id,
-        planned_plant_date: date,   // 👈 altijd plantdatum opslaan
+        planned_plant_date: date,   // altijd plantdatum opslaan
         method,
         segments_used: segmentsUsed,
         start_segment: segmentIndex,
-        color: color || seed.default_color || "bg-green-500",
+        color: color || seed.default_color || "#22c55e",
         status: "planned",
       });
       setPlantings([...plantings, planting]);
@@ -239,7 +239,11 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                             {covering.map((p) => {
                               const seed = seeds.find((s) => s.id === p.seed_id);
                               return (
-                                <div key={`${p.id}-${i}`} className={`${p.color ?? "bg-primary"} text-white text-xs rounded px-2 py-1 flex flex-col`}>
+                                <div
+                                  key={`${p.id}-${i}`}
+                                  className="text-white text-xs rounded px-2 py-1 flex flex-col"
+                                  style={{ backgroundColor: p.color ?? "#22c55e" }}
+                                >
                                   <div className="flex justify-between items-center">
                                     <span>{seed?.name ?? "Onbekend"}</span>
                                     {i === p.start_segment && (
@@ -319,14 +323,12 @@ export function PlannerPage({ garden }: { garden: Garden }) {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Kleur</label>
-                <select name="color" defaultValue={popup.seed.default_color ?? "bg-green-500"}
-                  className="border rounded-md px-2 py-1 w-full">
-                  <option value="bg-green-500">Groen</option>
-                  <option value="bg-blue-500">Blauw</option>
-                  <option value="bg-yellow-500">Geel</option>
-                  <option value="bg-red-500">Rood</option>
-                  <option value="bg-purple-500">Paars</option>
-                </select>
+                <input
+                  type="color"
+                  name="color"
+                  defaultValue={popup.seed.default_color ?? "#22c55e"}
+                  className="w-16 h-8 p-0 border-none cursor-pointer"
+                />
               </div>
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setPopup(null)}
