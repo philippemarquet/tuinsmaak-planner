@@ -5,15 +5,20 @@ import { listSeeds } from "../lib/api/seeds";
 import { createPlanting, listPlantings, deletePlanting } from "../lib/api/plantings";
 import { DndContext, useDraggable, useDroppable } from "@dnd-kit/core";
 
+//
+// Toast component
+//
 function Toast({ message, type, onClose }: { message: string; type: "success" | "error"; onClose: () => void }) {
   useEffect(() => {
     const t = setTimeout(onClose, 3000);
     return () => clearTimeout(t);
   }, [onClose]);
   return (
-    <div className={`fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg text-sm ${
-      type === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white"
-    }`}>
+    <div
+      className={`fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg text-sm ${
+        type === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white"
+      }`}
+    >
       <div className="flex items-center gap-2">
         <span>{message}</span>
         <button onClick={onClose} className="ml-2 text-white hover:text-gray-200">✕</button>
@@ -22,24 +27,45 @@ function Toast({ message, type, onClose }: { message: string; type: "success" | 
   );
 }
 
+//
+// Drag & Drop seeds
+//
 function DraggableSeed({ seed }: { seed: Seed }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: `seed-${seed.id}` });
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
   return (
-    <div ref={setNodeRef} style={style} {...listeners} {...attributes}
-      className="p-2 border rounded-md bg-secondary cursor-move text-sm">
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...listeners}
+      {...attributes}
+      className="p-2 border rounded-md bg-secondary cursor-move text-sm"
+    >
       {seed.name}
     </div>
   );
 }
 
-function DroppableSegment({ bed, segmentIndex, occupied, children }: { bed: GardenBed; segmentIndex: number; occupied: boolean; children: React.ReactNode; }) {
+function DroppableSegment({
+  bed,
+  segmentIndex,
+  occupied,
+  children,
+}: {
+  bed: GardenBed;
+  segmentIndex: number;
+  occupied: boolean;
+  children: React.ReactNode;
+}) {
   const { setNodeRef, isOver } = useDroppable({ id: `bed__${bed.id}__segment__${segmentIndex}` });
   const base = "flex items-center justify-center border border-dashed rounded-sm min-h-[60px] transition";
   const color = isOver ? "bg-green-200" : occupied ? "bg-emerald-50" : "bg-muted";
   return <div ref={setNodeRef} className={`${base} ${color}`}>{children}</div>;
 }
 
+//
+// Main PlannerPage
+//
 export function PlannerPage({ garden }: { garden: Garden }) {
   const [beds, setBeds] = useState<GardenBed[]>([]);
   const [seeds, setSeeds] = useState<Seed[]>([]);
@@ -47,22 +73,33 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   const [popup, setPopup] = useState<{ seed: Seed; bed: GardenBed; segmentIndex: number } | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
-  // 👇 nieuwe state voor weeknavigatie
+  // 👇 weeknavigatie
   const [currentWeek, setCurrentWeek] = useState<Date>(() => {
     const now = new Date();
-    // begin van de week (maandag)
     const d = new Date(now);
-    d.setDate(now.getDate() - now.getDay() + 1);
+    d.setDate(now.getDate() - now.getDay() + 1); // maandag
     return d;
   });
 
   useEffect(() => {
     Promise.all([listBeds(garden.id), listSeeds(garden.id), listPlantings(garden.id)])
-      .then(([b, s, p]) => { setBeds(b); setSeeds(s); setPlantings(p); })
+      .then(([b, s, p]) => {
+        setBeds(b);
+        setSeeds(s);
+        setPlantings(p);
+      })
       .catch(console.error);
   }, [garden.id]);
 
-  async function handleConfirmPlanting(seed: Seed, bed: GardenBed, segmentIndex: number, segmentsUsed: number, method: "direct" | "presow", date: string, color: string) {
+  async function handleConfirmPlanting(
+    seed: Seed,
+    bed: GardenBed,
+    segmentIndex: number,
+    segmentsUsed: number,
+    method: "direct" | "presow",
+    date: string,
+    color: string
+  ) {
     try {
       const planting = await createPlanting({
         seed_id: seed.id,
@@ -97,26 +134,43 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     }
   }
 
-  // Bereken of planting actief is in currentWeek
+  // 🟢 veilige start/eind berekening
+  function getDateRange(p: Planting) {
+    const start = p.planned_plant_date
+      ? new Date(p.planned_plant_date)
+      : p.planned_sow_date
+      ? new Date(p.planned_sow_date)
+      : null;
+
+    let end: Date | null = null;
+    if (p.planned_harvest_end) {
+      end = new Date(p.planned_harvest_end);
+    } else if (p.planned_harvest_start) {
+      const d = new Date(p.planned_harvest_start);
+      d.setDate(d.getDate() + (p.harvest_duration_weeks ?? 4) * 7);
+      end = d;
+    }
+    return { start, end };
+  }
+
   function isActiveInWeek(p: Planting, week: Date) {
-    const start = new Date(p.planned_plant_date ?? p.planned_sow_date ?? "");
-    const end = new Date(p.planned_harvest_end ?? "");
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) return false;
+    const { start, end } = getDateRange(p);
+    if (!start || !end) return false;
     return start <= week && end >= week;
   }
 
   function getPhase(p: Planting, week: Date): string {
-    const start = new Date(p.planned_plant_date ?? p.planned_sow_date ?? "");
+    const { start, end } = getDateRange(p);
     const harvestStart = p.planned_harvest_start ? new Date(p.planned_harvest_start) : null;
-    const harvestEnd = p.planned_harvest_end ? new Date(p.planned_harvest_end) : null;
+    if (!start || !end) return "onbekend";
 
-    if (harvestEnd && harvestEnd < week) return "afgelopen";
-    if (harvestStart && harvestStart <= week && (!harvestEnd || harvestEnd >= week)) return "oogsten";
+    if (end < week) return "afgelopen";
+    if (harvestStart && harvestStart <= week && end >= week) return "oogsten";
     if (start <= week && (!harvestStart || harvestStart > week)) return "groeit";
     return "gepland";
   }
 
-  // week navigatie helpers
+  // navigatie helpers
   function nextWeek() {
     const d = new Date(currentWeek);
     d.setDate(d.getDate() + 7);
@@ -127,7 +181,12 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     d.setDate(d.getDate() - 7);
     setCurrentWeek(d);
   }
-
+  function goToToday() {
+    const now = new Date();
+    const d = new Date(now);
+    d.setDate(now.getDate() - now.getDay() + 1);
+    setCurrentWeek(d);
+  }
   function formatWeek(d: Date) {
     const end = new Date(d);
     end.setDate(d.getDate() + 6);
@@ -142,6 +201,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
           <button onClick={prevWeek} className="px-2 py-1 border rounded">← Vorige week</button>
           <span className="font-medium">{formatWeek(currentWeek)}</span>
           <button onClick={nextWeek} className="px-2 py-1 border rounded">Volgende week →</button>
+          <button onClick={goToToday} className="px-2 py-1 border rounded">Vandaag</button>
         </div>
       </div>
 
