@@ -42,7 +42,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
   }
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-12">
       <h2 className="text-3xl font-bold">Dashboard</h2>
 
       {/* Bakken overzicht */}
@@ -53,25 +53,29 @@ export function Dashboard({ garden }: { garden: Garden }) {
             Nog geen bakken toegevoegd.
           </p>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {beds.map((bed) => {
-              const bedPlantings = plantings.filter((p) => p.garden_bed_id === bed.id);
+              const bedPlantings = plantings.filter(
+                (p) => p.garden_bed_id === bed.id
+              );
               return (
                 <div
                   key={bed.id}
-                  className="p-5 border rounded-xl bg-card shadow-md hover:shadow-lg transition"
+                  className="p-5 border rounded-xl bg-card shadow-md hover:shadow-lg transition space-y-3"
                 >
-                  <div className="flex justify-between items-center mb-2">
-                    <h4 className="font-semibold">{bed.name}</h4>
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h4 className="font-semibold text-lg">{bed.name}</h4>
+                      <p className="text-xs text-muted-foreground">
+                        {bed.width_cm} × {bed.length_cm} cm
+                      </p>
+                    </div>
                     {bed.is_greenhouse && (
                       <span className="text-xs bg-green-600 text-white px-2 py-0.5 rounded">
                         Kas
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground mb-3">
-                    {bed.width_cm}×{bed.length_cm} cm
-                  </p>
 
                   {/* Plantings */}
                   {bedPlantings.length === 0 ? (
