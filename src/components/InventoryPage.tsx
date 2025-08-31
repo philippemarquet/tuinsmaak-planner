@@ -15,33 +15,10 @@ export function InventoryPage({ garden }: { garden: Garden }) {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
 
-    const presow_duration_weeks = Number(formData.get("presow_duration_weeks"));
-    const grow_duration_weeks = Number(formData.get("grow_duration_weeks"));
-    const harvest_duration_weeks = Number(formData.get("harvest_duration_weeks"));
-
-    if (!presow_duration_weeks || !grow_duration_weeks || !harvest_duration_weeks) {
-      setError("Alle duurtijden (voorzaai, groei, oogst) moeten ingevuld zijn.");
-      return;
-    }
-
-    const presow_months = formData.getAll("presow_months").map(Number);
-    const direct_sow_months = formData.getAll("direct_sow_months").map(Number);
-    const plant_months = formData.getAll("plant_months").map(Number);
-    const harvest_months = formData.getAll("harvest_months").map(Number);
-
     const fields: Partial<Seed> = {
       garden_id: garden.id,
       name: formData.get("name") as string,
       purchase_date: formData.get("purchase_date") as string,
-      sowing_type: formData.get("sowing_type") as "direct" | "presow" | "both",
-      stock_status: formData.get("stock_status") as "adequate" | "low" | "out",
-      presow_duration_weeks,
-      grow_duration_weeks,
-      harvest_duration_weeks,
-      presow_months,
-      direct_sow_months,
-      plant_months,
-      harvest_months,
     };
 
     try {
@@ -68,8 +45,6 @@ export function InventoryPage({ garden }: { garden: Garden }) {
     }
   }
 
-  const months = ["Jan","Feb","Mrt","Apr","Mei","Jun","Jul","Aug","Sep","Okt","Nov","Dec"];
-
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -81,15 +56,6 @@ export function InventoryPage({ garden }: { garden: Garden }) {
               garden_id: garden.id,
               name: "",
               purchase_date: null,
-              sowing_type: "both",
-              stock_status: "adequate",
-              presow_duration_weeks: 0,
-              grow_duration_weeks: 0,
-              harvest_duration_weeks: 0,
-              presow_months: [],
-              direct_sow_months: [],
-              plant_months: [],
-              harvest_months: [],
             } as Seed)
           }
           className="px-3 py-1 rounded bg-primary text-primary-foreground"
@@ -106,8 +72,6 @@ export function InventoryPage({ garden }: { garden: Garden }) {
             <p className="text-sm text-muted-foreground">
               Aangekocht: {seed.purchase_date ?? "-"}
             </p>
-            <p className="text-sm">Zaaitype: {seed.sowing_type}</p>
-            <p className="text-sm">Voorraad: {seed.stock_status}</p>
             <div className="flex gap-2 mt-2">
               <button
                 onClick={() => setEditing(seed)}
@@ -129,79 +93,43 @@ export function InventoryPage({ garden }: { garden: Garden }) {
       {/* Popup editor */}
       {editing && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-card p-6 rounded-lg shadow-lg w-full max-w-2xl space-y-4 overflow-y-auto max-h-[90vh]">
-            <h3 className="text-lg font-semibold">Zaad {editing.id ? "bewerken" : "toevoegen"}</h3>
+          <div className="bg-card p-6 rounded-lg shadow-lg w-full max-w-md space-y-4">
+            <h3 className="text-lg font-semibold">
+              Zaad {editing.id ? "bewerken" : "toevoegen"}
+            </h3>
             {error && <div className="text-red-600">{error}</div>}
             <form onSubmit={handleSave} className="space-y-4">
               <div>
                 <label className="block text-sm">Naam</label>
-                <input type="text" name="name" defaultValue={editing.name ?? ""} required className="border rounded px-2 py-1 w-full" />
+                <input
+                  type="text"
+                  name="name"
+                  defaultValue={editing.name ?? ""}
+                  required
+                  className="border rounded px-2 py-1 w-full"
+                />
               </div>
               <div>
                 <label className="block text-sm">Aankoopdatum</label>
-                <input type="date" name="purchase_date" defaultValue={editing.purchase_date ?? ""} className="border rounded px-2 py-1 w-full" />
-              </div>
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm">Voorzaai (weken)</label>
-                  <input type="number" name="presow_duration_weeks" defaultValue={editing.presow_duration_weeks ?? 0} required className="border rounded px-2 py-1 w-full" />
-                </div>
-                <div>
-                  <label className="block text-sm">Groei (weken)</label>
-                  <input type="number" name="grow_duration_weeks" defaultValue={editing.grow_duration_weeks ?? 0} required className="border rounded px-2 py-1 w-full" />
-                </div>
-                <div>
-                  <label className="block text-sm">Oogst (weken)</label>
-                  <input type="number" name="harvest_duration_weeks" defaultValue={editing.harvest_duration_weeks ?? 0} required className="border rounded px-2 py-1 w-full" />
-                </div>
-              </div>
-
-              {/* Maand selectors */}
-              {[
-                { name: "presow_months", label: "Voorzaaimaanden", values: editing.presow_months ?? [] },
-                { name: "direct_sow_months", label: "Direct zaaimaanden", values: editing.direct_sow_months ?? [] },
-                { name: "plant_months", label: "Plantmaanden", values: editing.plant_months ?? [] },
-                { name: "harvest_months", label: "Oogstmaanden", values: editing.harvest_months ?? [] },
-              ].map((section) => (
-                <div key={section.name}>
-                  <label className="block text-sm mb-1">{section.label}</label>
-                  <div className="grid grid-cols-6 gap-1">
-                    {months.map((m, idx) => (
-                      <label key={idx} className="flex items-center gap-1 text-xs">
-                        <input
-                          type="checkbox"
-                          name={section.name}
-                          value={idx + 1}
-                          defaultChecked={(section.values ?? []).includes(idx + 1)}
-                        />
-                        {m}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              ))}
-
-              <div>
-                <label className="block text-sm">Zaaiwijze</label>
-                <select name="sowing_type" defaultValue={editing.sowing_type ?? "both"} className="border rounded px-2 py-1 w-full">
-                  <option value="direct">Direct</option>
-                  <option value="presow">Voorzaaien</option>
-                  <option value="both">Beide</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm">Voorraadstatus</label>
-                <select name="stock_status" defaultValue={editing.stock_status ?? "adequate"} className="border rounded px-2 py-1 w-full">
-                  <option value="adequate">Voldoende</option>
-                  <option value="low">Bijna op</option>
-                  <option value="out">Op</option>
-                </select>
+                <input
+                  type="date"
+                  name="purchase_date"
+                  defaultValue={editing.purchase_date ?? ""}
+                  className="border rounded px-2 py-1 w-full"
+                />
               </div>
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setEditing(null)} className="px-3 py-1 border rounded bg-muted">
+                <button
+                  type="button"
+                  onClick={() => setEditing(null)}
+                  className="px-3 py-1 border rounded bg-muted"
+                >
                   Annuleren
                 </button>
-                <button type="submit" className="px-3 py-1 rounded bg-primary text-primary-foreground">
+                <button
+                  type="submit"
+                  className="px-3 py-1 rounded bg-primary text-primary-foreground"
+                >
                   Opslaan
                 </button>
               </div>
