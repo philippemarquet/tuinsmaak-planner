@@ -8,6 +8,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [password, setPassword] = useState('');
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -17,55 +18,74 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (!session) {
     return (
-      <div style={{ maxWidth: 420, margin: '4rem auto', padding: 16, border: '1px solid #eee', borderRadius: 12 }}>
-        <h2 style={{ marginTop: 0 }}>{mode === 'login' ? 'Inloggen' : 'Registreren'}</h2>
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="w-full max-w-sm bg-card text-card-foreground border border-border rounded-xl shadow-sm p-6">
+          <h2 className="text-xl font-semibold mb-1">
+            {mode === 'login' ? 'Inloggen' : 'Account aanmaken'}
+          </h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            {mode === 'login'
+              ? 'Log in met je e-mail en wachtwoord.'
+              : 'Maak een account aan om te starten.'}
+          </p>
 
-        {error && <div style={{ color: 'crimson', marginBottom: 8 }}>{error}</div>}
+          {error && <div className="mb-3 text-sm text-destructive">⚠ {error}</div>}
 
-        <input
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="Email"
-          style={{ width: '100%', padding: 10, marginBottom: 8, borderRadius: 8, border: '1px solid #ddd' }}
-        />
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Wachtwoord"
-          style={{ width: '100%', padding: 10, marginBottom: 12, borderRadius: 8, border: '1px solid #ddd' }}
-        />
+          <div className="space-y-2 mb-3">
+            <input
+              className="w-full rounded-md border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring"
+              placeholder="E-mail"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <input
+              className="w-full rounded-md border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring"
+              type="password"
+              placeholder="Wachtwoord"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
 
-        <button
-          onClick={async () => {
-            try {
-              setError(null);
-              if (mode === 'login') {
-                await signIn(email, password);
-              } else {
-                await signUp(email, password);
+          <button
+            onClick={async () => {
+              try {
+                setError(null);
+                setLoading(true);
+                if (mode === 'login') {
+                  await signIn(email, password);
+                } else {
+                  await signUp(email, password);
+                }
+              } catch (e: any) {
+                setError(e.message ?? String(e));
+              } finally {
+                setLoading(false);
               }
-            } catch (e: any) {
-              setError(e.message);
-            }
-          }}
-          style={{ padding: '10px 14px', borderRadius: 10, width: '100%' }}
-        >
-          {mode === 'login' ? 'Log in' : 'Account aanmaken'}
-        </button>
+            }}
+            disabled={loading}
+            className="w-full inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-2 transition"
+          >
+            {loading ? 'Bezig…' : mode === 'login' ? 'Log in' : 'Account aanmaken'}
+          </button>
 
-        <div style={{ marginTop: 12, fontSize: 12 }}>
-          {mode === 'login' ? (
-            <>
-              Nog geen account?{' '}
-              <a href="#" onClick={() => setMode('signup')}>Registreer</a>
-            </>
-          ) : (
-            <>
-              Heb je al een account?{' '}
-              <a href="#" onClick={() => setMode('login')}>Log in</a>
-            </>
-          )}
+          <div className="mt-3 text-xs text-muted-foreground">
+            {mode === 'login' ? (
+              <>
+                Nog geen account?{' '}
+                <button className="text-foreground underline" onClick={() => setMode('signup')}>
+                  Registreer
+                </button>
+              </>
+            ) : (
+              <>
+                Heb je al een account?{' '}
+                <button className="text-foreground underline" onClick={() => setMode('login')}>
+                  Log in
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -73,11 +93,16 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end', padding: '8px 12px' }}>
-        <span style={{ fontSize: 12, opacity: 0.7 }}>
+      <div className="flex justify-end items-center gap-2 px-3 py-2 border-b border-border bg-background">
+        <span className="text-xs text-muted-foreground">
           Ingelogd als {session.user?.email}
         </span>
-        <button onClick={() => signOut()} style={{ padding: '6px 10px', borderRadius: 8 }}>Uitloggen</button>
+        <button
+          onClick={() => signOut()}
+          className="inline-flex items-center rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 px-2 py-1 text-sm"
+        >
+          Uitloggen
+        </button>
       </div>
       {children}
     </div>
