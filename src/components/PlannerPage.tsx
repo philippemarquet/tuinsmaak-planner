@@ -5,6 +5,39 @@ import { listSeeds } from "../lib/api/seeds";
 import { createPlanting, listPlantings, deletePlanting } from "../lib/api/plantings";
 import { DndContext, useDraggable, useDroppable } from "@dnd-kit/core";
 
+//
+// Kleine Toast component
+//
+function Toast({
+  message,
+  type,
+  onClose,
+}: {
+  message: string;
+  type: "success" | "error";
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className={`fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg text-sm ${
+        type === "success"
+          ? "bg-green-600 text-white"
+          : "bg-red-600 text-white"
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <span>{message}</span>
+        <button
+          onClick={onClose}
+          className="ml-2 text-white hover:text-gray-200"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  );
+}
+
 interface DraggableSeedProps {
   seed: Seed;
 }
@@ -66,6 +99,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     segmentIndex: number;
   } | null>(null);
 
+  // Toast state
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
   useEffect(() => {
     Promise.all([listBeds(garden.id), listSeeds(garden.id), listPlantings(garden.id)])
       .then(([b, s, p]) => {
@@ -85,28 +121,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     date: string
   ) {
     try {
-      // 1. Check: past dit binnen de bak?
-      if (segmentIndex + segmentsUsed > bed.segments) {
-        alert("Deze planting past niet: teveel segmenten voor dit bed.");
-        return;
-      }
-
-      // 2. Check: overlap met bestaande plantings?
-      const overlap = plantings.some((p) => {
-        if (p.garden_bed_id !== bed.id) return false;
-        const start = p.start_segment ?? 0;
-        const used = p.segments_used ?? 1;
-        const end = start + used - 1;
-        const newEnd = segmentIndex + segmentsUsed - 1;
-        return !(newEnd < start || segmentIndex > end);
-      });
-
-      if (overlap) {
-        alert("Dit overlapt met een bestaande planting in dit bed.");
-        return;
-      }
-
-      // ✅ Alleen opslaan als checks goed zijn
       const planting = await createPlanting({
         seed_id: seed.id,
         garden_bed_id: bed.id,
@@ -120,8 +134,15 @@ export function PlannerPage({ garden }: { garden: Garden }) {
 
       setPlantings([...plantings, planting]);
       setPopup(null);
+      setToast({ message: "Planting succesvol toegevoegd!", type: "success" });
     } catch (e: any) {
-      alert("Kon planting niet opslaan: " + e.message);
+      let message = "Kon planting niet opslaan.";
+      if (e.message?.includes("Overlap")) {
+        message = "Deze planting overlapt met een bestaande in dit bed.";
+      } else if (e.message?.includes("past niet binnen")) {
+        message = "Deze planting past niet binnen het aantal segmenten van de bak.";
+      }
+      setToast({ message, type: "error" });
     }
   }
 
@@ -130,8 +151,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     try {
       await deletePlanting(id);
       setPlantings(plantings.filter((p) => p.id !== id));
+      setToast({ message: "Planting verwijderd.", type: "success" });
     } catch (e: any) {
-      alert("Kon planting niet verwijderen: " + e.message);
+      setToast({ message: "Kon planting niet verwijderen.", type: "error" });
     }
   }
 
@@ -327,6 +349,15 @@ export function PlannerPage({ garden }: { garden: Garden }) {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
       )}
     </div>
   );
