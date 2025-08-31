@@ -1,11 +1,8 @@
 import { useEffect, useState } from "react";
 import type { Garden, GardenBed } from "../lib/types";
-import {
-  listBeds,
-  createBed,
-  deleteBed,
-} from "../lib/api/beds";
+import { listBeds, createBed, deleteBed } from "../lib/api/beds";
 import { BedModal } from "./BedModal";
+import { PlusCircle, Pencil, Trash2 } from "lucide-react";
 
 export function BedsPage({ garden }: { garden: Garden }) {
   const [beds, setBeds] = useState<GardenBed[]>([]);
@@ -52,73 +49,88 @@ export function BedsPage({ garden }: { garden: Garden }) {
   }
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-semibold">Bakken</h2>
-
-      {/* Add new */}
-      <div className="flex flex-wrap gap-2 items-end">
-        <input
-          type="text"
-          placeholder="Naam nieuwe bak"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          className="border rounded-md px-2 py-1 flex-1"
-        />
-        <input
-          type="number"
-          placeholder="Breedte (cm)"
-          value={newWidth}
-          onChange={(e) => setNewWidth(Number(e.target.value))}
-          className="border rounded-md px-2 py-1 w-28"
-        />
-        <input
-          type="number"
-          placeholder="Lengte (cm)"
-          value={newLength}
-          onChange={(e) => setNewLength(Number(e.target.value))}
-          className="border rounded-md px-2 py-1 w-28"
-        />
-        <button
-          onClick={handleAdd}
-          className="bg-primary text-primary-foreground rounded-md px-3 py-1"
-        >
-          Toevoegen
-        </button>
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-3xl font-bold">Bakken</h2>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            placeholder="Naam nieuwe bak"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            className="border rounded-md px-2 py-1"
+          />
+          <input
+            type="number"
+            placeholder="Breedte (cm)"
+            value={newWidth}
+            onChange={(e) => setNewWidth(Number(e.target.value))}
+            className="border rounded-md px-2 py-1 w-24"
+          />
+          <input
+            type="number"
+            placeholder="Lengte (cm)"
+            value={newLength}
+            onChange={(e) => setNewLength(Number(e.target.value))}
+            className="border rounded-md px-2 py-1 w-24"
+          />
+          <button
+            onClick={handleAdd}
+            className="flex items-center gap-1 bg-primary text-primary-foreground px-3 py-1 rounded-md"
+          >
+            <PlusCircle className="h-4 w-4" />
+            Toevoegen
+          </button>
+        </div>
       </div>
 
       {/* Beds list */}
-      <div className="bg-card border border-border rounded-lg shadow-sm divide-y">
-        {beds.length === 0 && (
-          <p className="p-4 text-sm text-muted-foreground">
-            Nog geen bakken toegevoegd.
-          </p>
-        )}
-        {beds.map((b) => (
-          <div
-            key={b.id}
-            className="flex items-center justify-between p-3"
-          >
-            <span>
-              {b.name} ({b.width_cm}×{b.length_cm} cm)
-              {b.is_greenhouse ? " 🌱 [Kas]" : ""}
-            </span>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setEditingBed(b)}
-                className="text-primary hover:underline"
-              >
-                Bewerken
-              </button>
-              <button
-                onClick={() => handleDelete(b.id)}
-                className="text-destructive hover:underline"
-              >
-                ✕
-              </button>
+      {beds.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Nog geen bakken toegevoegd.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {beds.map((b) => (
+            <div
+              key={b.id}
+              className="p-5 border rounded-xl bg-card shadow-md hover:shadow-lg transition space-y-3"
+            >
+              <div className="flex justify-between items-start">
+                <div>
+                  <h4 className="font-semibold text-lg">{b.name}</h4>
+                  <p className="text-xs text-muted-foreground">
+                    {b.width_cm} × {b.length_cm} cm
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setEditingBed(b)}
+                    className="p-1 text-muted-foreground hover:text-primary"
+                    title="Bewerken"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(b.id)}
+                    className="p-1 text-muted-foreground hover:text-destructive"
+                    title="Verwijderen"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              {b.is_greenhouse && (
+                <span className="inline-block text-xs bg-green-600 text-white px-2 py-0.5 rounded">
+                  Kas
+                </span>
+              )}
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {editingBed && (
         <BedModal
