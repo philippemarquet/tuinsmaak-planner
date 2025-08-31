@@ -9,6 +9,7 @@ export function BedsPage({ garden }: { garden: Garden }) {
   const [newName, setNewName] = useState("");
   const [newWidth, setNewWidth] = useState(100);
   const [newLength, setNewLength] = useState(100);
+  const [newSegments, setNewSegments] = useState(1);
   const [editingBed, setEditingBed] = useState<GardenBed | null>(null);
 
   useEffect(() => {
@@ -23,12 +24,14 @@ export function BedsPage({ garden }: { garden: Garden }) {
         name: newName.trim(),
         width_cm: newWidth,
         length_cm: newLength,
+        segments: newSegments,
         is_greenhouse: false,
       });
       setBeds([...beds, bed]);
       setNewName("");
       setNewWidth(100);
       setNewLength(100);
+      setNewSegments(1);
     } catch (e: any) {
       alert("Kon bak niet toevoegen: " + e.message);
     }
@@ -75,6 +78,15 @@ export function BedsPage({ garden }: { garden: Garden }) {
             onChange={(e) => setNewLength(Number(e.target.value))}
             className="border rounded-md px-2 py-1 w-24"
           />
+          <input
+            type="number"
+            min={1}
+            max={12}
+            placeholder="Segmenten"
+            value={newSegments}
+            onChange={(e) => setNewSegments(Number(e.target.value))}
+            className="border rounded-md px-2 py-1 w-24"
+          />
           <button
             onClick={handleAdd}
             className="flex items-center gap-1 bg-primary text-primary-foreground px-3 py-1 rounded-md"
@@ -101,7 +113,7 @@ export function BedsPage({ garden }: { garden: Garden }) {
                 <div>
                   <h4 className="font-semibold text-lg">{b.name}</h4>
                   <p className="text-xs text-muted-foreground">
-                    {b.width_cm} × {b.length_cm} cm
+                    {b.width_cm} × {b.length_cm} cm — {b.segments} segment(en)
                   </p>
                 </div>
                 <div className="flex gap-2">
