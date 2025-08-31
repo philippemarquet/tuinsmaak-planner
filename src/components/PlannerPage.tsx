@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { DndContext, useDraggable, useDroppable } from "@dnd-kit/core";
-import type { Garden, Seed, GardenBed, Planting } from "../lib/types";
+import type { Garden, Seed, GardenBed, Planting, BedOccupancyWeek } from "../lib/types";
 import { listSeeds } from "../lib/api/seeds";
 import { listBeds } from "../lib/api/beds";
 import {
@@ -8,15 +8,16 @@ import {
   createPlanting,
   deletePlanting,
 } from "../lib/api/plantings";
-import { listOccupancy, BedOccupancy } from "../lib/api/occupancy";
+import { occupancyBetween } from "../lib/api/occupancy";
 
 export function PlannerPage({ garden }: { garden: Garden }) {
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [beds, setBeds] = useState<GardenBed[]>([]);
   const [plantings, setPlantings] = useState<Planting[]>([]);
-  const [occupancy, setOccupancy] = useState<BedOccupancy[]>([]);
+  const [occupancy, setOccupancy] = useState<BedOccupancyWeek[]>([]);
   const [weekOffset, setWeekOffset] = useState(0); // 0 = huidige week
 
+  // basisdata laden
   useEffect(() => {
     Promise.all([listSeeds(garden.id), listBeds(garden.id), listPlantings(garden.id)]).then(
       ([s, b, p]) => {
@@ -27,15 +28,20 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     );
   }, [garden.id]);
 
+  // occupancy per week laden
   useEffect(() => {
     const today = new Date();
     const from = new Date(today);
     from.setDate(from.getDate() + (weekOffset - 1) * 7);
     const to = new Date(today);
     to.setDate(to.getDate() + (weekOffset + 1) * 7);
-    listOccupancy(garden.id, iso(from), iso(to)).then(setOccupancy);
+
+    occupancyBetween(garden.id, iso(from), iso(to))
+      .then(setOccupancy)
+      .catch(console.error);
   }, [garden.id, weekOffset]);
 
+  // nieuwe planting maken
   async function handleDrop(seedId: string, bedId: string) {
     try {
       const planting = await createPlanting({
@@ -53,6 +59,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     }
   }
 
+  // planting verwijderen
   async function handleDelete(plantingId: string) {
     if (!confirm("Weet je zeker dat je deze planting wilt verwijderen?")) return;
     try {
@@ -160,7 +167,7 @@ function DroppableBed({
   bed: GardenBed;
   plantings: Planting[];
   seeds: Seed[];
-  occupancy?: BedOccupancy;
+  occupancy?: BedOccupancyWeek;
   onDelete: (id: string) => void;
 }) {
   const { isOver, setNodeRef } = useDroppable({
