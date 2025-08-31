@@ -1,18 +1,24 @@
 import { useEffect, useState } from "react";
-import type { Garden, Seed } from "../lib/types";
+import type { Garden, Seed, CropType } from "../lib/types";
 import {
   listSeeds,
   createSeed,
-  updateSeed,
   deleteSeed,
 } from "../lib/api/seeds";
+import { listCropTypes } from "../lib/api/cropTypes";
+import { SeedModal } from "./SeedModal";
 
 export function InventoryPage({ garden }: { garden: Garden }) {
   const [seeds, setSeeds] = useState<Seed[]>([]);
+  const [cropTypes, setCropTypes] = useState<CropType[]>([]);
   const [newName, setNewName] = useState("");
+  const [editingSeed, setEditingSeed] = useState<Seed | null>(null);
 
   useEffect(() => {
-    listSeeds(garden.id).then(setSeeds).catch(console.error);
+    Promise.all([listSeeds(garden.id), listCropTypes()]).then(([s, ct]) => {
+      setSeeds(s);
+      setCropTypes(ct);
+    });
   }, [garden.id]);
 
   async function handleAdd() {
@@ -30,15 +36,6 @@ export function InventoryPage({ garden }: { garden: Garden }) {
     }
   }
 
-  async function handleUpdate(seed: Seed, field: keyof Seed, value: any) {
-    try {
-      const updated = await updateSeed(seed.id, { [field]: value });
-      setSeeds(seeds.map((s) => (s.id === seed.id ? updated : s)));
-    } catch (e: any) {
-      alert("Kon zaad niet bijwerken: " + e.message);
-    }
-  }
-
   async function handleDelete(seedId: string) {
     if (!confirm("Weet je zeker dat je dit zaad wilt verwijderen?")) return;
     try {
@@ -47,6 +44,10 @@ export function InventoryPage({ garden }: { garden: Garden }) {
     } catch (e: any) {
       alert("Kon zaad niet verwijderen: " + e.message);
     }
+  }
+
+  function handleUpdated(seed: Seed) {
+    setSeeds(seeds.map((s) => (s.id === seed.id ? seed : s)));
   }
 
   return (
@@ -79,29 +80,33 @@ export function InventoryPage({ garden }: { garden: Garden }) {
         )}
         {seeds.map((s) => (
           <div key={s.id} className="flex items-center justify-between p-3">
-            <input
-              className="flex-1 bg-transparent"
-              value={s.name}
-              onChange={(e) => handleUpdate(s, "name", e.target.value)}
-            />
-            <select
-              value={s.stock_status}
-              onChange={(e) => handleUpdate(s, "stock_status", e.target.value)}
-              className="border rounded-md px-2 py-1 ml-2"
-            >
-              <option value="adequate">Op voorraad</option>
-              <option value="low">Bijna op</option>
-              <option value="out">Op</option>
-            </select>
-            <button
-              onClick={() => handleDelete(s.id)}
-              className="ml-2 text-destructive hover:underline"
-            >
-              ✕
-            </button>
+            <span>{s.name}</span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setEditingSeed(s)}
+                className="text-primary hover:underline"
+              >
+                Bewerken
+              </button>
+              <button
+                onClick={() => handleDelete(s.id)}
+                className="text-destructive hover:underline"
+              >
+                ✕
+              </button>
+            </div>
           </div>
         ))}
       </div>
+
+      {editingSeed && (
+        <SeedModal
+          seed={editingSeed}
+          cropTypes={cropTypes}
+          onClose={() => setEditingSeed(null)}
+          onUpdated={handleUpdated}
+        />
+      )}
     </div>
   );
 }
