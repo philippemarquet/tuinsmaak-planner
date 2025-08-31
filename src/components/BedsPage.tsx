@@ -73,4 +73,4 @@ export function BedsPage({ garden }: { garden: Garden }) {
       )}
     </div>
   );
-}
+} 
