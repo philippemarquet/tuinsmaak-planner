@@ -4,6 +4,13 @@ import { listSeeds, deleteSeed } from "../lib/api/seeds";
 import { listCropTypes } from "../lib/api/cropTypes";
 import { SeedModal } from "./SeedModal";
 
+function swatchStyle(color?: string | null) {
+  if (!color) return {};
+  if (color.startsWith("#") || color.startsWith("rgb")) return { backgroundColor: color };
+  // fallback voor oude Tailwind-waarden
+  return {};
+}
+
 function SeedCard({
   seed,
   onEdit,
@@ -13,12 +20,14 @@ function SeedCard({
   onEdit: (s: Seed) => void;
   onDelete: (s: Seed) => void;
 }) {
+  const hasHex = seed.default_color?.startsWith("#") || seed.default_color?.startsWith("rgb");
   return (
     <div className="bg-card border rounded-lg shadow-sm p-4 flex flex-col gap-2">
       <div className="flex justify-between items-center">
         <h3 className="font-semibold text-lg flex items-center gap-2">
           <span
-            className={`inline-block w-4 h-4 rounded ${seed.default_color ?? "bg-green-500"}`}
+            className={`inline-block w-4 h-4 rounded ${hasHex ? "" : (seed.default_color ?? "bg-green-500")}`}
+            style={swatchStyle(seed.default_color ?? undefined)}
             title="Standaardkleur"
           />
           {seed.name}
