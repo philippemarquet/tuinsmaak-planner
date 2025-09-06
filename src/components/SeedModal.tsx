@@ -1,37 +1,79 @@
-import { useState } from "react";
-import type { Seed, CropType } from "../lib/types";
-import { updateSeed } from "../lib/api/seeds";
+import { useEffect, useState } from "react";
+import type { Seed, CropType, UUID } from "../lib/types";
+import { createSeed, updateSeed } from "../lib/api/seeds";
+import { listCropTypes } from "../lib/api/cropTypes";
 import { MonthSelector } from "./MonthSelector";
 
 interface SeedModalProps {
-  seed: Seed;
-  cropTypes: CropType[];
+  gardenId: UUID;
+  seed: Partial<Seed>;            // mag leeg zijn bij "nieuw"
   onClose: () => void;
-  onUpdated: (seed: Seed) => void;
+  onSaved: (seed: Seed) => void;  // geeft aangemaakte/geüpdatete seed terug
 }
 
-export function SeedModal({ seed, cropTypes, onClose, onUpdated }: SeedModalProps) {
+export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) {
+  const editing = !!seed.id;
+  const [cropTypes, setCropTypes] = useState<CropType[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const [form, setForm] = useState<Partial<Seed>>({
-    ...seed,
+    garden_id: gardenId,
+    name: seed.name ?? "",
+    crop_type_id: seed.crop_type_id ?? null,
+    purchase_date: seed.purchase_date ?? "",
+    stock_status: seed.stock_status ?? "adequate",
+    stock_quantity: seed.stock_quantity ?? 0,
+    row_spacing_cm: seed.row_spacing_cm ?? null,
+    plant_spacing_cm: seed.plant_spacing_cm ?? null,
+    greenhouse_compatible: seed.greenhouse_compatible ?? false,
+    sowing_type: seed.sowing_type ?? "both",
+
+    presow_duration_weeks: seed.presow_duration_weeks ?? null,
+    grow_duration_weeks: seed.grow_duration_weeks ?? null,
+    harvest_duration_weeks: seed.harvest_duration_weeks ?? null,
+
     presow_months: seed.presow_months ?? [],
     direct_sow_months: seed.direct_sow_months ?? [],
     plant_months: seed.plant_months ?? [],
     harvest_months: seed.harvest_months ?? [],
-  });
-  const [saving, setSaving] = useState(false);
 
-  function handleChange(field: keyof Seed, value: any) {
-    setForm({ ...form, [field]: value });
+    notes: seed.notes ?? "",
+    // kleur laten defaulten in DB (bg-green-500); later kun je hier kleurkeuze toevoegen
+  });
+
+  useEffect(() => {
+    listCropTypes().then(setCropTypes).catch(console.error);
+  }, []);
+
+  function handleChange<K extends keyof Seed>(field: K, value: Seed[K] | any) {
+    setForm((f) => ({ ...f, [field]: value }));
   }
 
   async function handleSave() {
     setSaving(true);
+    setError(null);
     try {
-      const updated = await updateSeed(seed.id, form);
-      onUpdated(updated);
+      const payload: Partial<Seed> = {
+        ...form,
+        crop_type_id: form.crop_type_id || null,
+        purchase_date: form.purchase_date || null,
+        row_spacing_cm: form.row_spacing_cm === null || form.row_spacing_cm === undefined || form.row_spacing_cm === '' ? null : Number(form.row_spacing_cm),
+        plant_spacing_cm: form.plant_spacing_cm === null || form.plant_spacing_cm === undefined || form.plant_spacing_cm === '' ? null : Number(form.plant_spacing_cm),
+        presow_duration_weeks: form.presow_duration_weeks === '' ? null : form.presow_duration_weeks,
+        grow_duration_weeks: form.grow_duration_weeks === '' ? null : form.grow_duration_weeks,
+        harvest_duration_weeks: form.harvest_duration_weeks === '' ? null : form.harvest_duration_weeks,
+        notes: form.notes || null,
+      };
+
+      const saved = editing
+        ? await updateSeed(seed.id as UUID, payload)
+        : await createSeed(payload);
+
+      onSaved(saved);
       onClose();
     } catch (e: any) {
-      alert("Kon zaad niet opslaan: " + e.message);
+      setError(e.message ?? String(e));
     } finally {
       setSaving(false);
     }
@@ -40,10 +82,18 @@ export function SeedModal({ seed, cropTypes, onClose, onUpdated }: SeedModalProp
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-card rounded-lg shadow-lg p-6 w-full max-w-3xl space-y-4 max-h-[90vh] overflow-y-auto">
-        <h3 className="text-lg font-semibold mb-2">Zaad bewerken</h3>
+        <h3 className="text-lg font-semibold mb-2">
+          {editing ? "Zaad bewerken" : "Nieuw zaad"}
+        </h3>
+
+        {error && (
+          <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+            {error}
+          </div>
+        )}
 
         {/* Naam + type */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-1">Naam</label>
             <input
@@ -51,6 +101,7 @@ export function SeedModal({ seed, cropTypes, onClose, onUpdated }: SeedModalProp
               value={form.name ?? ""}
               onChange={(e) => handleChange("name", e.target.value)}
               className="w-full border rounded-md px-2 py-1"
+              required
             />
           </div>
           <div>
@@ -70,14 +121,14 @@ export function SeedModal({ seed, cropTypes, onClose, onUpdated }: SeedModalProp
           </div>
         </div>
 
-        {/* Afstanden + sowing */}
-        <div className="grid grid-cols-3 gap-4">
+        {/* Afstanden + zaaitype */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium mb-1">Rijafstand (cm)</label>
             <input
               type="number"
               value={form.row_spacing_cm ?? ""}
-              onChange={(e) => handleChange("row_spacing_cm", Number(e.target.value))}
+              onChange={(e) => handleChange("row_spacing_cm", e.target.value === '' ? null : Number(e.target.value))}
               className="w-full border rounded-md px-2 py-1"
             />
           </div>
@@ -86,7 +137,7 @@ export function SeedModal({ seed, cropTypes, onClose, onUpdated }: SeedModalProp
             <input
               type="number"
               value={form.plant_spacing_cm ?? ""}
-              onChange={(e) => handleChange("plant_spacing_cm", Number(e.target.value))}
+              onChange={(e) => handleChange("plant_spacing_cm", e.target.value === '' ? null : Number(e.target.value))}
               className="w-full border rounded-md px-2 py-1"
             />
           </div>
@@ -105,13 +156,13 @@ export function SeedModal({ seed, cropTypes, onClose, onUpdated }: SeedModalProp
         </div>
 
         {/* Duur */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium mb-1">Voorzaai (weken)</label>
             <input
               type="number"
               value={form.presow_duration_weeks ?? ""}
-              onChange={(e) => handleChange("presow_duration_weeks", Number(e.target.value))}
+              onChange={(e) => handleChange("presow_duration_weeks", e.target.value === '' ? '' : Number(e.target.value))}
               className="w-full border rounded-md px-2 py-1"
             />
           </div>
@@ -120,7 +171,7 @@ export function SeedModal({ seed, cropTypes, onClose, onUpdated }: SeedModalProp
             <input
               type="number"
               value={form.grow_duration_weeks ?? ""}
-              onChange={(e) => handleChange("grow_duration_weeks", Number(e.target.value))}
+              onChange={(e) => handleChange("grow_duration_weeks", e.target.value === '' ? '' : Number(e.target.value))}
               className="w-full border rounded-md px-2 py-1"
             />
           </div>
@@ -129,13 +180,13 @@ export function SeedModal({ seed, cropTypes, onClose, onUpdated }: SeedModalProp
             <input
               type="number"
               value={form.harvest_duration_weeks ?? ""}
-              onChange={(e) => handleChange("harvest_duration_weeks", Number(e.target.value))}
+              onChange={(e) => handleChange("harvest_duration_weeks", e.target.value === '' ? '' : Number(e.target.value))}
               className="w-full border rounded-md px-2 py-1"
             />
           </div>
         </div>
 
-        {/* Maanden-selectors */}
+        {/* Maanden-selectors (jouw UI blijft behouden) */}
         <MonthSelector
           label="Voorzaaien"
           value={form.presow_months ?? []}
@@ -157,7 +208,7 @@ export function SeedModal({ seed, cropTypes, onClose, onUpdated }: SeedModalProp
           onChange={(val) => handleChange("harvest_months", val)}
         />
 
-        {/* Notes */}
+        {/* Notities */}
         <div>
           <label className="block text-sm font-medium mb-1">Notities</label>
           <textarea
@@ -177,10 +228,10 @@ export function SeedModal({ seed, cropTypes, onClose, onUpdated }: SeedModalProp
           </button>
           <button
             onClick={handleSave}
-            disabled={saving}
-            className="px-3 py-1 rounded-md bg-primary text-primary-foreground"
+            disabled={saving || !form.name?.trim()}
+            className="px-3 py-1 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
           >
-            {saving ? "Opslaan..." : "Opslaan"}
+            {saving ? "Opslaan..." : editing ? "Opslaan" : "Toevoegen"}
           </button>
         </div>
       </div>
