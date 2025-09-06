@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Garden, GardenBed, UUID } from "../lib/types";
-import { listBeds, deleteBed, updateBed } from "../lib/api/beds";
+import { listBeds, deleteBed, updateBed, createBed } from "../lib/api/beds";
 import { BedModal } from "./BedModal";
-import { Pencil, Trash2, Map as MapIcon, PlusCircle, ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
+import { Pencil, Trash2, Map as MapIcon, PlusCircle, ZoomIn, ZoomOut, Maximize2, Copy } from "lucide-react";
 
 export function BedsPage({ garden }: { garden: Garden }) {
   const [beds, setBeds] = useState<GardenBed[]>([]);
@@ -30,6 +30,30 @@ export function BedsPage({ garden }: { garden: Garden }) {
       setBeds((prev) => prev.filter((b) => b.id !== bedId));
     } catch (e: any) {
       alert("Kon bak niet verwijderen: " + (e.message ?? String(e)));
+    }
+  }
+
+  function nextCopyName(name: string) {
+    // simpele naam voor kopie
+    if (name.toLowerCase().includes("(kopie)")) return name + " 2";
+    return `${name} (kopie)`;
+  }
+
+  async function duplicateBed(b: GardenBed) {
+    try {
+      const created = await createBed({
+        garden_id: b.garden_id,
+        name: nextCopyName(b.name),
+        width_cm: b.width_cm,
+        length_cm: b.length_cm,
+        segments: b.segments,
+        is_greenhouse: b.is_greenhouse,
+        location_x: (b.location_x ?? 0) + 20,
+        location_y: (b.location_y ?? 0) + 20,
+      });
+      upsertLocal(created);
+    } catch (e: any) {
+      alert("Dupliceren mislukt: " + (e.message ?? String(e)));
     }
   }
 
@@ -77,6 +101,13 @@ export function BedsPage({ garden }: { garden: Garden }) {
                       </p>
                     </div>
                     <div className="flex gap-2">
+                      <button
+                        onClick={() => duplicateBed(b)}
+                        className="p-1 text-muted-foreground hover:text-primary"
+                        title="Dupliceren"
+                      >
+                        <Copy className="h-4 w-4" />
+                      </button>
                       <button
                         onClick={() => setUpsertOpen(b)}
                         className="p-1 text-muted-foreground hover:text-primary"
@@ -127,6 +158,7 @@ export function BedsPage({ garden }: { garden: Garden }) {
               alert("Kon positie niet opslaan: " + (e.message ?? String(e)));
             }
           }}
+          onDuplicate={duplicateBed}
         />
       )}
 
@@ -144,30 +176,29 @@ export function BedsPage({ garden }: { garden: Garden }) {
 }
 
 /* =======================
- *  Plattegrond Editor met zoom
- *  - Grote virtuele canvas (scroll & zoom)
- *  - Zoom: 25%–300%, knoppen + slider + “Fit”
- *  - Sleep correctie voor zoom (coördinaten blijven kloppen)
+ *  Plattegrond Editor met zoom + dupliceren
  * ======================= */
 
 function LayoutEditor({
   beds,
   onMove,
+  onDuplicate,
 }: {
   beds: GardenBed[];
   onMove: (id: UUID, x: number, y: number) => void;
+  onDuplicate: (bed: GardenBed) => void;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
-  // Virtuele canvas-afmetingen (voldoende groot om veel bakken te plaatsen)
+  // Virtuele canvas-afmetingen
   const CANVAS_W = 2400;
   const CANVAS_H = 1400;
 
-  // Basisschaal voor afmetingen van bakken (px per cm)
-  const pxPerCm = 1; // 300 cm ≈ 300 px; 3 bakken achter elkaar = ~900 px vóór zoom
+  // schaal px/cm
+  const pxPerCm = 1;
 
   // Zoom state
-  const [zoom, setZoom] = useState(0.8); // start iets uitgezoomd
+  const [zoom, setZoom] = useState(0.8);
   const minZoom = 0.25;
   const maxZoom = 3;
 
@@ -175,18 +206,16 @@ function LayoutEditor({
     setZoom(Math.max(minZoom, Math.min(maxZoom, v)));
   }
 
-  // Fit-to-viewport zoom
   function fitToViewport() {
     const vp = viewportRef.current;
     if (!vp) return;
-    const vw = vp.clientWidth - 24; // margins
+    const vw = vp.clientWidth - 24;
     const vh = vp.clientHeight - 24;
     const zx = vw / CANVAS_W;
     const zy = vh / CANVAS_H;
     setZoomClamped(Math.min(zx, zy));
   }
 
-  // Controls UI
   function ZoomControls() {
     return (
       <div className="flex items-center gap-2">
@@ -233,7 +262,6 @@ function LayoutEditor({
     );
   }
 
-  // Sizer + geschaalde canvas
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
@@ -245,9 +273,7 @@ function LayoutEditor({
         ref={viewportRef}
         className="relative w-full h-[70vh] rounded-xl border border-border overflow-auto bg-background"
       >
-        {/* Sizer houdt rekening met zoom zodat scrollbars kloppen */}
         <div className="relative" style={{ width: CANVAS_W * zoom, height: CANVAS_H * zoom }}>
-          {/* De daadwerkelijke canvas die we schalen */}
           <div
             className="absolute left-0 top-0"
             style={{
@@ -269,6 +295,7 @@ function LayoutEditor({
                 canvasSize={{ w: CANVAS_W, h: CANVAS_H }}
                 zoom={zoom}
                 onMove={onMove}
+                onDuplicate={() => onDuplicate(b)}
               />
             ))}
           </div>
@@ -284,18 +311,18 @@ function BedBlock({
   canvasSize,
   zoom,
   onMove,
+  onDuplicate,
 }: {
   bed: GardenBed;
   pxPerCm: number;
   canvasSize: { w: number; h: number };
   zoom: number;
   onMove: (id: UUID, x: number, y: number) => void;
+  onDuplicate: () => void;
 }) {
-  // Afmetingen in px (liggend: lengte = x, breedte = y)
   const w = Math.max(40, Math.round((bed.length_cm || 200) * pxPerCm));
   const h = Math.max(24, Math.round((bed.width_cm || 100) * pxPerCm));
 
-  // Startpositie (ongewijzigd door zoom)
   const [pos, setPos] = useState<{ x: number; y: number }>({
     x: bed.location_x ?? 20,
     y: bed.location_y ?? 20,
@@ -321,7 +348,6 @@ function BedBlock({
 
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
     if (!dragging.current) return;
-    // corrigeer delta voor zoom, zodat posities in “canvas-ruimte” blijven
     const dx = (e.clientX - start.current.mx) / zoom;
     const dy = (e.clientY - start.current.my) / zoom;
     const nx = Math.max(0, Math.min(canvasSize.w - w, start.current.x + dx));
@@ -353,9 +379,22 @@ function BedBlock({
     >
       <div className="flex items-center justify-between px-2 py-1 border-b bg-muted/50 rounded-t-lg">
         <span className="text-xs font-medium truncate">{bed.name}</span>
-        {bed.is_greenhouse && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-600 text-white">Kas</span>
-        )}
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDuplicate();
+            }}
+            title="Dupliceren"
+            className="p-1 rounded hover:bg-muted"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+          {bed.is_greenhouse && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-600 text-white">Kas</span>
+          )}
+        </div>
       </div>
       <div className="p-2">
         <div className="text-[11px] text-muted-foreground">
