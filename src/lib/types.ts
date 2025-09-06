@@ -92,14 +92,6 @@ export interface GardenBed {
 }
 
 //
-export interface WishlistItem {
-  id: UUID;
-  garden_id: UUID;
-  name: string;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-}
 // Plantings (ingeplande / actuele beplanting)
 //
 export interface Planting {
