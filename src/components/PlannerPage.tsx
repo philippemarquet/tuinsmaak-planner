@@ -4,6 +4,7 @@ import { listBeds } from "../lib/api/beds";
 import { listSeeds } from "../lib/api/seeds";
 import { createPlanting, listPlantings, deletePlanting } from "../lib/api/plantings";
 import { DndContext, useDraggable, useDroppable } from "@dnd-kit/core";
+import { ColorField } from "./ColorField";
 
 function Toast({ message, type, onClose }: { message: string; type: "success" | "error"; onClose: () => void }) {
   useEffect(() => {
@@ -85,7 +86,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     segmentsUsed: number,
     method: "direct" | "presow",
     date: string,
-    color: string
+    hexColor: string
   ) {
     try {
       await createPlanting({
@@ -96,11 +97,10 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         method,
         segments_used: segmentsUsed,
         start_segment: segmentIndex,
-        color: color || seed.default_color || "bg-green-500",
+        color: hexColor || seed.default_color || "#22c55e",
         status: "planned",
       });
 
-      // Na insert opnieuw inladen -> geplande oogstvelden van trigger zitten nu in de data
       await reload();
       setPopup(null);
       setToast({ message: "Planting succesvol toegevoegd!", type: "success" });
@@ -199,8 +199,13 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                           <div className="flex flex-col gap-1 w-full px-1">
                             {covering.map((p) => {
                               const seed = seeds.find((s) => s.id === p.seed_id);
+                              const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
                               return (
-                                <div key={`${p.id}-${i}`} className={`${p.color ?? "bg-primary"} text-white text-xs rounded px-2 py-1 flex flex-col`}>
+                                <div
+                                  key={`${p.id}-${i}`}
+                                  className={`${isHex ? "" : (p.color ?? "bg-primary")} text-white text-xs rounded px-2 py-1 flex flex-col`}
+                                  style={isHex ? { backgroundColor: p.color ?? "#22c55e" } : undefined}
+                                >
                                   <div className="flex justify-between items-center">
                                     <span>{seed?.name ?? "Onbekend"}</span>
                                     {i === p.start_segment && (
@@ -245,61 +250,112 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-card p-6 rounded-lg shadow-lg w-full max-w-md space-y-4">
             <h3 className="text-lg font-semibold">Nieuwe planting</h3>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const formData = new FormData(e.currentTarget);
-                const segmentsUsed = Number(formData.get("segmentsUsed"));
-                const method = formData.get("method") as "direct" | "presow";
-                const date = formData.get("date") as string;
-                const color = formData.get("color") as string;
-                handleConfirmPlanting(popup.seed, popup.bed, popup.segmentIndex, segmentsUsed, method, date, color);
-              }}
-              className="space-y-4"
-            >
-              <div>
-                <label className="block text-sm font-medium mb-1">Aantal segmenten</label>
-                <input type="number" name="segmentsUsed" min={1} max={popup.bed.segments} defaultValue={1}
-                  className="border rounded-md px-2 py-1 w-full" />
-              </div>
-              {popup.seed.sowing_type === "both" ? (
-                <div>
-                  <label className="block text-sm font-medium mb-1">Zaaimethode</label>
-                  <select name="method" defaultValue="direct" className="border rounded-md px-2 py-1 w-full">
-                    <option value="direct">Direct</option>
-                    <option value="presow">Voorzaaien</option>
-                  </select>
-                </div>
-              ) : (
-                <input type="hidden" name="method" value={popup.seed.sowing_type} />
-              )}
-              <div>
-                <label className="block text-sm font-medium mb-1">Plantdatum</label>
-                <input type="date" name="date" defaultValue={new Date().toISOString().slice(0, 10)}
-                  className="border rounded-md px-2 py-1 w-full" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Kleur</label>
-                <select name="color" defaultValue={popup.seed.default_color ?? "bg-green-500"}
-                  className="border rounded-md px-2 py-1 w-full">
-                  <option value="bg-green-500">Groen</option>
-                  <option value="bg-blue-500">Blauw</option>
-                  <option value="bg-yellow-500">Geel</option>
-                  <option value="bg-red-500">Rood</option>
-                  <option value="bg-purple-500">Paars</option>
-                </select>
-              </div>
-              <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setPopup(null)}
-                  className="px-3 py-1 border border-border rounded-md bg-muted">Annuleren</button>
-                <button type="submit" className="px-3 py-1 rounded-md bg-primary text-primary-foreground">Opslaan</button>
-              </div>
-            </form>
+            <PlantingForm
+              seed={popup.seed}
+              bed={popup.bed}
+              defaultSegment={popup.segmentIndex}
+              onCancel={() => setPopup(null)}
+              onConfirm={(segmentsUsed, method, date, hex) =>
+                handleConfirmPlanting(popup.seed, popup.bed, popup.segmentIndex, segmentsUsed, method, date, hex)
+              }
+            />
           </div>
         </div>
       )}
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
+  );
+}
+
+function PlantingForm({
+  seed,
+  bed,
+  defaultSegment,
+  onCancel,
+  onConfirm,
+}: {
+  seed: Seed;
+  bed: GardenBed;
+  defaultSegment: number;
+  onCancel: () => void;
+  onConfirm: (segmentsUsed: number, method: "direct" | "presow", date: string, hexColor: string) => void;
+}) {
+  const [segmentsUsed, setSegmentsUsed] = useState<number>(1);
+  const [method, setMethod] = useState<"direct" | "presow">(
+    (seed.sowing_type === "direct" || seed.sowing_type === "presow") ? seed.sowing_type : "direct"
+  );
+  const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [color, setColor] = useState<string>(() => {
+    // init uit seed.default_color (kan tailwind of hex zijn)
+    if (!seed.default_color) return "#22c55e";
+    return seed.default_color.startsWith("#") || seed.default_color.startsWith("rgb") ? seed.default_color : "#22c55e";
+  });
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onConfirm(segmentsUsed, method, date, color);
+      }}
+      className="space-y-4"
+    >
+      <div>
+        <label className="block text-sm font-medium mb-1">Aantal segmenten</label>
+        <input
+          type="number"
+          name="segmentsUsed"
+          min={1}
+          max={bed.segments}
+          value={segmentsUsed}
+          onChange={(e) => setSegmentsUsed(Number(e.target.value))}
+          className="border rounded-md px-2 py-1 w-full"
+        />
+        <p className="text-xs text-muted-foreground mt-1">
+          Deze planting start in segment {defaultSegment + 1} en beslaat {segmentsUsed} segment(en).
+        </p>
+      </div>
+
+      {seed.sowing_type === "both" ? (
+        <div>
+          <label className="block text-sm font-medium mb-1">Zaaimethode</label>
+          <select
+            name="method"
+            value={method}
+            onChange={(e) => setMethod(e.target.value as "direct" | "presow")}
+            className="border rounded-md px-2 py-1 w-full"
+          >
+            <option value="direct">Direct</option>
+            <option value="presow">Voorzaaien</option>
+          </select>
+        </div>
+      ) : (
+        <input type="hidden" name="method" value={seed.sowing_type} />
+      )}
+
+      <div>
+        <label className="block text-sm font-medium mb-1">Plantdatum</label>
+        <input
+          type="date"
+          name="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          className="border rounded-md px-2 py-1 w-full"
+        />
+      </div>
+
+      <ColorField
+        label="Kleur in planner"
+        value={color}
+        onChange={setColor}
+        helperText="Je kunt #RRGGBB of rgb(r,g,b) invoeren. We slaan #hex op."
+      />
+
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={onCancel}
+          className="px-3 py-1 border border-border rounded-md bg-muted">Annuleren</button>
+        <button type="submit" className="px-3 py-1 rounded-md bg-primary text-primary-foreground">Opslaan</button>
+      </div>
+    </form>
   );
 }
