@@ -1,73 +1,41 @@
-import { supabase } from "../supabaseClient";
-import type { GardenBed, UUID } from "../types";
+import { supabase } from '../supabaseClient';
+import type { GardenBed, UUID } from '../types';
 
-/**
- * Alle bakken ophalen voor een tuin
- */
 export async function listBeds(gardenId: UUID): Promise<GardenBed[]> {
   const { data, error } = await supabase
-    .from("garden_beds")
-    .select("*")
-    .eq("garden_id", gardenId)
-    .order("name");
+    .from('garden_beds')
+    .select('*')
+    .eq('garden_id', gardenId)
+    .order('is_greenhouse', { ascending: true }) // eerst buiten, dan kas (we splitsen in UI alsnog)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
 
   if (error) throw error;
   return data as GardenBed[];
 }
 
-/**
- * Eén bak ophalen
- */
-export async function getBed(id: UUID): Promise<GardenBed | null> {
+export async function createBed(fields: Partial<GardenBed>): Promise<GardenBed> {
   const { data, error } = await supabase
-    .from("garden_beds")
-    .select("*")
-    .eq("id", id)
+    .from('garden_beds')
+    .insert(fields)
+    .select('*')
     .single();
-
-  if (error) {
-    if (error.code === "PGRST116") return null;
-    throw error;
-  }
-  return data as GardenBed;
-}
-
-/**
- * Nieuwe bak aanmaken
- */
-export async function createBed(values: Partial<GardenBed>): Promise<GardenBed> {
-  const { data, error } = await supabase
-    .from("garden_beds")
-    .insert([values])
-    .select()
-    .single();
-
   if (error) throw error;
   return data as GardenBed;
 }
 
-/**
- * Bak bijwerken
- */
-export async function updateBed(
-  id: UUID,
-  values: Partial<GardenBed>
-): Promise<GardenBed> {
+export async function updateBed(id: UUID, fields: Partial<GardenBed>): Promise<GardenBed> {
   const { data, error } = await supabase
-    .from("garden_beds")
-    .update(values)
-    .eq("id", id)
-    .select()
+    .from('garden_beds')
+    .update(fields)
+    .eq('id', id)
+    .select('*')
     .single();
-
   if (error) throw error;
   return data as GardenBed;
 }
 
-/**
- * Bak verwijderen
- */
 export async function deleteBed(id: UUID): Promise<void> {
-  const { error } = await supabase.from("garden_beds").delete().eq("id", id);
+  const { error } = await supabase.from('garden_beds').delete().eq('id', id);
   if (error) throw error;
 }
