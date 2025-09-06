@@ -1,46 +1,57 @@
 import { useState } from "react";
-import type { GardenBed, UUID } from "../lib/types";
-import { createBed, updateBed } from "../lib/api/beds";
+import type { GardenBed } from "../lib/types";
+import { updateBed } from "../lib/api/beds";
 
 interface BedModalProps {
-  gardenId: UUID;
-  bed?: GardenBed | null;          // undefined/null = nieuw
+  bed: GardenBed;
   onClose: () => void;
-  onSaved: (bed: GardenBed) => void;
+  onUpdated: (bed: GardenBed) => void;
 }
 
-export function BedModal({ gardenId, bed, onClose, onSaved }: BedModalProps) {
-  const editing = !!bed?.id;
-
-  const [name, setName] = useState<string>(bed?.name ?? "");
-  const [widthCm, setWidthCm] = useState<number | "">(bed?.width_cm ?? 120);
-  const [lengthCm, setLengthCm] = useState<number | "">(bed?.length_cm ?? 200);
-  const [segments, setSegments] = useState<number | "">(bed?.segments ?? 1);
-  const [isGreenhouse, setIsGreenhouse] = useState<boolean>(bed?.is_greenhouse ?? false);
+export function BedModal({ bed, onClose, onUpdated }: BedModalProps) {
+  const [form, setForm] = useState<Partial<GardenBed>>({
+    id: bed.id,
+    name: bed.name,
+    width_cm: bed.width_cm,
+    length_cm: bed.length_cm,
+    segments: bed.segments,
+    is_greenhouse: bed.is_greenhouse,
+    location_x: bed.location_x,
+    location_y: bed.location_y,
+  });
   const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+
+  function handleChange<K extends keyof GardenBed>(field: K, value: GardenBed[K]) {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  }
 
   async function handleSave() {
-    setSaving(true);
-    setErr(null);
     try {
-      const payload: Partial<GardenBed> = {
-        garden_id: gardenId,
-        name: name.trim() || "Bak",
-        width_cm: widthCm === "" ? 0 : Number(widthCm),
-        length_cm: lengthCm === "" ? 0 : Number(lengthCm),
-        segments: segments === "" ? 1 : Math.max(1, Number(segments)),
-        is_greenhouse: isGreenhouse,
+      setSaving(true);
+
+      // Harden numerieke velden
+      const patch: Partial<GardenBed> = {
+        name: (form.name ?? "").toString().trim() || bed.name,
+        width_cm: Number(form.width_cm ?? bed.width_cm) || 0,
+        length_cm: Number(form.length_cm ?? bed.length_cm) || 0,
+        segments: Math.max(1, Number(form.segments ?? bed.segments) || 1),
+        is_greenhouse: Boolean(form.is_greenhouse ?? bed.is_greenhouse),
+        location_x:
+          form.location_x === undefined || form.location_x === null
+            ? bed.location_x ?? 0
+            : Number(form.location_x),
+        location_y:
+          form.location_y === undefined || form.location_y === null
+            ? bed.location_y ?? 0
+            : Number(form.location_y),
       };
 
-      const saved = editing
-        ? await updateBed(bed!.id, payload)
-        : await createBed(payload);
-
-      onSaved(saved);
+      const updated = await updateBed(bed.id, patch);
+      onUpdated(updated);
       onClose();
     } catch (e: any) {
-      setErr(e.message ?? String(e));
+      console.error(e);
+      alert("Kon bak niet opslaan: " + (e?.message ?? e));
     } finally {
       setSaving(false);
     }
@@ -48,73 +59,102 @@ export function BedModal({ gardenId, bed, onClose, onSaved }: BedModalProps) {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-card rounded-lg shadow-lg p-6 w-full max-w-lg space-y-4">
-        <h3 className="text-lg font-semibold">
-          {editing ? "Bak bewerken" : "Nieuwe bak"}
-        </h3>
+      <div
+        className="bg-card rounded-lg shadow-lg p-6 w-full max-w-lg space-y-4"
+        // voorkom dat DnD in de achtergrond deze modal 'oppakt'
+        onPointerDown={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-semibold mb-2">Bak bewerken</h3>
 
-        {err && (
-          <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
-            {err}
-          </div>
-        )}
+        {/* Naam */}
+        <div>
+          <label className="block text-sm font-medium mb-1">Naam</label>
+          <input
+            type="text"
+            value={form.name ?? ""}
+            onChange={(e) => handleChange("name", e.target.value)}
+            className="w-full border rounded-md px-2 py-1"
+          />
+        </div>
 
+        {/* Afmetingen */}
         <div className="grid grid-cols-2 gap-4">
-          <div className="col-span-2">
-            <label className="block text-sm font-medium mb-1">Naam</label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full border rounded-md px-2 py-1"
-              placeholder="Bijv. Bak 1"
-            />
-          </div>
-
           <div>
             <label className="block text-sm font-medium mb-1">Breedte (cm)</label>
             <input
               type="number"
-              value={widthCm}
-              onChange={(e) => setWidthCm(e.target.value === "" ? "" : Number(e.target.value))}
+              value={form.width_cm ?? ""}
+              onChange={(e) => handleChange("width_cm", Number(e.target.value))}
               className="w-full border rounded-md px-2 py-1"
             />
           </div>
-
           <div>
             <label className="block text-sm font-medium mb-1">Lengte (cm)</label>
             <input
               type="number"
-              value={lengthCm}
-              onChange={(e) => setLengthCm(e.target.value === "" ? "" : Number(e.target.value))}
+              value={form.length_cm ?? ""}
+              onChange={(e) => handleChange("length_cm", Number(e.target.value))}
               className="w-full border rounded-md px-2 py-1"
             />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Segmenten</label>
-            <input
-              type="number"
-              min={1}
-              max={24}
-              value={segments}
-              onChange={(e) => setSegments(e.target.value === "" ? "" : Number(e.target.value))}
-              className="w-full border rounded-md px-2 py-1"
-            />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <input
-              id="isGreenhouse"
-              type="checkbox"
-              checked={isGreenhouse}
-              onChange={(e) => setIsGreenhouse(e.target.checked)}
-            />
-            <label htmlFor="isGreenhouse" className="text-sm">Dit is een kas-bak</label>
           </div>
         </div>
 
+        {/* Segmenten */}
+        <div>
+          <label className="block text-sm font-medium mb-1">Aantal segmenten</label>
+          <input
+            type="number"
+            min={1}
+            max={24}
+            value={form.segments ?? 1}
+            onChange={(e) => handleChange("segments", Number(e.target.value))}
+            className="w-full border rounded-md px-2 py-1"
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            Splits de bak in {form.segments ?? 1} deel(len).
+          </p>
+        </div>
+
+        {/* Positie (optioneel) */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">Locatie X</label>
+            <input
+              type="number"
+              value={form.location_x ?? 0}
+              onChange={(e) => handleChange("location_x", Number(e.target.value))}
+              className="w-full border rounded-md px-2 py-1"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Locatie Y</label>
+            <input
+              type="number"
+              value={form.location_y ?? 0}
+              onChange={(e) => handleChange("location_y", Number(e.target.value))}
+              className="w-full border rounded-md px-2 py-1"
+            />
+          </div>
+        </div>
+
+        {/* Kas */}
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={form.is_greenhouse ?? false}
+            onChange={(e) => handleChange("is_greenhouse", e.target.checked)}
+          />
+          <label>Dit is een kas</label>
+        </div>
+
+        {/* Acties */}
         <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="px-3 py-1 rounded-md border border-border bg-muted">
+          <button
+            onClick={onClose}
+            className="px-3 py-1 rounded-md border border-border bg-muted"
+          >
             Annuleren
           </button>
           <button
@@ -122,7 +162,7 @@ export function BedModal({ gardenId, bed, onClose, onSaved }: BedModalProps) {
             disabled={saving}
             className="px-3 py-1 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
           >
-            {saving ? "Opslaan…" : "Opslaan"}
+            {saving ? "Opslaan..." : "Opslaan"}
           </button>
         </div>
       </div>
