@@ -1,200 +1,230 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Garden } from "../lib/types";
-import { createWishlistItem, deleteWishlistItem, listWishlist, updateWishlistItem, type WishlistItem } from "../lib/api/wishlist";
-import { Pencil, Trash2, PlusCircle } from "lucide-react";
-
-function WishlistCard({
-  item,
-  onEdit,
-  onDelete,
-}: {
-  item: WishlistItem;
-  onEdit: (i: WishlistItem) => void;
-  onDelete: (i: WishlistItem) => void;
-}) {
-  return (
-    <div className="p-5 border rounded-xl bg-card shadow-md hover:shadow-lg transition space-y-3">
-      <div className="flex justify-between items-start">
-        <div className="min-w-0">
-          <h4 className="font-semibold text-lg truncate">{item.name}</h4>
-          {item.notes && (
-            <p className="text-xs text-muted-foreground line-clamp-3 whitespace-pre-wrap">{item.notes}</p>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => onEdit(item)}
-            className="p-1 text-muted-foreground hover:text-primary"
-            title="Bewerken"
-          >
-            <Pencil className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => onDelete(item)}
-            className="p-1 text-muted-foreground hover:text-destructive"
-            title="Verwijderen"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-      <div className="text-xs text-muted-foreground">
-        Toegevoegd: {new Date(item.created_at).toLocaleDateString()}
-      </div>
-    </div>
-  );
-}
-
-function WishlistEditor({
-  gardenId,
-  item,
-  onClose,
-  onSaved,
-}: {
-  gardenId: string;
-  item?: WishlistItem | null;
-  onClose: () => void;
-  onSaved: (i: WishlistItem) => void;
-}) {
-  const editing = !!item;
-  const [name, setName] = useState(item?.name ?? "");
-  const [notes, setNotes] = useState(item?.notes ?? "");
-
-  async function handleSave() {
-    if (!name.trim()) {
-      alert("Naam is verplicht.");
-      return;
-    }
-    const payload = {
-      garden_id: gardenId,
-      name: name.trim(),
-      notes: notes.trim() ? notes.trim() : null,
-    };
-    const saved = editing
-      ? await updateWishlistItem(item!.id, payload)
-      : await createWishlistItem(payload);
-    onSaved(saved);
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4">
-      <div className="w-full max-w-lg bg-card text-card-foreground border border-border rounded-xl shadow-xl p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-lg font-semibold">{editing ? "Wens bewerken" : "Nieuwe wens"}</h3>
-          <button onClick={onClose} className="text-sm text-muted-foreground hover:underline">Sluiten</button>
-        </div>
-
-        <div className="space-y-3">
-          <div>
-            <label className="text-sm">Naam</label>
-            <input
-              className="w-full rounded-md border border-input bg-background px-3 py-2"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Bijv. paarse wortelzaadjes"
-            />
-          </div>
-          <div>
-            <label className="text-sm">Notities</label>
-            <textarea
-              className="w-full rounded-md border border-input bg-background px-3 py-2 min-h-[100px]"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Waar te kopen, prijs, ras, etc."
-            />
-          </div>
-        </div>
-
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="inline-flex items-center rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 px-3 py-2"
-          >
-            Annuleren
-          </button>
-          <button
-            onClick={handleSave}
-            className="inline-flex items-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-2"
-          >
-            {editing ? "Opslaan" : "Toevoegen"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+import {
+  listWishlist,
+  createWishlistItem,
+  updateWishlistItem,
+  deleteWishlistItem,
+  type WishlistItem,
+} from "../lib/api/wishlist";
+import { Pencil, Trash2, PlusCircle, X } from "lucide-react";
 
 export function WishlistPage({ garden }: { garden: Garden }) {
   const [items, setItems] = useState<WishlistItem[]>([]);
-  const [editorOpen, setEditorOpen] = useState<{ item: WishlistItem | null } | null>(null);
+  const [editing, setEditing] = useState<WishlistItem | null>(null);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     listWishlist(garden.id).then(setItems).catch(console.error);
   }, [garden.id]);
 
-  const sorted = useMemo(() => items.slice().sort((a, b) => a.name.localeCompare(b.name)), [items]);
+  async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const name = (fd.get("name") as string)?.trim();
+    const notes = (fd.get("notes") as string)?.trim() || null;
+    if (!name) return;
 
-  function upsertLocal(updated: WishlistItem) {
-    setItems((prev) => {
-      const i = prev.findIndex((x) => x.id === updated.id);
-      if (i === -1) return [updated, ...prev];
-      const cp = prev.slice();
-      cp[i] = updated;
-      return cp;
-    });
+    try {
+      const saved = await createWishlistItem({ garden_id: garden.id, name, notes });
+      setItems([saved, ...items]);
+      setCreating(false);
+    } catch (err: any) {
+      alert("Toevoegen mislukt: " + err.message);
+    }
   }
 
-  async function handleDelete(item: WishlistItem) {
-    if (!confirm(`“${item.name}” verwijderen uit wishlist?`)) return;
+  async function handleUpdate(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!editing) return;
+    const fd = new FormData(e.currentTarget);
+    const name = (fd.get("name") as string)?.trim();
+    const notes = (fd.get("notes") as string)?.trim() || null;
+    if (!name) return;
+
     try {
-      await deleteWishlistItem(item.id);
-      setItems((prev) => prev.filter((x) => x.id !== item.id));
-    } catch (e: any) {
-      alert("Verwijderen mislukt: " + (e.message ?? String(e)));
+      const saved = await updateWishlistItem(editing.id, { name, notes });
+      setItems(items.map((it) => (it.id === saved.id ? saved : it)));
+      setEditing(null);
+    } catch (err: any) {
+      alert("Opslaan mislukt: " + err.message);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm("Weet je zeker dat je dit item wilt verwijderen?")) return;
+    try {
+      await deleteWishlistItem(id);
+      setItems(items.filter((it) => it.id !== id));
+    } catch (err: any) {
+      alert("Verwijderen mislukt: " + err.message);
     }
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-3xl font-bold">Wishlist</h2>
         <button
-          onClick={() => setEditorOpen({ item: null })}
-          className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-3 py-1 rounded-md"
+          onClick={() => setCreating(true)}
+          className="flex items-center gap-1 bg-primary text-primary-foreground px-3 py-1 rounded-md"
         >
           <PlusCircle className="h-4 w-4" />
-          Nieuw item
+          Nieuw wensitem
         </button>
       </div>
 
-      {sorted.length === 0 ? (
+      {/* Cards */}
+      {items.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Nog geen items. Voeg wensen toe die je later wilt aanschaffen.
+          Nog geen wensen. Voeg er hierboven één toe.
         </p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {sorted.map((item) => (
-            <WishlistCard
-              key={item.id}
-              item={item}
-              onEdit={(i) => setEditorOpen({ item: i })}
-              onDelete={handleDelete}
-            />
+          {items.map((it) => (
+            <div
+              key={it.id}
+              className="p-5 border rounded-xl bg-card shadow-md hover:shadow-lg transition space-y-3"
+            >
+              <div className="flex justify-between items-start">
+                <div>
+                  <h4 className="font-semibold text-lg">{it.name}</h4>
+                  {it.notes && (
+                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                      {it.notes}
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setEditing(it)}
+                    className="p-1 text-muted-foreground hover:text-primary"
+                    title="Bewerken"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(it.id)}
+                    className="p-1 text-muted-foreground hover:text-destructive"
+                    title="Verwijderen"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="text-xs text-muted-foreground">
+                Toegevoegd op {new Date(it.created_at).toLocaleDateString()}
+              </div>
+            </div>
           ))}
         </div>
       )}
 
-      {editorOpen && (
-        <WishlistEditor
-          gardenId={garden.id}
-          item={editorOpen.item}
-          onClose={() => setEditorOpen(null)}
-          onSaved={(saved) => {
-            upsertLocal(saved);
-            setEditorOpen(null);
-          }}
-        />
+      {/* Create modal */}
+      {creating && (
+        <Modal title="Nieuw wensitem" onClose={() => setCreating(false)}>
+          <form onSubmit={handleCreate} className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">Naam</label>
+              <input
+                name="name"
+                className="w-full rounded-md border border-input bg-background px-3 py-2"
+                placeholder="Bijv. ‘Bosbessen’"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Notities</label>
+              <textarea
+                name="notes"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 min-h-[80px]"
+                placeholder="Optioneel"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setCreating(false)}
+                className="px-3 py-2 rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80"
+              >
+                Annuleren
+              </button>
+              <button
+                type="submit"
+                className="px-3 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                Toevoegen
+              </button>
+            </div>
+          </form>
+        </Modal>
       )}
+
+      {/* Edit modal */}
+      {editing && (
+        <Modal title="Wensitem bewerken" onClose={() => setEditing(null)}>
+          <form onSubmit={handleUpdate} className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">Naam</label>
+              <input
+                name="name"
+                defaultValue={editing.name}
+                className="w-full rounded-md border border-input bg-background px-3 py-2"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Notities</label>
+              <textarea
+                name="notes"
+                defaultValue={editing.notes ?? ""}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 min-h-[80px]"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setEditing(null)}
+                className="px-3 py-2 rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80"
+              >
+                Annuleren
+              </button>
+              <button
+                type="submit"
+                className="px-3 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                Opslaan
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function Modal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4">
+      <div className="w-full max-w-lg bg-card text-card-foreground border border-border rounded-xl shadow-xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-semibold">{title}</h3>
+          <button onClick={onClose} className="p-1 text-muted-foreground hover:text-foreground">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        {children}
+      </div>
     </div>
   );
 }
