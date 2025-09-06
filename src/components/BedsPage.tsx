@@ -115,7 +115,6 @@ export function BedsPage({ garden }: { garden: Garden }) {
                 // Optimistisch updaten
                 setBeds(prev => prev.map(b => updates.find(u => u.id===b.id) ?? b));
                 await Promise.all(updates.map(u => updateBed(u.id, { sort_order: u.sort_order })));
-                // refresh? niet nodig, we hebben al lokaal gezet
               }
             }}
           />
@@ -160,7 +159,8 @@ export function BedsPage({ garden }: { garden: Garden }) {
       {/* Modal */}
       {upsertOpen && (
         <BedModal
-          gardenId={garden.id}
+          // Als jouw BedModal geen gardenId nodig heeft, laat deze prop weg
+          // gardenId={garden.id}
           bed={("id" in upsertOpen && upsertOpen.id) ? (upsertOpen as GardenBed) : null}
           onClose={() => setUpsertOpen(null)}
           onUpdated={(b) => upsertLocal(b)}
@@ -171,7 +171,7 @@ export function BedsPage({ garden }: { garden: Garden }) {
 }
 
 /* ===========
- * Section (kaartweergave met drag-sort)
+ * Section (kaartweergave met drag-sort via handle)
  * =========== */
 
 function Section({
@@ -220,53 +220,66 @@ function Section({
             const b = items.find(x => x.id === id)!;
             return (
               <SortableCard key={b.id} id={b.id}>
-                <div className="p-5 border rounded-xl bg-card shadow-md hover:shadow-lg transition space-y-3">
-                  <div className="flex justify-between items-start">
-                    <div className="flex items-center gap-2">
-                      <GripHandle />
-                      <div>
-                        <h4 className="font-semibold text-lg">{b.name}</h4>
-                        <p className="text-xs text-muted-foreground">
-                          {b.width_cm} × {b.length_cm} cm — {b.segments} segment(en)
-                        </p>
+                {(drag) => (
+                  <div className="p-5 border rounded-xl bg-card shadow-md hover:shadow-lg transition space-y-3">
+                    <div className="flex justify-between items-start">
+                      <div className="flex items-center gap-2">
+                        {/* DRAG HANDLE: alleen hier zitten de drag listeners */}
+                        <button
+                          type="button"
+                          className="p-1 rounded hover:bg-muted cursor-grab active:cursor-grabbing"
+                          aria-label="Verslepen"
+                          {...drag.listeners}
+                          {...drag.attributes}
+                        >
+                          <GripVertical className="h-4 w-4 text-muted-foreground" />
+                        </button>
+
+                        <div>
+                          <h4 className="font-semibold text-lg">{b.name}</h4>
+                          <p className="text-xs text-muted-foreground">
+                            {b.width_cm} × {b.length_cm} cm — {b.segments} segment(en)
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => onDuplicate(b)}
+                          className="p-1 text-muted-foreground hover:text-primary"
+                          title="Dupliceren"
+                        >
+                          <Copy className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => onEdit(b)}
+                          className="p-1 text-muted-foreground hover:text-primary"
+                          title="Bewerken"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => onDelete(b.id)}
+                          className="p-1 text-muted-foreground hover:text-destructive"
+                          title="Verwijderen"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => onDuplicate(b)}
-                        className="p-1 text-muted-foreground hover:text-primary"
-                        title="Dupliceren"
-                      >
-                        <Copy className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => onEdit(b)}
-                        className="p-1 text-muted-foreground hover:text-primary"
-                        title="Bewerken"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => onDelete(b.id)}
-                        className="p-1 text-muted-foreground hover:text-destructive"
-                        title="Verwijderen"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+
+                    <div className="flex items-center gap-2">
+                      {b.is_greenhouse && (
+                        <span className="text-xs bg-green-600/90 text-white px-2 py-0.5 rounded">
+                          Kas
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground">
+                        Positie: x {b.location_x ?? 0}, y {b.location_y ?? 0}
+                      </span>
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-2">
-                    {b.is_greenhouse && (
-                      <span className="text-xs bg-green-600/90 text-white px-2 py-0.5 rounded">
-                        Kas
-                      </span>
-                    )}
-                    <span className="text-xs text-muted-foreground">
-                      Positie: x {b.location_x ?? 0}, y {b.location_y ?? 0}
-                    </span>
-                  </div>
-                </div>
+                )}
               </SortableCard>
             );
           })}
@@ -276,17 +289,28 @@ function Section({
   );
 }
 
-function GripHandle() {
-  return <GripVertical className="h-4 w-4 text-muted-foreground" />;
-}
+/* SortableCard met render-prop: we geven alleen de drag listeners/attributes aan de handle door */
+function SortableCard({
+  id,
+  children,
+}: {
+  id: string;
+  children: (drag: { listeners: any; attributes: any; isDragging: boolean }) => React.ReactNode;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setDragRef,
+    transform,
+    isDragging,
+  } = useDraggable({
+    id,
+    // Klikken op iconen blijft klikken; pas bij >8px beweging start drag
+    activationConstraint: { distance: 8 },
+  });
 
-function SortableCard({ id, children }: { id: string; children: React.ReactNode }) {
-  // Draggable
-  const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({ id });
-  const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
-
-  // Droppable (zodat we ook "over" een kaart kunnen droppen)
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id });
+  const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
 
   return (
     <div
@@ -295,17 +319,15 @@ function SortableCard({ id, children }: { id: string; children: React.ReactNode 
         setDropRef(node as any);
       }}
       style={style}
-      {...listeners}
-      {...attributes}
-      className={`relative ${isDragging ? 'z-50 opacity-90' : ''} ${isOver ? 'ring-2 ring-primary/50 rounded-xl' : ''}`}
+      className={`relative ${isDragging ? "z-50 opacity-90" : ""} ${isOver ? "ring-2 ring-primary/50 rounded-xl" : ""}`}
     >
-      {children}
+      {children({ listeners, attributes, isDragging })}
     </div>
   );
 }
 
 /* =======================
- *  Plattegrond Editor (ongewijzigd vs vorige versie)
+ *  Plattegrond Editor (zoals hiervoor)
  * ======================= */
 
 function LayoutEditor({
