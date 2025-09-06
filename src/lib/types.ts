@@ -66,7 +66,7 @@ export interface Seed {
 
   notes: string | null;
 
-  // 👇 Nieuw: standaardkleur (optioneel, handig als default bij planting)
+  // standaardkleur (optioneel, handig als default bij planting)
   default_color: string | null;
 
   created_at: string;
@@ -86,6 +86,7 @@ export interface GardenBed {
   location_y: number;
   is_greenhouse: boolean;
   segments: number; // aantal segmenten waarin bak verdeeld is
+  sort_order: number; // 👈 nieuw: volgorde binnen groep (buiten/kas)
   created_at: string;
   updated_at: string;
 }
