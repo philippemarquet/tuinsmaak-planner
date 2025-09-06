@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import type { Seed, Garden } from "../lib/types";
-import { listSeeds, createSeed, updateSeed, deleteSeed } from "../lib/api/seeds";
+import type { Seed, Garden, CropType } from "../lib/types";
+import { listSeeds, deleteSeed } from "../lib/api/seeds";
+import { listCropTypes } from "../lib/api/cropTypes";
+import { SeedModal } from "./SeedModal";
 
 function SeedCard({
   seed,
@@ -60,35 +62,13 @@ function SeedCard({
 export function InventoryPage({ garden }: { garden: Garden }) {
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [editing, setEditing] = useState<Seed | null>(null);
+  const [cropTypes, setCropTypes] = useState<CropType[]>([]);
+  const [newOpen, setNewOpen] = useState(false);
 
   useEffect(() => {
     listSeeds(garden.id).then(setSeeds).catch(console.error);
+    listCropTypes().then(setCropTypes).catch(console.error);
   }, [garden.id]);
-
-  async function handleSave(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const fields = {
-      name: formData.get("name") as string,
-      purchase_date: formData.get("purchase_date") as string,
-      sowing_type: formData.get("sowing_type") as string,
-      stock_status: formData.get("stock_status") as string,
-      default_color: formData.get("default_color") as string,
-    };
-
-    try {
-      if (editing && editing.id) {
-        const updated = await updateSeed(editing.id, fields);
-        setSeeds(seeds.map((s) => (s.id === editing.id ? updated : s)));
-      } else {
-        const created = await createSeed({ ...fields, garden_id: garden.id });
-        setSeeds([...seeds, created]);
-      }
-      setEditing(null);
-    } catch (err: any) {
-      alert("Kon zaad niet opslaan: " + err.message);
-    }
-  }
 
   async function handleDelete(seed: Seed) {
     if (!confirm("Weet je zeker dat je dit zaad wilt verwijderen?")) return;
@@ -100,13 +80,23 @@ export function InventoryPage({ garden }: { garden: Garden }) {
     }
   }
 
+  function upsertLocal(updated: Seed) {
+    setSeeds((prev) => {
+      const idx = prev.findIndex((s) => s.id === updated.id);
+      if (idx === -1) return [...prev, updated];
+      const copy = prev.slice();
+      copy[idx] = updated;
+      return copy;
+    });
+  }
+
   return (
     <div className="space-y-6">
-      {/* Titel + knop */}
+      {/* Titel + knoppen */}
       <div className="flex justify-between items-center">
         <h2 className="text-3xl font-bold">Voorraad</h2>
         <button
-          onClick={() => setEditing({} as Seed)}
+          onClick={() => setNewOpen(true)}
           className="px-3 py-1 rounded bg-primary text-primary-foreground"
         >
           Nieuw zaad
@@ -125,89 +115,30 @@ export function InventoryPage({ garden }: { garden: Garden }) {
         ))}
       </div>
 
-      {/* Popup editor */}
+      {/* Nieuw */}
+      {newOpen && (
+        <SeedModal
+          gardenId={garden.id}
+          seed={{}} // leeg = nieuw
+          onClose={() => setNewOpen(false)}
+          onSaved={(s) => {
+            upsertLocal(s);
+            setNewOpen(false);
+          }}
+        />
+      )}
+
+      {/* Bewerken */}
       {editing && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-card p-6 rounded-lg shadow-lg w-full max-w-md space-y-4">
-            <h3 className="text-lg font-semibold">
-              {editing.id ? "Zaad bewerken" : "Nieuw zaad"}
-            </h3>
-            <form onSubmit={handleSave} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium">Naam</label>
-                <input
-                  type="text"
-                  name="name"
-                  defaultValue={editing?.name ?? ""}
-                  required
-                  className="border rounded-md px-2 py-1 w-full"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium">Aankoopdatum</label>
-                <input
-                  type="date"
-                  name="purchase_date"
-                  defaultValue={editing?.purchase_date ?? ""}
-                  className="border rounded-md px-2 py-1 w-full"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium">Zaaitype</label>
-                <select
-                  name="sowing_type"
-                  defaultValue={editing?.sowing_type ?? "direct"}
-                  className="border rounded-md px-2 py-1 w-full"
-                >
-                  <option value="direct">Direct</option>
-                  <option value="presow">Voorzaaien</option>
-                  <option value="both">Beide</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium">Voorraadstatus</label>
-                <select
-                  name="stock_status"
-                  defaultValue={editing?.stock_status ?? "adequate"}
-                  className="border rounded-md px-2 py-1 w-full"
-                >
-                  <option value="adequate">Voldoende</option>
-                  <option value="low">Bijna op</option>
-                  <option value="out">Op</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium">Kleur</label>
-                <select
-                  name="default_color"
-                  defaultValue={editing?.default_color ?? "bg-green-500"}
-                  className="border rounded-md px-2 py-1 w-full"
-                >
-                  <option value="bg-green-500">Groen</option>
-                  <option value="bg-blue-500">Blauw</option>
-                  <option value="bg-yellow-500">Geel</option>
-                  <option value="bg-red-500">Rood</option>
-                  <option value="bg-purple-500">Paars</option>
-                </select>
-              </div>
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setEditing(null)}
-                  className="px-3 py-1 border border-border rounded-md bg-muted"
-                >
-                  Annuleren
-                </button>
-                <button
-                  type="submit"
-                  className="px-3 py-1 rounded-md bg-primary text-primary-foreground"
-                >
-                  Opslaan
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <SeedModal
+          gardenId={garden.id}
+          seed={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(s) => {
+            upsertLocal(s);
+            setEditing(null);
+          }}
+        />
       )}
     </div>
   );
