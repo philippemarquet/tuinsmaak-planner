@@ -5,9 +5,6 @@ import { listSeeds } from "../lib/api/seeds";
 import { createPlanting, listPlantings, deletePlanting } from "../lib/api/plantings";
 import { DndContext, useDraggable, useDroppable } from "@dnd-kit/core";
 
-//
-// Toast
-//
 function Toast({ message, type, onClose }: { message: string; type: "success" | "error"; onClose: () => void }) {
   useEffect(() => {
     const t = setTimeout(onClose, 3000);
@@ -27,9 +24,6 @@ function Toast({ message, type, onClose }: { message: string; type: "success" | 
   );
 }
 
-//
-// Drag & Drop seeds
-//
 function DraggableSeed({ seed }: { seed: Seed }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: `seed-${seed.id}` });
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
@@ -63,9 +57,6 @@ function DroppableSegment({
   return <div ref={setNodeRef} className={`${base} ${color}`}>{children}</div>;
 }
 
-//
-// Main PlannerPage
-//
 export function PlannerPage({ garden }: { garden: Garden }) {
   const [beds, setBeds] = useState<GardenBed[]>([]);
   const [seeds, setSeeds] = useState<Seed[]>([]);
@@ -73,7 +64,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   const [popup, setPopup] = useState<{ seed: Seed; bed: GardenBed; segmentIndex: number } | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
-  // Week navigatie
   const [currentWeek, setCurrentWeek] = useState<Date>(() => {
     const now = new Date();
     const d = new Date(now);
@@ -81,15 +71,12 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     return d;
   });
 
-  useEffect(() => {
-    Promise.all([listBeds(garden.id), listSeeds(garden.id), listPlantings(garden.id)])
-      .then(([b, s, p]) => {
-        setBeds(b);
-        setSeeds(s);
-        setPlantings(p);
-      })
-      .catch(console.error);
-  }, [garden.id]);
+  async function reload() {
+    const [b, s, p] = await Promise.all([listBeds(garden.id), listSeeds(garden.id), listPlantings(garden.id)]);
+    setBeds(b); setSeeds(s); setPlantings(p);
+  }
+
+  useEffect(() => { reload().catch(console.error); }, [garden.id]);
 
   async function handleConfirmPlanting(
     seed: Seed,
@@ -101,18 +88,20 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     color: string
   ) {
     try {
-      const planting = await createPlanting({
+      await createPlanting({
         seed_id: seed.id,
         garden_bed_id: bed.id,
         garden_id: bed.garden_id,
-        planned_plant_date: date,   // 👈 altijd plantdatum opslaan
+        planned_plant_date: date,       // ALTIJD plantdatum
         method,
         segments_used: segmentsUsed,
         start_segment: segmentIndex,
         color: color || seed.default_color || "bg-green-500",
         status: "planned",
       });
-      setPlantings([...plantings, planting]);
+
+      // Na insert opnieuw inladen -> geplande oogstvelden van trigger zitten nu in de data
+      await reload();
       setPopup(null);
       setToast({ message: "Planting succesvol toegevoegd!", type: "success" });
     } catch (e: any) {
@@ -131,18 +120,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     }
   }
 
-  // Helpers
-  function getDateRange(p: Planting) {
-    const start = p.planned_plant_date ? new Date(p.planned_plant_date) : null;
-    let end: Date | null = null;
-    if (p.planned_harvest_end) {
-      end = new Date(p.planned_harvest_end);
-    }
-    return { start, end };
-  }
-
   function isActiveInWeek(p: Planting, week: Date) {
-    const { start, end } = getDateRange(p);
+    const start = p.planned_plant_date ? new Date(p.planned_plant_date) : (p.planned_sow_date ? new Date(p.planned_sow_date) : null);
+    const end = p.planned_harvest_end ? new Date(p.planned_harvest_end) : null;
     if (!start || !end) return false;
     return start <= week && end >= week;
   }
@@ -152,35 +132,16 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     const harvestStart = p.planned_harvest_start ? new Date(p.planned_harvest_start) : null;
     const harvestEnd = p.planned_harvest_end ? new Date(p.planned_harvest_end) : null;
     if (!start) return "onbekend";
-
     if (harvestEnd && harvestEnd < week) return "afgelopen";
     if (harvestStart && harvestStart <= week && (!harvestEnd || harvestEnd >= week)) return "oogsten";
     if (start <= week && (!harvestStart || harvestStart > week)) return "groeit";
     return "gepland";
   }
 
-  // Week navigatie
-  function nextWeek() {
-    const d = new Date(currentWeek);
-    d.setDate(d.getDate() + 7);
-    setCurrentWeek(d);
-  }
-  function prevWeek() {
-    const d = new Date(currentWeek);
-    d.setDate(d.getDate() - 7);
-    setCurrentWeek(d);
-  }
-  function goToToday() {
-    const now = new Date();
-    const d = new Date(now);
-    d.setDate(now.getDate() - now.getDay() + 1);
-    setCurrentWeek(d);
-  }
-  function formatWeek(d: Date) {
-    const end = new Date(d);
-    end.setDate(d.getDate() + 6);
-    return `${d.getDate()}/${d.getMonth() + 1} – ${end.getDate()}/${end.getMonth() + 1}`;
-  }
+  function nextWeek() { const d = new Date(currentWeek); d.setDate(d.getDate() + 7); setCurrentWeek(d); }
+  function prevWeek() { const d = new Date(currentWeek); d.setDate(d.getDate() - 7); setCurrentWeek(d); }
+  function goToToday() { const now = new Date(); const d = new Date(now); d.setDate(now.getDate() - now.getDay() + 1); setCurrentWeek(d); }
+  function formatWeek(d: Date) { const end = new Date(d); end.setDate(d.getDate() + 6); return `${d.getDate()}/${d.getMonth() + 1} – ${end.getDate()}/${end.getMonth() + 1}`; }
 
   return (
     <div className="space-y-10">
