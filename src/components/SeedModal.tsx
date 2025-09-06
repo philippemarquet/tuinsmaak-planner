@@ -3,10 +3,11 @@ import type { Seed, CropType, UUID } from "../lib/types";
 import { createSeed, updateSeed } from "../lib/api/seeds";
 import { listCropTypes } from "../lib/api/cropTypes";
 import { MonthSelector } from "./MonthSelector";
+import { ColorField } from "./ColorField";
 
 interface SeedModalProps {
   gardenId: UUID;
-  seed: Partial<Seed>;            // mag leeg zijn bij "nieuw"
+  seed: Partial<Seed>;            // leeg bij nieuw
   onClose: () => void;
   onSaved: (seed: Seed) => void;  // geeft aangemaakte/geüpdatete seed terug
 }
@@ -38,8 +39,8 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
     plant_months: seed.plant_months ?? [],
     harvest_months: seed.harvest_months ?? [],
 
+    default_color: seed.default_color ?? null, // kan tailwind of #hex zijn; we schrijven #hex terug
     notes: seed.notes ?? "",
-    // kleur laten defaulten in DB (bg-green-500); later kun je hier kleurkeuze toevoegen
   });
 
   useEffect(() => {
@@ -58,12 +59,19 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
         ...form,
         crop_type_id: form.crop_type_id || null,
         purchase_date: form.purchase_date || null,
-        row_spacing_cm: form.row_spacing_cm === null || form.row_spacing_cm === undefined || form.row_spacing_cm === '' ? null : Number(form.row_spacing_cm),
-        plant_spacing_cm: form.plant_spacing_cm === null || form.plant_spacing_cm === undefined || form.plant_spacing_cm === '' ? null : Number(form.plant_spacing_cm),
-        presow_duration_weeks: form.presow_duration_weeks === '' ? null : form.presow_duration_weeks,
-        grow_duration_weeks: form.grow_duration_weeks === '' ? null : form.grow_duration_weeks,
-        harvest_duration_weeks: form.harvest_duration_weeks === '' ? null : form.harvest_duration_weeks,
+        row_spacing_cm:
+          form.row_spacing_cm === null || form.row_spacing_cm === undefined || form.row_spacing_cm === ""
+            ? null
+            : Number(form.row_spacing_cm),
+        plant_spacing_cm:
+          form.plant_spacing_cm === null || form.plant_spacing_cm === undefined || form.plant_spacing_cm === ""
+            ? null
+            : Number(form.plant_spacing_cm),
+        presow_duration_weeks: form.presow_duration_weeks === "" ? null : form.presow_duration_weeks,
+        grow_duration_weeks: form.grow_duration_weeks === "" ? null : form.grow_duration_weeks,
+        harvest_duration_weeks: form.harvest_duration_weeks === "" ? null : form.harvest_duration_weeks,
         notes: form.notes || null,
+        // default_color verwacht #hex (ColorField regelt conversie)
       };
 
       const saved = editing
@@ -186,7 +194,7 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
           </div>
         </div>
 
-        {/* Maanden-selectors (jouw UI blijft behouden) */}
+        {/* Maanden-selectors (jouw UI unchanged) */}
         <MonthSelector
           label="Voorzaaien"
           value={form.presow_months ?? []}
@@ -206,6 +214,14 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
           label="Oogsten"
           value={form.harvest_months ?? []}
           onChange={(val) => handleChange("harvest_months", val)}
+        />
+
+        {/* Kleur */}
+        <ColorField
+          label="Standaardkleur (kaart & planner)"
+          value={form.default_color ?? undefined}
+          onChange={(hex) => handleChange("default_color", hex)}
+          helperText="Je kunt #RRGGBB of rgb(r,g,b) invoeren. We slaan #hex op."
         />
 
         {/* Notities */}
