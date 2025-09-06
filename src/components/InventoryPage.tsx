@@ -15,7 +15,12 @@ function SeedCard({
   onDelete: (s: Seed) => void;
   onDuplicate: (s: Seed) => void;
 }) {
-  // kleur-dot: werkt met HEX (#rrggbb) of met Tailwind class fallback
+  const stockBadgeText = seed.stock_status === "out" ? "Niet op voorraad" : "In voorraad";
+  const stockBadgeClass =
+    seed.stock_status === "out"
+      ? "bg-red-100 text-red-700"
+      : "bg-emerald-100 text-emerald-700";
+
   const colorDot =
     seed.default_color && seed.default_color.startsWith("#") ? (
       <span
@@ -30,16 +35,10 @@ function SeedCard({
       />
     );
 
-  const stockBadgeText = seed.stock_status === "out" ? "Niet op voorraad" : "In voorraad";
-  const stockBadgeClass =
-    seed.stock_status === "out"
-      ? "bg-red-100 text-red-700"
-      : "bg-emerald-100 text-emerald-700";
-
   return (
     <div className="p-5 border rounded-xl bg-card shadow-md hover:shadow-lg transition space-y-3">
       <div className="flex justify-between items-start">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           {colorDot}
           <div className="min-w-0">
             <h4 className="font-semibold text-lg truncate">{seed.name}</h4>
@@ -48,7 +47,6 @@ function SeedCard({
             </p>
           </div>
         </div>
-
         <div className="flex gap-2">
           <button
             onClick={() => onDuplicate(seed)}
@@ -75,23 +73,19 @@ function SeedCard({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {/* voorraad */}
         <span className={`text-xs px-2 py-0.5 rounded ${stockBadgeClass}`}>{stockBadgeText}</span>
-
-        {/* zaaitype */}
         {seed.sowing_type && (
           <span className="text-xs px-2 py-0.5 rounded bg-secondary text-secondary-foreground">
             Zaaitype: {seed.sowing_type}
           </span>
         )}
-
-        {/* kas-compatibel */}
         {seed.greenhouse_compatible && (
-          <span className="text-xs px-2 py-0.5 rounded bg-green-600 text-white">Geschikt voor kas</span>
+          <span className="text-xs px-2 py-0.5 rounded bg-green-600 text-white">
+            Geschikt voor kas
+          </span>
         )}
       </div>
 
-      {/* compacte details */}
       <div className="text-xs text-muted-foreground grid grid-cols-2 gap-x-4 gap-y-1">
         <div>Rijafstand: {seed.row_spacing_cm ?? "—"} cm</div>
         <div>Plantafstand: {seed.plant_spacing_cm ?? "—"} cm</div>
@@ -110,7 +104,7 @@ function nextCopyName(name: string) {
   return `${name} (kopie)`;
 }
 
-export default function InventoryPage({ garden }: { garden: Garden }) {
+export function InventoryPage({ garden }: { garden: Garden }) {
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [editorOpen, setEditorOpen] = useState<{ seed: Seed | null } | null>(null);
 
@@ -175,7 +169,6 @@ export default function InventoryPage({ garden }: { garden: Garden }) {
 
   return (
     <div className="space-y-8">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-3xl font-bold">Voorraad</h2>
         <button
@@ -187,7 +180,6 @@ export default function InventoryPage({ garden }: { garden: Garden }) {
         </button>
       </div>
 
-      {/* Cards */}
       {sortedSeeds.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nog geen zaden toegevoegd.</p>
       ) : (
@@ -204,7 +196,6 @@ export default function InventoryPage({ garden }: { garden: Garden }) {
         </div>
       )}
 
-      {/* Modal editor */}
       {editorOpen && (
         <SeedEditor
           gardenId={garden.id}
