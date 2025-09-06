@@ -6,7 +6,6 @@ export type WishlistItem = {
   name: string;
   notes: string | null;
   created_at: string;
-  updated_at: string;
 };
 
 export async function listWishlist(gardenId: string): Promise<WishlistItem[]> {
@@ -16,23 +15,28 @@ export async function listWishlist(gardenId: string): Promise<WishlistItem[]> {
     .eq("garden_id", gardenId)
     .order("created_at", { ascending: false });
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []) as WishlistItem[];
 }
 
-export async function createWishlistItem(fields: Partial<WishlistItem>): Promise<WishlistItem> {
+export async function createWishlistItem(
+  item: Partial<WishlistItem> & { garden_id: string; name: string }
+): Promise<WishlistItem> {
   const { data, error } = await supabase
     .from("wishlist_items")
-    .insert(fields)
+    .insert(item)
     .select("*")
     .single();
   if (error) throw error;
   return data as WishlistItem;
 }
 
-export async function updateWishlistItem(id: string, fields: Partial<WishlistItem>): Promise<WishlistItem> {
+export async function updateWishlistItem(
+  id: string,
+  patch: Partial<WishlistItem>
+): Promise<WishlistItem> {
   const { data, error } = await supabase
     .from("wishlist_items")
-    .update(fields)
+    .update(patch)
     .eq("id", id)
     .select("*")
     .single();
