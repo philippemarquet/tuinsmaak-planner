@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Garden, GardenBed, UUID } from "../lib/types";
 import { listBeds, deleteBed, updateBed } from "../lib/api/beds";
 import { BedModal } from "./BedModal";
-import { Pencil, Trash2, Map as MapIcon, PlusCircle } from "lucide-react";
+import { Pencil, Trash2, Map as MapIcon, PlusCircle, ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
 
 export function BedsPage({ garden }: { garden: Garden }) {
   const [beds, setBeds] = useState<GardenBed[]>([]);
@@ -120,7 +120,6 @@ export function BedsPage({ garden }: { garden: Garden }) {
         <LayoutEditor
           beds={beds}
           onMove={async (id, x, y) => {
-            // direct opslaan
             try {
               const updated = await updateBed(id, { location_x: Math.round(x), location_y: Math.round(y) });
               upsertLocal(updated);
@@ -144,11 +143,13 @@ export function BedsPage({ garden }: { garden: Garden }) {
   );
 }
 
-/** =======================
- *  Plattegrond Editor
- *  - schaal de bed-afmetingen proportioneel
- *  - sleep om (x,y) te wijzigen (directe save via props.onMove)
- *  ======================= */
+/* =======================
+ *  Plattegrond Editor met zoom
+ *  - Grote virtuele canvas (scroll & zoom)
+ *  - Zoom: 25%–300%, knoppen + slider + “Fit”
+ *  - Sleep correctie voor zoom (coördinaten blijven kloppen)
+ * ======================= */
+
 function LayoutEditor({
   beds,
   onMove,
@@ -156,57 +157,122 @@ function LayoutEditor({
   beds: GardenBed[];
   onMove: (id: UUID, x: number, y: number) => void;
 }) {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const [size, setSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  const viewportRef = useRef<HTMLDivElement | null>(null);
 
-  // meet container
-  useEffect(() => {
-    function measure() {
-      const r = ref.current?.getBoundingClientRect();
-      if (r) setSize({ w: r.width, h: Math.max(500, r.height) });
-    }
-    measure();
-    const obs = new ResizeObserver(measure);
-    if (ref.current) obs.observe(ref.current);
-    return () => obs.disconnect();
-  }, []);
+  // Virtuele canvas-afmetingen (voldoende groot om veel bakken te plaatsen)
+  const CANVAS_W = 2400;
+  const CANVAS_H = 1400;
 
-  // schaal in px/cm zodat grootste bak binnen container past
-  const pxPerCm = useMemo(() => {
-    const maxLen = Math.max(...beds.map((b) => b.length_cm || 1), 300);
-    const maxWid = Math.max(...beds.map((b) => b.width_cm || 1), 100);
-    if (size.w === 0 || size.h === 0) return 1.2; // fallback
-    const scaleX = (size.w - 80) / (maxLen * 1.2);
-    const scaleY = (size.h - 80) / (maxWid * 1.2);
-    return Math.max(0.2, Math.min(2.5, Math.min(scaleX, scaleY)));
-  }, [beds, size.w, size.h]);
+  // Basisschaal voor afmetingen van bakken (px per cm)
+  const pxPerCm = 1; // 300 cm ≈ 300 px; 3 bakken achter elkaar = ~900 px vóór zoom
 
+  // Zoom state
+  const [zoom, setZoom] = useState(0.8); // start iets uitgezoomd
+  const minZoom = 0.25;
+  const maxZoom = 3;
+
+  function setZoomClamped(v: number) {
+    setZoom(Math.max(minZoom, Math.min(maxZoom, v)));
+  }
+
+  // Fit-to-viewport zoom
+  function fitToViewport() {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const vw = vp.clientWidth - 24; // margins
+    const vh = vp.clientHeight - 24;
+    const zx = vw / CANVAS_W;
+    const zy = vh / CANVAS_H;
+    setZoomClamped(Math.min(zx, zy));
+  }
+
+  // Controls UI
+  function ZoomControls() {
+    return (
+      <div className="flex items-center gap-2">
+        <button
+          className="inline-flex items-center gap-1 border rounded-md px-2 py-1 bg-secondary hover:bg-secondary/80"
+          onClick={() => setZoomClamped(zoom - 0.1)}
+          title="Uitzoomen"
+        >
+          <ZoomOut className="h-4 w-4" />-
+        </button>
+        <input
+          type="range"
+          min={minZoom}
+          max={maxZoom}
+          step={0.05}
+          value={zoom}
+          onChange={(e) => setZoomClamped(parseFloat(e.target.value))}
+          className="w-40"
+        />
+        <button
+          className="inline-flex items-center gap-1 border rounded-md px-2 py-1 bg-secondary hover:bg-secondary/80"
+          onClick={() => setZoomClamped(zoom + 0.1)}
+          title="Inzoomen"
+        >
+          <ZoomIn className="h-4 w-4" />+
+        </button>
+        <button
+          className="inline-flex items-center gap-1 border rounded-md px-2 py-1"
+          onClick={() => setZoomClamped(1)}
+          title="100%"
+        >
+          100%
+        </button>
+        <button
+          className="inline-flex items-center gap-1 border rounded-md px-2 py-1"
+          onClick={fitToViewport}
+          title="Passend maken"
+        >
+          <Maximize2 className="h-4 w-4" />
+          Fit
+        </button>
+        <span className="text-xs text-muted-foreground ml-1">{Math.round(zoom * 100)}%</span>
+      </div>
+    );
+  }
+
+  // Sizer + geschaalde canvas
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-xl font-semibold">Plattegrond</h3>
-        <p className="text-xs text-muted-foreground">
-          Sleep bakken in het raster. Posities worden direct opgeslagen.
-        </p>
+        <ZoomControls />
       </div>
 
       <div
-        ref={ref}
-        className="relative w-full min-h-[520px] rounded-xl border border-border bg-[linear-gradient(90deg,rgba(0,0,0,0.04)_1px,transparent_1px),linear-gradient(180deg,rgba(0,0,0,0.04)_1px,transparent_1px)]"
-        style={{
-          backgroundSize: "24px 24px",
-          overflow: "hidden",
-        }}
+        ref={viewportRef}
+        className="relative w-full h-[70vh] rounded-xl border border-border overflow-auto bg-background"
       >
-        {beds.map((b) => (
-          <BedBlock
-            key={b.id}
-            bed={b}
-            pxPerCm={pxPerCm}
-            containerSize={size}
-            onMove={onMove}
-          />
-        ))}
+        {/* Sizer houdt rekening met zoom zodat scrollbars kloppen */}
+        <div className="relative" style={{ width: CANVAS_W * zoom, height: CANVAS_H * zoom }}>
+          {/* De daadwerkelijke canvas die we schalen */}
+          <div
+            className="absolute left-0 top-0"
+            style={{
+              width: CANVAS_W,
+              height: CANVAS_H,
+              transform: `scale(${zoom})`,
+              transformOrigin: "0 0",
+              backgroundImage:
+                "linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(180deg, rgba(0,0,0,0.04) 1px, transparent 1px)",
+              backgroundSize: "24px 24px",
+              borderRadius: 12,
+            }}
+          >
+            {beds.map((b) => (
+              <BedBlock
+                key={b.id}
+                bed={b}
+                pxPerCm={pxPerCm}
+                canvasSize={{ w: CANVAS_W, h: CANVAS_H }}
+                zoom={zoom}
+                onMove={onMove}
+              />
+            ))}
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -215,31 +281,37 @@ function LayoutEditor({
 function BedBlock({
   bed,
   pxPerCm,
-  containerSize,
+  canvasSize,
+  zoom,
   onMove,
 }: {
   bed: GardenBed;
   pxPerCm: number;
-  containerSize: { w: number; h: number };
+  canvasSize: { w: number; h: number };
+  zoom: number;
   onMove: (id: UUID, x: number, y: number) => void;
 }) {
-  // afmetingen in px (liggend: lengte = x, breedte = y)
+  // Afmetingen in px (liggend: lengte = x, breedte = y)
   const w = Math.max(40, Math.round((bed.length_cm || 200) * pxPerCm));
   const h = Math.max(24, Math.round((bed.width_cm || 100) * pxPerCm));
 
-  // startpositie
+  // Startpositie (ongewijzigd door zoom)
   const [pos, setPos] = useState<{ x: number; y: number }>({
     x: bed.location_x ?? 20,
     y: bed.location_y ?? 20,
-  });
-  const dragging = useRef(false);
-  const start = useRef<{ mx: number; my: number; x: number; y: number }>({
-    mx: 0, my: 0, x: 0, y: 0,
   });
 
   useEffect(() => {
     setPos({ x: bed.location_x ?? 20, y: bed.location_y ?? 20 });
   }, [bed.location_x, bed.location_y]);
+
+  const dragging = useRef(false);
+  const start = useRef<{ mx: number; my: number; x: number; y: number }>({
+    mx: 0,
+    my: 0,
+    x: 0,
+    y: 0,
+  });
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     dragging.current = true;
@@ -249,10 +321,11 @@ function BedBlock({
 
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
     if (!dragging.current) return;
-    const dx = e.clientX - start.current.mx;
-    const dy = e.clientY - start.current.my;
-    const nx = Math.max(0, Math.min(containerSize.w - w, start.current.x + dx));
-    const ny = Math.max(0, Math.min(containerSize.h - h, start.current.y + dy));
+    // corrigeer delta voor zoom, zodat posities in “canvas-ruimte” blijven
+    const dx = (e.clientX - start.current.mx) / zoom;
+    const dy = (e.clientY - start.current.my) / zoom;
+    const nx = Math.max(0, Math.min(canvasSize.w - w, start.current.x + dx));
+    const ny = Math.max(0, Math.min(canvasSize.h - h, start.current.y + dy));
     setPos({ x: nx, y: ny });
   }
 
