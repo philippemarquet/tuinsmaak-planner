@@ -4,7 +4,17 @@ import type { Garden, GardenBed, Planting, Seed } from "../lib/types";
 import { listBeds } from "../lib/api/beds";
 import { listSeeds, updateSeed } from "../lib/api/seeds";
 import { createPlanting, listPlantings, deletePlanting, updatePlanting } from "../lib/api/plantings";
-import { DndContext, useDraggable, useDroppable } from "@dnd-kit/core";
+import {
+  DndContext,
+  useDraggable,
+  useDroppable,
+  DragOverlay,
+  closestCenter,
+  useSensor,
+  useSensors,
+  PointerSensor,
+} from "@dnd-kit/core";
+import { snapCenterToCursor } from "@dnd-kit/modifiers";
 import { ColorField } from "./ColorField";
 import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
 
@@ -32,6 +42,19 @@ function Toast({ message, type, onClose }: { message: string; type: "success" | 
         <span>{message}</span>
         <button onClick={onClose} className="ml-2 text-white/90 hover:text-white">✕</button>
       </div>
+    </div>
+  );
+}
+
+/* Chip zonder dnd-hooks (voor DragOverlay) */
+function SeedChip({ seed }: { seed: Seed }) {
+  return (
+    <div className="p-2 border rounded-md bg-secondary text-sm flex items-center gap-2 shadow">
+      {seed.default_color?.startsWith("#")
+        ? <span className="inline-block w-3 h-3 rounded" style={{ background: seed.default_color }} />
+        : <span className={`inline-block w-3 h-3 rounded ${seed.default_color ?? "bg-green-500"}`} />
+      }
+      <span className="truncate">{seed.name}</span>
     </div>
   );
 }
@@ -88,6 +111,7 @@ function MonthChips({ selected, onToggle }: { selected: number[]; onToggle: (m: 
 function PlannerMap({
   beds, seedsById, plantings, currentWeek, showGhosts,
   onClickPlanting,
+  onDeletePlanting,
 }: {
   beds: GardenBed[];
   seedsById: Record<string, Seed>;
@@ -95,6 +119,7 @@ function PlannerMap({
   currentWeek: Date;
   showGhosts: boolean;
   onClickPlanting: (p: Planting, bed: GardenBed, seed: Seed) => void;
+  onDeletePlanting?: (p: Planting) => void;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const CANVAS_W = 2400;
@@ -216,13 +241,23 @@ function PlannerMap({
                         const height = used * segH;
                         const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
                         return (
-                          <div key={p.id}
-                               className={`absolute left-1 right-1 rounded ${isHex ? "" : (p.color ?? "bg-primary")} text-white text-[10px] px-1 flex items-center cursor-pointer`}
-                               style={{ top, height: Math.max(18, height), backgroundColor: isHex ? (p.color ?? "#22c55e") : undefined }}
-                               onClick={() => seed && onClickPlanting(p, bed, seed)}
-                               title={seed?.name ?? "Onbekend"}
+                          <div
+                            key={p.id}
+                            className={`absolute left-1 right-1 rounded ${isHex ? "" : (p.color ?? "bg-primary")} text-white text-[10px] px-1 flex items-center cursor-pointer relative`}
+                            style={{ top, height: Math.max(18, height), backgroundColor: isHex ? (p.color ?? "#22c55e") : undefined }}
+                            onClick={() => seed && onClickPlanting(p, bed, seed)}
+                            title={seed?.name ?? "Onbekend"}
                           >
-                            <span className="truncate">{seed?.name ?? "—"}</span>
+                            <span className="truncate pr-4">{seed?.name ?? "—"}</span>
+                            {onDeletePlanting && (
+                              <button
+                                className="absolute right-1 top-1 text-white/80 hover:text-white text-[11px] leading-none"
+                                title="Verwijderen"
+                                onClick={(e) => { e.stopPropagation(); onDeletePlanting(p); }}
+                              >
+                                ✕
+                              </button>
+                            )}
                           </div>
                         );
                       })}
@@ -322,7 +357,7 @@ function PresowSection({
             (seed!.default_color && (seed!.default_color.startsWith("#") || seed!.default_color.startsWith("rgb"))) ? seed!.default_color! :
             "#22c55e";
 
-          // eenvoudige progress binnen de presow-periode (optisch)
+          // simpele progress binnen de presow-periode (visueel)
           let pct = 0;
           if (plant > sow) {
             const now = Math.min(Math.max(weekStart.getTime(), sow.getTime()), plant.getTime());
@@ -378,6 +413,11 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   });
   useEffect(() => { localStorage.setItem("plannerWeekISO", toISO(currentWeek)); }, [currentWeek]);
   useEffect(() => { localStorage.setItem("plannerView", view); }, [view]);
+
+  // DnD sensors + overlay state
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const [activeSeedId, setActiveSeedId] = useState<string | null>(null);
+  const activeSeed = useMemo(() => seeds.find(s => `seed-${s.id}` === activeSeedId) || null, [activeSeedId, seeds]);
 
   // filters
   const [q, setQ] = useState<string>(() => localStorage.getItem("plannerQ") ?? "");
@@ -454,7 +494,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   const seedHasPlanned = (seedId: string) => {
     const todayISO = toISO(new Date());
     return plantings.some(p => p.seed_id === seedId && (p.planned_harvest_end ?? p.actual_harvest_end ?? todayISO) >= todayISO);
-    // NOTE: in_stock boolean wordt in filters gebruikt (B2 migratie).
   };
 
   const filteredSeeds = useMemo(() => {
@@ -487,12 +526,19 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     setPopup({ mode: "create", seed, bed, segmentIndex: segIdx });
   }
 
+  function handleDragStart(event: any) {
+    setActiveSeedId(String(event.active.id));
+  }
+  function handleDragCancel() {
+    setActiveSeedId(null);
+  }
   function handleDragEnd(event: any) {
+    const activeId = String(event.active?.id ?? "");
+    setActiveSeedId(null);
     if (!event.over) return;
-    const overId = String(event.over.id);
-    const activeId = String(event.active.id);
     if (!activeId.startsWith("seed-")) return;
 
+    const overId = String(event.over.id);
     const seedId = activeId.replace("seed-", "");
     const seed = seeds.find((s) => s.id === seedId);
     if (!seed) return;
@@ -674,7 +720,14 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     <div className="space-y-6">
       {HeaderBar}
 
-      <DndContext onDragEnd={handleDragEnd}>
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
+        collisionDetection={closestCenter}
+        modifiers={[snapCenterToCursor]}
+      >
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           {/* Sidebar (STICKY + eigen scroll) */}
           <div className="col-span-1">
@@ -801,8 +854,12 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                                           <div className="flex justify-between items-center">
                                             <span>{seed?.name ?? "Onbekend"}</span>
                                             {i === p.start_segment && (
-                                              <button onClick={(e) => { e.stopPropagation(); handleDeletePlanting(p.id); }}
-                                                      className="ml-2 text-red-200 hover:text-red-500">✕</button>
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); handleDeletePlanting(p.id); }}
+                                                className="ml-2 text-red-200 hover:text-red-500"
+                                              >
+                                                ✕
+                                              </button>
                                             )}
                                           </div>
                                           <span className="italic text-[10px]">{getPhase(p, currentWeek)}</span>
@@ -914,8 +971,12 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                                           <div className="flex justify-between items-center">
                                             <span>{seed?.name ?? "Onbekend"}</span>
                                             {i === p.start_segment && (
-                                              <button onClick={(e) => { e.stopPropagation(); handleDeletePlanting(p.id); }}
-                                                      className="ml-2 text-red-200 hover:text-red-500">✕</button>
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); handleDeletePlanting(p.id); }}
+                                                className="ml-2 text-red-200 hover:text-red-500"
+                                              >
+                                                ✕
+                                              </button>
                                             )}
                                           </div>
                                           <span className="italic text-[10px]">{getPhase(p, currentWeek)}</span>
@@ -982,9 +1043,15 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 currentWeek={currentWeek}
                 showGhosts={showGhosts}
                 onClickPlanting={(p, bed, seed) => setPopup({ mode: "edit", bed, seed, planting: p, segmentIndex: p.start_segment ?? 0 })}
+                onDeletePlanting={(p) => handleDeletePlanting(p.id)}
               />
             )}
           </div>
+
+          {/* Drag overlay voor strakke uitlijning */}
+          <DragOverlay>
+            {activeSeed ? <SeedChip seed={activeSeed} /> : null}
+          </DragOverlay>
         </div>
       </DndContext>
 
@@ -1006,6 +1073,10 @@ export function PlannerPage({ garden }: { garden: Garden }) {
               }
               existing={popup.mode === "edit" ? popup.planting : undefined}
               onCancel={() => setPopup(null)}
+              onDelete={popup.mode === "edit" ? async () => {
+                await handleDeletePlanting(popup.planting.id);
+                setPopup(null);
+              } : undefined}
               onConfirm={(segmentsUsed, method, date, hex, markOut) =>
                 handleConfirmPlanting({
                   mode: popup.mode,
@@ -1035,6 +1106,7 @@ function PlantingForm({
   existing,
   onCancel,
   onConfirm,
+  onDelete,
 }: {
   mode: "create" | "edit";
   seed: Seed;
@@ -1044,6 +1116,7 @@ function PlantingForm({
   existing?: Planting;
   onCancel: () => void;
   onConfirm: (segmentsUsed: number, method: "direct" | "presow", dateISO: string, hexColor: string, markOutOfStock: boolean) => void;
+  onDelete?: () => void;
 }) {
   const [segmentsUsed, setSegmentsUsed] = useState<number>(existing?.segments_used ?? 1);
   const [method, setMethod] = useState<"direct" | "presow">(
@@ -1059,14 +1132,33 @@ function PlantingForm({
 
   return (
     <form onSubmit={(e) => { e.preventDefault(); onConfirm(segmentsUsed, method, date, color, markOut); }} className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-muted-foreground">
+          Start segment <strong>{defaultSegment + 1}</strong> • max {maxSeg} segmenten
+        </div>
+        {mode === "edit" && onDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            className="px-2 py-1 rounded border border-red-600 text-red-600 hover:bg-red-50 text-xs"
+            title="Verwijder deze planting"
+          >
+            Verwijderen
+          </button>
+        )}
+      </div>
+
       <div>
         <label className="block text-sm font-medium mb-1">Aantal segmenten</label>
-        <input type="number" name="segmentsUsed" min={1} max={maxSeg} value={segmentsUsed}
-               onChange={(e) => setSegmentsUsed(Number(e.target.value))}
-               className="border rounded-md px-2 py-1 w-full" />
-        <p className="text-xs text-muted-foreground mt-1">
-          Start in segment {defaultSegment + 1} en beslaat {segmentsUsed} segment(en).
-        </p>
+        <input
+          type="number"
+          name="segmentsUsed"
+          min={1}
+          max={maxSeg}
+          value={segmentsUsed}
+          onChange={(e) => setSegmentsUsed(Number(e.target.value))}
+          className="border rounded-md px-2 py-1 w-full"
+        />
       </div>
 
       {seed.sowing_type === "both" ? (
