@@ -14,7 +14,7 @@ export async function listSeeds(gardenId: UUID): Promise<Seed[]> {
 export async function createSeed(fields: Partial<Seed>): Promise<Seed> {
   const { data, error } = await supabase
     .from('seeds')
-    .insert([fields])
+    .insert([fields as any])
     .select('*')
     .single(); // <- belangrijk voor terugkrijgen van defaults
   if (error) throw error;

@@ -1,6 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { supabase as integratedClient } from "../integrations/supabase/client";
 
-export const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL as string,
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string
-);
+// Re-export the integrated Supabase client so existing imports keep working
+export const supabase = integratedClient;

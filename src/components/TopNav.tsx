@@ -6,9 +6,15 @@ export function TopNav() {
   const [email, setEmail] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
+    const sync = async () => {
+      const { data } = await supabase.auth.getUser();
       setEmail(data.user?.email ?? null);
+    };
+    sync();
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setEmail(session?.user?.email ?? null);
     });
+    return () => sub.subscription.unsubscribe();
   }, []);
 
   return (

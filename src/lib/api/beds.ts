@@ -16,7 +16,7 @@ export async function listBeds(gardenId: UUID): Promise<GardenBed[]> {
 export async function createBed(fields: Partial<GardenBed>): Promise<GardenBed> {
   const { data, error } = await supabase
     .from("garden_beds")
-    .insert(fields)
+    .insert(fields as any)
     .select("*")
     .single();
   if (error) throw error;
@@ -65,7 +65,7 @@ export async function duplicateBed(id: UUID): Promise<GardenBed> {
 
   const { data: created, error: err2 } = await supabase
     .from("garden_beds")
-    .insert(insert)
+    .insert(insert as any)
     .select("*")
     .single();
   if (err2) throw err2;
