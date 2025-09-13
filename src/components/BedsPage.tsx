@@ -305,8 +305,6 @@ function SortableCard({
     isDragging,
   } = useDraggable({
     id,
-    // Klikken op iconen blijft klikken; pas bij >8px beweging start drag
-    activationConstraint: { distance: 8 },
   });
 
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id });

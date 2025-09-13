@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Garden } from "./lib/types";
-import { myGardens } from "./lib/api/gardens";
 
 import { TopNav } from "./components/TopNav";
-import { GardenSetup } from "./components/GardenSetup";
 
 import { Dashboard } from "./components/Dashboard";
 import { BedsPage } from "./components/BedsPage";
@@ -14,19 +11,19 @@ import { WishlistPage } from "./components/WishlistPage";
 
 type TabKey = "dashboard" | "beds" | "inventory" | "planner" | "wishlist" | "settings";
 
+// Gebruik een vaste garden ID - iedereen heeft toegang tot dezelfde tuin
+const GARDEN_ID = "c2ebf1fb-5aa9-4eac-87a8-099e9cea8790";
+
 const TABS: { key: TabKey; label: string }[] = [
   { key: "dashboard", label: "Dashboard" },
   { key: "beds", label: "Bakken" },
   { key: "inventory", label: "Voorraad" },
   { key: "planner", label: "Planner" },
-  { key: "wishlist", label: "Wishlist" }, // ⬅️ nieuw tabje
+  { key: "wishlist", label: "Wishlist" },
   { key: "settings", label: "Instellingen" },
 ];
 
 export default function App() {
-  const [garden, setGarden] = useState<Garden | null>(null);
-  const [loadingGarden, setLoadingGarden] = useState(true);
-
   const [activeTab, setActiveTab] = useState<TabKey>(() => {
     const saved = localStorage.getItem("activeTab") as TabKey | null;
     return saved ?? "dashboard";
@@ -36,41 +33,15 @@ export default function App() {
     localStorage.setItem("activeTab", activeTab);
   }, [activeTab]);
 
-  // Probeer automatisch de (eerste) tuin te kiezen
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const gs = await myGardens();
-        if (!mounted) return;
-        if (gs && gs.length > 0) {
-          // Als je meerdere tuinen hebt, kies eventueel degene die eerder is gebruikt
-          const lastId = localStorage.getItem("selectedGardenId");
-          const found = gs.find((g) => g.id === lastId) ?? gs[0];
-          setGarden(found);
-          localStorage.setItem("selectedGardenId", found.id);
-        } else {
-          setGarden(null);
-        }
-      } catch (e) {
-        console.error(e);
-        setGarden(null);
-      } finally {
-        if (mounted) setLoadingGarden(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  function handleGardenSelected(g: Garden) {
-    setGarden(g);
-    localStorage.setItem("selectedGardenId", g.id);
-  }
+  // Gebruik een vaste garden object met de vaste ID
+  const garden = { 
+    id: GARDEN_ID, 
+    name: "Onze Tuin",
+    join_code: "FIXED",
+    created_at: new Date().toISOString()
+  };
 
   const Content = useMemo(() => {
-    if (!garden) return null;
     switch (activeTab) {
       case "dashboard":
         return <Dashboard garden={garden} />;
@@ -81,33 +52,13 @@ export default function App() {
       case "planner":
         return <PlannerPage garden={garden} />;
       case "wishlist":
-        return <WishlistPage garden={garden} />; // ⬅️ nieuw
+        return <WishlistPage garden={garden} />;
       case "settings":
         return <SettingsPage garden={garden} />;
       default:
         return null;
     }
-  }, [activeTab, garden]);
-
-  if (loadingGarden) {
-    return (
-      <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">
-        Laden…
-      </div>
-    );
-  }
-
-  // Geen tuin gekozen → setup scherm
-  if (!garden) {
-    return (
-      <div className="min-h-screen bg-background text-foreground">
-        <TopNav />
-        <main className="p-4">
-          <GardenSetup onSelected={handleGardenSelected} />
-        </main>
-      </div>
-    );
-  }
+  }, [activeTab]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">

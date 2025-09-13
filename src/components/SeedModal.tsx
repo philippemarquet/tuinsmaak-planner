@@ -60,16 +60,16 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
         crop_type_id: form.crop_type_id || null,
         purchase_date: form.purchase_date || null,
         row_spacing_cm:
-          form.row_spacing_cm === null || form.row_spacing_cm === undefined || form.row_spacing_cm === ""
+          !form.row_spacing_cm || String(form.row_spacing_cm) === ""
             ? null
             : Number(form.row_spacing_cm),
         plant_spacing_cm:
-          form.plant_spacing_cm === null || form.plant_spacing_cm === undefined || form.plant_spacing_cm === ""
+          !form.plant_spacing_cm || String(form.plant_spacing_cm) === ""
             ? null
             : Number(form.plant_spacing_cm),
-        presow_duration_weeks: form.presow_duration_weeks === "" ? null : form.presow_duration_weeks,
-        grow_duration_weeks: form.grow_duration_weeks === "" ? null : form.grow_duration_weeks,
-        harvest_duration_weeks: form.harvest_duration_weeks === "" ? null : form.harvest_duration_weeks,
+        presow_duration_weeks: !form.presow_duration_weeks || String(form.presow_duration_weeks) === "" ? null : Number(form.presow_duration_weeks),
+        grow_duration_weeks: !form.grow_duration_weeks || String(form.grow_duration_weeks) === "" ? null : Number(form.grow_duration_weeks),
+        harvest_duration_weeks: !form.harvest_duration_weeks || String(form.harvest_duration_weeks) === "" ? null : Number(form.harvest_duration_weeks),
         notes: form.notes || null,
         // default_color verwacht #hex (ColorField regelt conversie)
       };
