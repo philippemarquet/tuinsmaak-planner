@@ -4,46 +4,22 @@ import type { Garden, GardenBed, Planting, Seed } from "../lib/types";
 import { listBeds } from "../lib/api/beds";
 import { listSeeds } from "../lib/api/seeds";
 import { createPlanting, listPlantings, deletePlanting, updatePlanting } from "../lib/api/plantings";
-import {
-  DndContext,
-  useDraggable,
-  useDroppable,
-  DragOverlay,
-  pointerWithin,
-  useSensor,
-  useSensors,
-  PointerSensor,
-} from "@dnd-kit/core";
+import { DndContext, useDraggable, useDroppable } from "@dnd-kit/core";
 import { ColorField } from "./ColorField";
 import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
 
-/* ========== helpers (datum & math) ========== */
-function addDays(d: Date, n: number) { const x = new Date(d); x.setUTCDate(x.getUTCDate() + n); return x; }
+/* ========== helpers ========== */
+function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
 function addWeeks(d: Date, w: number) { return addDays(d, w * 7); }
 function toISO(d: Date) { return d.toISOString().slice(0, 10); }
-function fromISO(s: string): Date { return new Date(`${s}T12:00:00Z`); }
 function clamp(n: number, min: number, max: number) { return Math.max(min, Math.min(max, n)); }
-function dayNum(d: Date) { return Math.floor(d.getTime() / 86400000); }
 function isoWeekNumber(date: Date) {
-  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   const dayNum = d.getUTCDay() || 7;
   d.setUTCDate(d.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return Math.ceil((((d as any) - (yearStart as any)) / 86400000 + 1) / 7);
 }
-function mondayOf(date: Date) {
-  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  const weekday = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() - (weekday - 1));
-  return d;
-}
-
-/* drag overlay centeren */
-const centerToCursor = ({ transform, draggingNodeRect, overlayNodeRect }: any) => {
-  const w = overlayNodeRect?.width ?? draggingNodeRect?.width ?? 0;
-  const h = overlayNodeRect?.height ?? draggingNodeRect?.height ?? 0;
-  return { ...transform, x: transform.x - w / 2, y: transform.y - h / 2 };
-};
 
 /* ========== tiny UI bits ========== */
 function Toast({ message, type, onClose }: { message: string; type: "success" | "error" | "info"; onClose: () => void }) {
@@ -56,18 +32,6 @@ function Toast({ message, type, onClose }: { message: string; type: "success" | 
         <span>{message}</span>
         <button onClick={onClose} className="ml-2 text-white/90 hover:text-white">✕</button>
       </div>
-    </div>
-  );
-}
-
-function SeedChip({ seed }: { seed: Seed }) {
-  return (
-    <div className="p-2 border rounded-md bg-secondary text-sm flex items-center gap-2 shadow">
-      {seed.default_color?.startsWith("#")
-        ? <span className="inline-block w-3 h-3 rounded" style={{ background: seed.default_color }} />
-        : <span className={`inline-block w-3 h-3 rounded ${seed.default_color ?? "bg-green-500"}`} />
-      }
-      <span className="truncate">{seed.name}</span>
     </div>
   );
 }
@@ -92,14 +56,13 @@ function DroppableSegment({
   bed, segmentIndex, occupied, children,
 }: { bed: GardenBed; segmentIndex: number; occupied: boolean; children: React.ReactNode; }) {
   const { setNodeRef, isOver } = useDroppable({ id: `bed__${bed.id}__segment__${segmentIndex}` });
-  const base = "flex items-center justify-center border border-dashed rounded-sm min-h-[56px] transition";
+  const base = "flex items-center justify-center border border-dashed rounded-sm min-h-[48px] transition";
   const color = isOver ? "bg-green-200" : occupied ? "bg-emerald-50" : "bg-muted";
   return <div ref={setNodeRef} className={`${base} ${color}`}>{children}</div>;
 }
 
 /* ========== filters ========== */
 type InPlannerFilter = 'all' | 'planned' | 'unplanned';
-type MethodFilter = 'all' | 'direct' | 'presow' | 'both';
 const MONTHS_SHORT = ["J","F","M","A","M","J","J","A","S","O","N","D"];
 
 function MonthChips({ selected, onToggle }: { selected: number[]; onToggle: (m: number) => void; }) {
@@ -125,7 +88,6 @@ function MonthChips({ selected, onToggle }: { selected: number[]; onToggle: (m: 
 function PlannerMap({
   beds, seedsById, plantings, currentWeek, showGhosts,
   onClickPlanting,
-  onDeletePlanting,
 }: {
   beds: GardenBed[];
   seedsById: Record<string, Seed>;
@@ -133,7 +95,6 @@ function PlannerMap({
   currentWeek: Date;
   showGhosts: boolean;
   onClickPlanting: (p: Planting, bed: GardenBed, seed: Seed) => void;
-  onDeletePlanting?: (p: Planting) => void;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const CANVAS_W = 2400;
@@ -172,19 +133,19 @@ function PlannerMap({
   }
 
   function isActiveInWeek(p: Planting) {
-    if (!p.planned_date || !p.planned_harvest_end) return false;
-    const s = fromISO(p.planned_date);
-    const e = fromISO(p.planned_harvest_end);
-    const monday = mondayOf(currentWeek);
+    const start = new Date(p.planned_date ?? "");
+    const end = new Date(p.planned_harvest_end ?? "");
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return false;
+    const monday = new Date(currentWeek);
     const sunday = addDays(monday, 6);
-    return s <= sunday && e >= monday;
+    return start <= sunday && end >= monday;
   }
   function isFutureRelativeToWeek(p: Planting) {
-    if (!p.planned_date) return false;
-    const s = fromISO(p.planned_date);
-    const monday = mondayOf(currentWeek);
+    const start = new Date(p.planned_date ?? "");
+    if (isNaN(start.getTime())) return false;
+    const monday = new Date(currentWeek);
     const sunday = addDays(monday, 6);
-    return s > sunday;
+    return start > sunday;
   }
 
   return (
@@ -197,7 +158,7 @@ function PlannerMap({
       <div ref={viewportRef} className="relative w-full h-[70vh] rounded-xl border border-border overflow-auto bg-background">
         <div className="relative" style={{ width: 2400 * zoom, height: 1400 * zoom }}>
           <div
-            className="absolute left-0 top-0 overflow-hidden"
+            className="absolute left-0 top-0"
             style={{
               width: 2400, height: 1400,
               transform: `scale(${zoom})`, transformOrigin: "0 0",
@@ -208,8 +169,8 @@ function PlannerMap({
             }}
           >
             {beds.map((bed) => {
-              const w = Math.max(60, Math.round((bed.length_cm || 200)));
-              const h = Math.max(40, Math.round((bed.width_cm || 100)));
+              const w = Math.max(40, Math.round((bed.length_cm || 200)));
+              const h = Math.max(24, Math.round((bed.width_cm || 100)));
               const x = bed.location_x ?? 20;
               const y = bed.location_y ?? 20;
               const segH = h / Math.max(1, bed.segments);
@@ -229,53 +190,47 @@ function PlannerMap({
 
               return (
                 <div key={bed.id}
-                     className={`absolute rounded-lg shadow-sm border overflow-hidden select-none ${bed.is_greenhouse ? "border-green-600/60 bg-green-50" : "bg-white"}`}
+                     className={`absolute rounded-lg shadow-sm border select-none ${bed.is_greenhouse ? "border-green-600/60 bg-green-50" : "bg-white"}`}
                      style={{ left: x, top: y, width: w, height: h }}>
                   <div className="flex items-center justify-between px-2 py-1 border-b bg-muted/50 rounded-t-lg">
                     <span className="text-xs font-medium truncate">{bed.name}</span>
                     {bed.is_greenhouse && <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-600 text-white">Kas</span>}
                   </div>
 
-                  <div className="relative w-full" style={{ height: `calc(100% - 28px)` }}>
-                    <div className="absolute inset-0 grid gap-[2px] p-[2px]" style={{ gridTemplateRows: `repeat(${bed.segments}, 1fr)` }}>
+                  {/* segmenten (HORIZONTAAL) + plantingen */}
+                  <div className="relative w-full h-[calc(100%-28px)]">
+                    {/* droppable segment-rijen */}
+                    <div className="absolute inset-0 grid gap-[2px]" style={{ gridTemplateRows: `repeat(${bed.segments}, 1fr)` }}>
                       {Array.from({ length: bed.segments }, (_, i) => (
                         <MapDroppableSegment key={i} bed={bed} segmentIndex={i} />
                       ))}
                     </div>
 
-                    <div className="absolute inset-0 p-[2px]">
+                    {/* actieve plantingen */}
+                    <div className="absolute inset-0">
                       {active.map((p) => {
                         const seed = seedsById[p.seed_id];
                         const start = p.start_segment ?? 0;
                         const used = p.segments_used ?? 1;
-                        const top = Math.round(start * segH) + 2;
-                        const height = Math.max(16, Math.floor(used * segH) - 4);
+                        const top = start * segH;
+                        const height = used * segH;
                         const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
                         return (
-                          <div
-                            key={p.id}
-                            className={`absolute left-[4px] right-[4px] rounded ${isHex ? "" : (p.color ?? "bg-primary")} text-white text-[10px] px-1 flex items-center cursor-pointer`}
-                            style={{ top, height, backgroundColor: isHex ? (p.color ?? "#22c55e") : undefined }}
-                            onClick={() => seed && onClickPlanting(p, bed, seed)}
-                            title={seed?.name ?? "Onbekend"}
+                          <div key={p.id}
+                               className={`absolute left-1 right-1 rounded ${isHex ? "" : (p.color ?? "bg-primary")} text-white text-[10px] px-1 flex items-center cursor-pointer`}
+                               style={{ top, height: Math.max(18, height) - 2 /* iets strakker binnen rand */, backgroundColor: isHex ? (p.color ?? "#22c55e") : undefined }}
+                               onClick={() => seed && onClickPlanting(p, bed, seed)}
+                               title={seed?.name ?? "Onbekend"}
                           >
-                            <span className="truncate pr-4">{seed?.name ?? "—"}</span>
-                            {onDeletePlanting && (
-                              <button
-                                className="ml-auto mr-[2px] text-white/85 hover:text-white text-[11px] leading-none"
-                                title="Verwijderen"
-                                onClick={(e) => { e.stopPropagation(); onDeletePlanting(p); }}
-                              >
-                                ✕
-                              </button>
-                            )}
+                            <span className="truncate">{seed?.name ?? "—"}</span>
                           </div>
                         );
                       })}
                     </div>
 
+                    {/* toekomstige (ghost) plantingen: alleen tonen waar segment nu vrij is */}
                     {showGhosts && (
-                      <div className="absolute inset-0 p-[2px] pointer-events-auto">
+                      <div className="absolute inset-0 pointer-events-auto">
                         {future.map((p) => {
                           const seed = seedsById[p.seed_id];
                           if (!seed) return null;
@@ -283,17 +238,17 @@ function PlannerMap({
                           const used = p.segments_used ?? 1;
                           if (!segmentFreeNow(start, used)) return null;
 
-                          const top = Math.round(start * segH) + 2;
-                          const height = Math.max(16, Math.floor(used * segH) - 4);
+                          const top = start * segH;
+                          const height = used * segH;
                           const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
                           const bg = isHex ? p.color! : "rgba(34,197,94,.35)";
                           return (
                             <div
                               key={`ghost-${p.id}`}
-                              className="absolute left-[4px] right-[4px] rounded text-white text-[10px] px-1 flex items-center cursor-pointer"
+                              className="absolute left-1 right-1 rounded text-white text-[10px] px-1 flex items-center cursor-pointer"
                               style={{
                                 top,
-                                height,
+                                height: Math.max(18, height) - 2,
                                 backgroundColor: bg,
                                 opacity: 0.35,
                                 border: "1px dashed rgba(0,0,0,.45)",
@@ -325,79 +280,6 @@ function MapDroppableSegment({ bed, segmentIndex }: { bed: GardenBed; segmentInd
   );
 }
 
-/* ========== Voorzaaien sectie (Lijstweergave) ========== */
-function PresowSection({
-  plantings,
-  seedsById,
-  weekStart,
-}: {
-  plantings: Planting[];
-  seedsById: Record<string, Seed>;
-  weekStart: Date;
-}) {
-  const weekEnd = addDays(weekStart, 6);
-
-  const items = useMemo(() => {
-    return plantings
-      .filter((p) => p.method === "presow")
-      .map((p) => {
-        const seed = seedsById[p.seed_id];
-        if (!seed) return null;
-        const plant = p.actual_plant_date ? fromISO(p.actual_plant_date) : fromISO(p.planned_date);
-        const pre = seed.presow_duration_weeks || 0;
-        const derivedSow = addWeeks(plant, -pre);
-        const sow = p.actual_sow_date ? fromISO(p.actual_sow_date) : derivedSow;
-        return { p, seed, sow, plant };
-      })
-      .filter(Boolean)
-      .filter(({ sow, plant }: any) => sow <= weekEnd && plant >= weekStart) as Array<{p: Planting; seed: Seed; sow: Date; plant: Date}>;
-  }, [plantings, seedsById, weekStart, weekEnd]);
-
-  if (items.length === 0) return null;
-
-  const wk = isoWeekNumber(weekStart);
-
-  return (
-    <section className="space-y-3">
-      <h4 className="text-lg font-semibold">Voorzaaien — WK {wk}</h4>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {items.map(({ p, seed, sow, plant }) => {
-          const color =
-            (p.color && (p.color.startsWith("#") || p.color.startsWith("rgb"))) ? p.color :
-            (seed!.default_color && (seed!.default_color.startsWith("#") || seed!.default_color.startsWith("rgb"))) ? seed!.default_color! :
-            "#22c55e";
-
-          let pct = 0;
-          if (plant > sow) {
-            const anchor = Math.min(Math.max(weekStart.getTime(), sow.getTime()), plant.getTime());
-            pct = ((anchor - sow.getTime()) / (plant.getTime() - sow.getTime())) * 100;
-          }
-
-          return (
-            <div key={p.id} className="p-3 border rounded-md bg-card shadow-sm space-y-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="inline-block w-2.5 h-2.5 rounded" style={{ backgroundColor: color }} />
-                <div className="min-w-0">
-                  <div className="font-medium truncate">{seed!.name}</div>
-                  <div className="text-[11px] text-muted-foreground">
-                    {sow.toLocaleDateString()} → {plant.toLocaleDateString()}
-                  </div>
-                </div>
-              </div>
-              <div className="h-1.5 w-full bg-muted rounded">
-                <div className="h-1.5 rounded" style={{ width: `${Math.max(0, Math.min(100, pct))}%`, backgroundColor: color }} />
-              </div>
-              <div className="text-[11px] text-muted-foreground">
-                Uitplanten: <span className="font-medium">{plant.toLocaleDateString()}</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
 /* ========== hoofdpagina ========== */
 export function PlannerPage({ garden }: { garden: Garden }) {
   const [beds, setBeds] = useState<GardenBed[]>([]);
@@ -414,34 +296,28 @@ export function PlannerPage({ garden }: { garden: Garden }) {
 
   const [currentWeek, setCurrentWeek] = useState<Date>(() => {
     const saved = localStorage.getItem("plannerWeekISO");
-    if (saved) return mondayOf(fromISO(saved));
-    return mondayOf(new Date());
+    if (saved) return new Date(saved);
+    const now = new Date();
+    const d = new Date(now);
+    d.setDate(now.getDate() - ((now.getDay()||7) - 1)); // maandag
+    return d;
   });
   useEffect(() => { localStorage.setItem("plannerWeekISO", toISO(currentWeek)); }, [currentWeek]);
   useEffect(() => { localStorage.setItem("plannerView", view); }, [view]);
-
-  // DnD sensors + overlay state
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-  const [activeSeedId, setActiveSeedId] = useState<string | null>(null);
-  const activeSeed = useMemo(() => seeds.find(s => `seed-${s.id}` === activeSeedId) || null, [activeSeedId, seeds]);
 
   // filters
   const [q, setQ] = useState<string>(() => localStorage.getItem("plannerQ") ?? "");
   const [inStockOnly, setInStockOnly] = useState<boolean>(() => localStorage.getItem("plannerInStock") === "1");
   const [inPlanner, setInPlanner] = useState<InPlannerFilter>(() => (localStorage.getItem("plannerInPlanner") as InPlannerFilter) ?? "all");
   const [greenhouseOnly, setGreenhouseOnly] = useState<boolean>(() => localStorage.getItem("plannerGHOnly") === "1");
-  const [methodFilter, setMethodFilter] = useState<MethodFilter>(() => (localStorage.getItem("plannerMethod") as MethodFilter) || "all");
-
   const [fPresow, setFPresow] = useState<number[]>(() => JSON.parse(localStorage.getItem("plannerM_presow") ?? "[]"));
   const [fGround, setFGround] = useState<number[]>(() => JSON.parse(localStorage.getItem("plannerM_ground") ?? "[]"));
   const [fHarvest, setFHarvest] = useState<number[]>(() => JSON.parse(localStorage.getItem("plannerM_harvest") ?? "[]"));
   const [showGhosts, setShowGhosts] = useState<boolean>(() => localStorage.getItem("plannerShowGhosts") === "1");
-
   useEffect(() => { localStorage.setItem("plannerQ", q); }, [q]);
   useEffect(() => { localStorage.setItem("plannerInStock", inStockOnly ? "1" : "0"); }, [inStockOnly]);
   useEffect(() => { localStorage.setItem("plannerInPlanner", inPlanner); }, [inPlanner]);
   useEffect(() => { localStorage.setItem("plannerGHOnly", greenhouseOnly ? "1" : "0"); }, [greenhouseOnly]);
-  useEffect(() => { localStorage.setItem("plannerMethod", methodFilter); }, [methodFilter]);
   useEffect(() => { localStorage.setItem("plannerM_presow", JSON.stringify(fPresow)); }, [fPresow]);
   useEffect(() => { localStorage.setItem("plannerM_ground", JSON.stringify(fGround)); }, [fGround]);
   useEffect(() => { localStorage.setItem("plannerM_harvest", JSON.stringify(fHarvest)); }, [fHarvest]);
@@ -460,24 +336,24 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     .sort((a,b)=>(a.sort_order??0)-(b.sort_order??0) || a.created_at.localeCompare(b.created_at)), [beds]);
 
   function isActiveInWeek(p: Planting, week: Date) {
-    if (!p.planned_date || !p.planned_harvest_end) return false;
-    const start = fromISO(p.planned_date);
-    const end = fromISO(p.planned_harvest_end);
-    const monday = mondayOf(week);
+    const start = new Date(p.planned_date ?? "");
+    const end = new Date(p.planned_harvest_end ?? "");
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return false;
+    const monday = new Date(week);
     const sunday = addDays(monday, 6);
     return start <= sunday && end >= monday;
   }
   function isFutureRelativeToWeek(p: Planting, week: Date) {
-    if (!p.planned_date) return false;
-    const start = fromISO(p.planned_date);
-    const monday = mondayOf(week);
+    const start = new Date(p.planned_date ?? "");
+    if (isNaN(start.getTime())) return false;
+    const monday = new Date(week);
     const sunday = addDays(monday, 6);
     return start > sunday;
   }
   function getPhase(p: Planting, week: Date): string {
-    const start = p.planned_date ? fromISO(p.planned_date) : null;
-    const harvestStart = p.planned_harvest_start ? fromISO(p.planned_harvest_start) : null;
-    const harvestEnd = p.planned_harvest_end ? fromISO(p.planned_harvest_end) : null;
+    const start = p.planned_date ? new Date(p.planned_date) : null;
+    const harvestStart = p.planned_harvest_start ? new Date(p.planned_harvest_start) : null;
+    const harvestEnd = p.planned_harvest_end ? new Date(p.planned_harvest_end) : null;
     if (!start) return "onbekend";
     if (harvestEnd && harvestEnd < week) return "afgelopen";
     if (harvestStart && harvestStart <= week && (!harvestEnd || harvestEnd >= week)) return "oogsten";
@@ -487,54 +363,43 @@ export function PlannerPage({ garden }: { garden: Garden }) {
 
   function nextWeek() { setCurrentWeek(addDays(currentWeek, 7)); }
   function prevWeek() { setCurrentWeek(addDays(currentWeek, -7)); }
-  function goToToday() { setCurrentWeek(mondayOf(new Date())); }
+  function goToToday() {
+    const now = new Date(); const d = new Date(now);
+    d.setDate(now.getDate() - ((now.getDay()||7) - 1));
+    setCurrentWeek(d);
+  }
   function formatWeek(d: Date) {
     const end = addDays(d, 6);
     const wk = isoWeekNumber(d);
-    return `WK ${wk} • ${d.getUTCDate()}/${d.getUTCMonth()+1} – ${end.getUTCDate()}/${end.getUTCMonth()+1}`;
+    return `WK ${wk} • ${d.getDate()}/${d.getMonth()+1} – ${end.getDate()}/${end.getMonth()+1}`;
   }
 
   const seedsById = useMemo(() => Object.fromEntries(seeds.map(s=>[s.id, s])), [seeds]);
   const seedHasPlanned = (seedId: string) => {
-    const todayISO = toISO(mondayOf(new Date()));
+    const todayISO = toISO(new Date());
     return plantings.some(p => p.seed_id === seedId && (p.planned_harvest_end ?? todayISO) >= todayISO);
   };
 
   const filteredSeeds = useMemo(() => {
     let arr = seeds.slice();
-
-    if (methodFilter !== "all") {
-      arr = arr.filter(s => {
-        if (methodFilter === "direct") return s.sowing_type === "direct";
-        if (methodFilter === "presow") return s.sowing_type === "presow";
-        if (methodFilter === "both") return s.sowing_type === "both";
-        return true;
-      });
-    }
-
     if (q.trim()) {
       const term = q.trim().toLowerCase();
       arr = arr.filter(s => s.name.toLowerCase().includes(term));
     }
-    if (inStockOnly) arr = arr.filter(s => (s as any).in_stock ?? true);
+    if (inStockOnly) arr = arr.filter(s => s.in_stock ?? true);
     if (greenhouseOnly) arr = arr.filter(s => !!s.greenhouse_compatible);
     if (inPlanner !== 'all') {
       arr = arr.filter(s => (inPlanner === 'planned') ? seedHasPlanned(s.id) : !seedHasPlanned(s.id));
     }
-
     const anyMatch = (vals: number[] | null | undefined, selected: number[]) =>
       !selected.length || (vals ?? []).some(v => selected.includes(v));
-
-    if (methodFilter === "presow" || methodFilter === "both") {
-      arr = arr.filter(s => anyMatch(s.presow_months ?? [], fPresow));
-    }
-
-    const groundUnion = (s: Seed) => Array.from(new Set([...(s.direct_sow_months ?? []), ...(s.plant_months ?? [])]));
-    arr = arr.filter(s => anyMatch(groundUnion(s), fGround));
-    arr = arr.filter(s => anyMatch(s.harvest_months ?? [], fHarvest));
-
+    arr = arr.filter(s =>
+      anyMatch(s.presow_months ?? [], fPresow) &&
+      anyMatch(s.ground_months ?? [], fGround) &&
+      anyMatch(s.harvest_months ?? [], fHarvest)
+    );
     return arr;
-  }, [seeds, q, inStockOnly, greenhouseOnly, inPlanner, methodFilter, fPresow, fGround, fHarvest, plantings]);
+  }, [seeds, q, inStockOnly, greenhouseOnly, inPlanner, fPresow, fGround, fHarvest, plantings]);
 
   function openCreatePopup(bed: GardenBed, seed: Seed, segIdx: number) {
     if (bed.is_greenhouse && !seed.greenhouse_compatible) {
@@ -544,16 +409,12 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     setPopup({ mode: "create", seed, bed, segmentIndex: segIdx });
   }
 
-  function handleDragStart(event: any) {
-    setActiveSeedId(String(event.active.id));
-  }
-  function handleDragCancel() { setActiveSeedId(null); }
   function handleDragEnd(event: any) {
-    const activeId = String(event.active?.id ?? "");
-    setActiveSeedId(null);
-    if (!event.over || !activeId.startsWith("seed-")) return;
-
+    if (!event.over) return;
     const overId = String(event.over.id);
+    const activeId = String(event.active.id);
+    if (!activeId.startsWith("seed-")) return;
+
     const seedId = activeId.replace("seed-", "");
     const seed = seeds.find((s) => s.id === seedId);
     if (!seed) return;
@@ -583,28 +444,17 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     }
   }
 
-  function wouldOverlap(
-    bed: GardenBed,
-    startSeg: number,
-    segUsed: number,
-    startDate: Date,
-    endDate: Date,
-    ignorePlantingId?: string
-  ) {
-    const aStartDay = dayNum(startDate);
-    const aEndDay = dayNum(endDate);
+  function wouldOverlap(bed: GardenBed, startSeg: number, segUsed: number, startDate: Date, endDate: Date, ignorePlantingId?: string) {
+    const aStart = startDate, aEnd = endDate;
     const aSegStart = startSeg, aSegEnd = startSeg + segUsed - 1;
-
     for (const p of plantings) {
       if (p.garden_bed_id !== bed.id) continue;
       if (ignorePlantingId && p.id === ignorePlantingId) continue;
-      if (!p.planned_date || !p.planned_harvest_end) continue;
-
-      const bStartDay = dayNum(fromISO(p.planned_date));
-      const bEndDay = dayNum(fromISO(p.planned_harvest_end));
-      const timeOverlap = (aStartDay <= bEndDay) && (bStartDay <= aEndDay);
+      const bStart = new Date(p.planned_date ?? "");
+      const bEnd   = new Date(p.planned_harvest_end ?? "");
+      if (isNaN(bStart.getTime()) || isNaN(bEnd.getTime())) continue;
+      const timeOverlap = (aStart <= bEnd) && (bStart <= aEnd);
       if (!timeOverlap) continue;
-
       const ps = p.start_segment ?? 0;
       const pe = (p.start_segment ?? 0) + (p.segments_used ?? 1) - 1;
       const segOverlap = (aSegStart <= pe) && (ps <= aSegEnd);
@@ -633,12 +483,13 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       return;
     }
 
-    const plantDate = fromISO(dateISO);          // de grond in
-    const harvestStart = addWeeks(plantDate, seed.grow_duration_weeks!);
+    // GEKOZEN DATUM = planned_date (grond)
+    const groundDate = new Date(dateISO);
+    const harvestStart = addWeeks(groundDate, seed.grow_duration_weeks!);
     const harvestEnd   = addWeeks(harvestStart, seed.harvest_duration_weeks!);
 
     const segUsedClamped = clamp(segmentsUsed, 1, bed.segments - segmentIndex);
-    if (wouldOverlap(bed, segmentIndex, segUsedClamped, plantDate, harvestEnd, mode === "edit" ? target.planting?.id : undefined)) {
+    if (wouldOverlap(bed, segmentIndex, segUsedClamped, groundDate, harvestEnd, mode === "edit" ? target.planting?.id : undefined)) {
       setToast({ type: "error", message: "Deze planning botst in tijd/segment met een bestaande teelt." });
       return;
     }
@@ -649,7 +500,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
           seed_id: seed.id,
           garden_bed_id: bed.id,
           garden_id: bed.garden_id,
-          planned_date: toISO(plantDate),
+          planned_date: toISO(groundDate),
           planned_harvest_start: toISO(harvestStart),
           planned_harvest_end: toISO(harvestEnd),
           method,
@@ -661,7 +512,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       } else {
         const p = target.planting!;
         await updatePlanting(p.id, {
-          planned_date: toISO(plantDate),
+          planned_date: toISO(groundDate),
           planned_harvest_start: toISO(harvestStart),
           planned_harvest_end: toISO(harvestEnd),
           method,
@@ -671,14 +522,14 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         });
       }
 
-      const monday = mondayOf(currentWeek);
+      const monday = new Date(currentWeek);
       const sunday = addDays(monday, 6);
-      const activeNow = plantDate <= sunday && harvestEnd >= monday;
+      const activeNow = groundDate <= sunday && harvestEnd >= monday;
       await reloadAll();
       setPopup(null);
       setToast({ message: mode === "create" ? "Planting toegevoegd." : "Planting bijgewerkt.", type: "success" });
       if (!activeNow) {
-        const wk = isoWeekNumber(plantDate);
+        const wk = isoWeekNumber(groundDate);
         setToast({ message: `Gepland — zichtbaar vanaf week WK ${wk}.`, type: "info" });
       }
     } catch (e: any) {
@@ -699,6 +550,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         </div>
       </div>
 
+      {/* subtabs + toggle */}
       <div className="flex items-center gap-3 pb-3">
         {[
           { k: "list", label: "Lijstweergave" },
@@ -731,17 +583,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     <div className="space-y-6">
       {HeaderBar}
 
-      <DndContext
-        sensors={sensors}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        onDragCancel={handleDragCancel}
-        collisionDetection={pointerWithin}
-        // @ts-ignore
-        modifiers={[centerToCursor] as any}
-      >
+      <DndContext onDragEnd={handleDragEnd}>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          {/* Sidebar */}
+          {/* Sidebar (STICKY + eigen scroll) */}
           <div className="col-span-1">
             <div className="sticky top-24">
               <div className="space-y-4 max-h-[calc(100vh-7rem)] overflow-auto pr-1 pb-4">
@@ -760,42 +604,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                   </label>
 
                   <div>
-                    <div className="mb-1">Zaaimethode</div>
-                    <div className="flex flex-wrap gap-2">
-                      {([
-                        ['all','Alles'],
-                        ['direct','Direct'],
-                        ['presow','Voorzaai'],
-                        ['both','Beide'],
-                      ] as const).map(([k, lbl]) => (
-                        <button key={k}
-                          className={`px-2 py-0.5 rounded border text-xs ${methodFilter===k ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
-                          onClick={()=>setMethodFilter(k as MethodFilter)}
-                          type="button"
-                        >{lbl}</button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {(methodFilter === "presow" || methodFilter === "both") && (
-                    <div>
-                      <div className="text-xs mb-1">Voorzaaimaanden</div>
-                      <MonthChips selected={fPresow} onToggle={(m)=>setFPresow(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
-                    </div>
-                  )}
-
-                  <div>
-                    <div className="text-xs mb-1">Zaai/Plant maanden (de grond in)</div>
-                    <MonthChips selected={fGround} onToggle={(m)=>setFGround(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
-                    <p className="text-[11px] text-muted-foreground mt-1">Union van “direct zaaien” + “plantmaanden”.</p>
-                  </div>
-
-                  <div>
-                    <div className="text-xs mb-1">Oogstmaanden</div>
-                    <MonthChips selected={fHarvest} onToggle={(m)=>setFHarvest(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
-                  </div>
-
-                  <div>
                     <div className="mb-1">In planner</div>
                     <div className="flex flex-wrap gap-2">
                       {([
@@ -811,6 +619,22 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                       ))}
                     </div>
                   </div>
+
+                  {/* maandfilters */}
+                  <div className="space-y-2">
+                    <div>
+                      <div className="text-xs mb-1">Voorzaai-maanden</div>
+                      <MonthChips selected={fPresow} onToggle={(m)=>setFPresow(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
+                    </div>
+                    <div>
+                      <div className="text-xs mb-1">Direct / planten (maanden)</div>
+                      <MonthChips selected={fGround} onToggle={(m)=>setFGround(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
+                    </div>
+                    <div>
+                      <div className="text-xs mb-1">Oogstmaanden</div>
+                      <MonthChips selected={fHarvest} onToggle={(m)=>setFHarvest(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
+                    </div>
+                  </div>
                 </div>
 
                 <h3 className="text-lg font-semibold mt-2">Beschikbare zaden</h3>
@@ -822,12 +646,10 @@ export function PlannerPage({ garden }: { garden: Garden }) {
             </div>
           </div>
 
-          {/* Content */}
+          {/* Content area */}
           <div className="col-span-3 space-y-8">
             {view === "list" ? (
               <>
-                <PresowSection plantings={plantings} seedsById={seedsById} weekStart={currentWeek} />
-
                 {/* Buiten */}
                 {outdoorBeds.length > 0 && (
                   <div className="space-y-6">
@@ -849,7 +671,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                       return (
                         <div key={bed.id} className="space-y-4">
                           <h5 className="font-semibold">{bed.name} ({bed.segments} segmenten)</h5>
-                          <div className="grid gap-2" style={{ gridTemplateRows: `repeat(${bed.segments}, minmax(56px, auto))` }}>
+
+                          {/* HORIZONTAAL = rijen */}
+                          <div className="grid gap-2" style={{ gridTemplateRows: `repeat(${bed.segments}, minmax(48px, auto))` }}>
                             {Array.from({ length: bed.segments }, (_, i) => {
                               const covering = activePlantings.filter((p) => {
                                 const start = p.start_segment ?? 0;
@@ -888,6 +712,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                                       );
                                     })}
 
+                                    {/* Ghosts */}
                                     {ghosts.map((p) => {
                                       const seed = seedsById[p.seed_id];
                                       const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
@@ -905,7 +730,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                                           title={`${seed?.name ?? "Onbekend"} (toekomstig)`}
                                         >
                                           <div className="flex justify-between items-center">
-                                            <span>{seed?.name ?? "Onbekend"} </span>
+                                            <span>{seed?.name ?? "Onbekend"}</span>
                                           </div>
                                           <span className="italic text-[10px]">toekomstig</span>
                                         </div>
@@ -959,7 +784,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                       return (
                         <div key={bed.id} className="space-y-4">
                           <h5 className="font-semibold">{bed.name} ({bed.segments} segmenten)</h5>
-                          <div className="grid gap-2" style={{ gridTemplateRows: `repeat(${bed.segments}, minmax(56px, auto))` }}>
+
+                          {/* HORIZONTAAL = rijen */}
+                          <div className="grid gap-2" style={{ gridTemplateRows: `repeat(${bed.segments}, minmax(48px, auto))` }}>
                             {Array.from({ length: bed.segments }, (_, i) => {
                               const covering = activePlantings.filter((p) => {
                                 const start = p.start_segment ?? 0;
@@ -998,6 +825,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                                       );
                                     })}
 
+                                    {/* Ghosts */}
                                     {ghosts.map((p) => {
                                       const seed = seedsById[p.seed_id];
                                       const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
@@ -1056,12 +884,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 currentWeek={currentWeek}
                 showGhosts={showGhosts}
                 onClickPlanting={(p, bed, seed) => setPopup({ mode: "edit", bed, seed, planting: p, segmentIndex: p.start_segment ?? 0 })}
-                onDeletePlanting={(p) => handleDeletePlanting(p.id)}
               />
             )}
           </div>
-
-          <DragOverlay>{activeSeed ? <SeedChip seed={activeSeed} /> : null}</DragOverlay>
         </div>
       </DndContext>
 
@@ -1083,10 +908,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
               }
               existing={popup.mode === "edit" ? popup.planting : undefined}
               onCancel={() => setPopup(null)}
-              onDelete={popup.mode === "edit" ? async () => {
-                await handleDeletePlanting(popup.planting.id);
-                setPopup(null);
-              } : undefined}
               onConfirm={(segmentsUsed, method, date, hex) =>
                 handleConfirmPlanting({
                   mode: popup.mode,
@@ -1116,7 +937,6 @@ function PlantingForm({
   existing,
   onCancel,
   onConfirm,
-  onDelete,
 }: {
   mode: "create" | "edit";
   seed: Seed;
@@ -1126,7 +946,6 @@ function PlantingForm({
   existing?: Planting;
   onCancel: () => void;
   onConfirm: (segmentsUsed: number, method: "direct" | "presow", dateISO: string, hexColor: string) => void;
-  onDelete?: () => void;
 }) {
   const [segmentsUsed, setSegmentsUsed] = useState<number>(existing?.segments_used ?? 1);
   const [method, setMethod] = useState<"direct" | "presow">(
@@ -1141,58 +960,41 @@ function PlantingForm({
 
   return (
     <form onSubmit={(e) => { e.preventDefault(); onConfirm(segmentsUsed, method, date, color); }} className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-muted-foreground">
-          Start segment <strong>{defaultSegment + 1}</strong> • max {maxSeg} segmenten
-        </div>
-        {mode === "edit" && onDelete && (
-          <button
-            type="button"
-            onClick={onDelete}
-            className="px-2 py-1 rounded border border-red-600 text-red-600 hover:bg-red-50 text-xs"
-            title="Verwijder deze planting"
-          >
-            Verwijderen
-          </button>
-        )}
-      </div>
-
       <div>
         <label className="block text-sm font-medium mb-1">Aantal segmenten</label>
-        <input
-          type="number"
-          name="segmentsUsed"
-          min={1}
-          max={maxSeg}
-          value={segmentsUsed}
-          onChange={(e) => setSegmentsUsed(Number(e.target.value))}
-          className="border rounded-md px-2 py-1 w-full"
-        />
+        <input type="number" name="segmentsUsed" min={1} max={maxSeg} value={segmentsUsed}
+               onChange={(e) => setSegmentsUsed(Number(e.target.value))}
+               className="border rounded-md px-2 py-1 w-full" />
+        <p className="text-xs text-muted-foreground mt-1">
+          Start in segment {defaultSegment + 1} en beslaat {segmentsUsed} segment(en).
+        </p>
       </div>
 
       {seed.sowing_type === "both" ? (
         <div>
-          <label className="block text-sm font-medium mb-1">Zaaimethode</label>
+          <label className="block text-sm font-medium mb-1">Methode</label>
           <select name="method" value={method} onChange={(e) => setMethod(e.target.value as "direct" | "presow")}
                   className="border rounded-md px-2 py-1 w-full">
-            <option value="direct">Direct</option>
-            <option value="presow">Voorzaaien</option>
+            <option value="direct">Direct / planten in de grond</option>
+            <option value="presow">Voorzaaien (en later uitplanten)</option>
           </select>
         </div>
       ) : (
         <div>
-          <label className="block text-sm font-medium mb-1">Zaaimethode</label>
-          <div className="text-sm">{seed.sowing_type === "direct" ? "Direct" : "Voorzaaien"}</div>
+          <label className="block text-sm font-medium mb-1">Methode</label>
+          <div className="text-sm">{seed.sowing_type === "direct" ? "Direct / planten" : "Voorzaaien"}</div>
         </div>
       )}
 
       <div>
-        <label className="block text-sm font-medium mb-1">Zaai-/Plantdatum (de grond in)</label>
+        <label className="block text-sm font-medium mb-1">Direct / plantdatum</label>
         <input type="date" name="date" value={date} onChange={(e) => setDate(e.target.value)}
                className="border rounded-md px-2 py-1 w-full" />
-        <p className="text-xs text-muted-foreground mt-1">
-          Bij <strong>voorzaaien</strong> is dit de <em>uitplantdatum</em> (zaaidatum berekenen we automatisch terug).
-        </p>
+        {seed.sowing_type !== 'direct' && (
+          <p className="text-xs text-muted-foreground mt-1">
+            Bij <strong>voorzaaien</strong> geldt dit als <em>uitplantdatum</em>; de voorzaaidatum wordt automatisch berekend.
+          </p>
+        )}
       </div>
 
       <ColorField
