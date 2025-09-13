@@ -1,127 +1,57 @@
 import { useEffect, useMemo, useState } from "react";
 
-function clamp(n: number, min = 0, max = 255) {
-  return Math.max(min, Math.min(max, n));
-}
-
-function toFullHex(shortHex: string) {
-  // #abc -> #aabbcc
-  const r = shortHex[1], g = shortHex[2], b = shortHex[3];
-  return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
-}
-
-function rgbToHex(r: number, g: number, b: number) {
-  const rs = clamp(r).toString(16).padStart(2, "0");
-  const gs = clamp(g).toString(16).padStart(2, "0");
-  const bs = clamp(b).toString(16).padStart(2, "0");
-  return `#${rs}${gs}${bs}`.toLowerCase();
-}
-
-function parseColorToHex(input: string | null | undefined): string | null {
-  if (!input) return null;
-  const val = input.trim().toLowerCase();
-
-  // already #hex
-  if (/^#([0-9a-f]{6})$/.test(val)) return val;
-  if (/^#([0-9a-f]{3})$/.test(val)) return toFullHex(val);
-
-  // rgb() / rgba()
-  const rgbMatch = val.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*[\d.]+)?\s*\)$/);
-  if (rgbMatch) {
-    const r = Number(rgbMatch[1]);
-    const g = Number(rgbMatch[2]);
-    const b = Number(rgbMatch[3]);
-    if ([r, g, b].every((n) => Number.isFinite(n))) {
-      return rgbToHex(r, g, b);
-    }
+function toHexSafe(v: string): string {
+  if (!v) return "#22c55e";
+  const s = v.trim();
+  if (s.startsWith("#")) return s;
+  if (s.startsWith("rgb")) {
+    const m = s.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/i);
+    if (!m) return "#22c55e";
+    const [r, g, b] = [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)];
+    const h = "#" + [r, g, b].map(n => Math.max(0, Math.min(255, n)).toString(16).padStart(2, "0")).join("");
+    return h;
   }
-
-  // fallback: if this is a Tailwind class like bg-green-500, map a few common ones
-  const map: Record<string, string> = {
-    "bg-green-500": "#22c55e",
-    "bg-blue-500": "#3b82f6",
-    "bg-yellow-500": "#eab308",
-    "bg-red-500": "#ef4444",
-    "bg-purple-500": "#a855f7",
-    "bg-primary": "#111827",
-  };
-  if (map[val]) return map[val];
-
-  return null;
+  return "#22c55e";
 }
 
 export function ColorField({
-  label = "Kleur",
+  label,
   value,
   onChange,
   helperText,
 }: {
   label?: string;
-  value: string | null | undefined;       // accepteert #hex, rgb(), of tailwind class; we geven #hex terug
-  onChange: (hex: string) => void;        // altijd #RRGGBB bij updates
+  value: string;
+  onChange: (hexOrRgb: string) => void;
   helperText?: string;
 }) {
-  const initialHex = useMemo(() => parseColorToHex(value) ?? "#22c55e", [value]);
-  const [hex, setHex] = useState<string>(initialHex);
-  const [text, setText] = useState<string>(value ?? initialHex);
-  const [error, setError] = useState<string | null>(null);
+  const [text, setText] = useState(value || "#22c55e");
+  const hex = useMemo(() => toHexSafe(text), [text]);
 
   useEffect(() => {
-    const fromProp = parseColorToHex(value);
-    if (fromProp) {
-      setHex(fromProp);
-      setText(value!);
-    }
+    setText(value || "#22c55e");
   }, [value]);
 
-  function commitFromText(raw: string) {
-    const parsed = parseColorToHex(raw);
-    if (!parsed) {
-      setError("Gebruik #RRGGBB of rgb(r,g,b)");
-      return;
-    }
-    setError(null);
-    setHex(parsed);
-    onChange(parsed);
-  }
-
   return (
-    <div className="space-y-1">
-      <label className="block text-sm font-medium">{label}</label>
-      <div className="flex items-center gap-2">
-        {/* kleurwheel werkt met HEX */}
+    <div>
+      {label && <label className="block text-sm font-medium mb-1">{label}</label>}
+      <div className="flex items-center gap-3">
         <input
           type="color"
           value={hex}
-          onChange={(e) => {
-            setHex(e.target.value);
-            setText(e.target.value);
-            setError(null);
-            onChange(e.target.value);
-          }}
-          className="h-9 w-12 p-0 border rounded"
-          title="Kleur kiezen"
+          onChange={(e) => { setText(e.target.value); onChange(e.target.value); }}
+          className="w-12 h-8 p-0 border-none cursor-pointer bg-transparent"
+          title="Kies een kleur"
         />
-        {/* vrije invoer: HEX of RGB */}
         <input
           type="text"
           value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            if (error) setError(null);
-          }}
-          onBlur={() => commitFromText(text)}
+          onChange={(e) => { setText(e.target.value); onChange(e.target.value); }}
+          className="flex-1 rounded-md border border-input bg-background px-3 py-2"
           placeholder="#22c55e of rgb(34,197,94)"
-          className="flex-1 border rounded-md px-2 py-1"
-        />
-        <div
-          className="h-9 w-9 rounded border"
-          style={{ backgroundColor: hex }}
-          title={hex}
         />
       </div>
-      {helperText && <p className="text-xs text-muted-foreground">{helperText}</p>}
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {helperText && <p className="text-xs text-muted-foreground mt-1">{helperText}</p>}
     </div>
   );
 }
