@@ -133,7 +133,6 @@ function PlannerMap({
   }
 
   function isActiveInWeek(p: Planting) {
-    // bezetting begint op plantdatum (of direct-zaaidatum)
     const start = new Date(p.planned_plant_date ?? p.planned_sow_date ?? "");
     const end = new Date(p.planned_harvest_end ?? "");
     if (isNaN(start.getTime()) || isNaN(end.getTime())) return false;
@@ -339,7 +338,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     .sort((a,b)=>(a.sort_order??0)-(b.sort_order??0) || a.created_at.localeCompare(b.created_at)), [beds]);
 
   function isActiveInWeek(p: Planting, week: Date) {
-    // bezetting begint op plantdatum (of direct-zaaidatum)
     const start = new Date(p.planned_plant_date ?? p.planned_sow_date ?? "");
     const end = new Date(p.planned_harvest_end ?? "");
     if (isNaN(start.getTime()) || isNaN(end.getTime())) return false;
@@ -382,6 +380,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   const seedHasPlanned = (seedId: string) => {
     const todayISO = toISO(new Date());
     return plantings.some(p => p.seed_id === seedId && (p.planned_harvest_end ?? p.actual_harvest_end ?? todayISO) >= todayISO);
+    // NOTE: in_stock boolean wordt in filters gebruikt (B2 migratie).
   };
 
   const filteredSeeds = useMemo(() => {
@@ -406,7 +405,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     return arr;
   }, [seeds, q, inStockOnly, greenhouseOnly, inPlanner, fPresow, fDirect, fPlant, fHarvest, plantings]);
 
-  // Kas-hard-rule en popup openen
   function openCreatePopup(bed: GardenBed, seed: Seed, segIdx: number) {
     if (bed.is_greenhouse && !seed.greenhouse_compatible) {
       setToast({ message: "Dit zaad is niet geschikt voor de kas.", type: "error" });
@@ -432,6 +430,11 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       const bed = beds.find((b) => b.id === bedId);
       if (bed) openCreatePopup(bed, seed, segIdx);
     }
+  }
+
+  async function reloadAll() {
+    const [b, s, p] = await Promise.all([listBeds(garden.id), listSeeds(garden.id), listPlantings(garden.id)]);
+    setBeds(b); setSeeds(s); setPlantings(p);
   }
 
   async function handleDeletePlanting(id: string) {
@@ -485,14 +488,14 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       return;
     }
 
-    // ✅ GEKOZEN DATUM = plant/zaai in de bak
+    // GEKOZEN DATUM = plant/zaai in de bak
     const chosenPlantOrDirectDate = new Date(dateISO);
     let plantDate: Date, sowDate: Date;
     if (method === "presow") {
       plantDate = chosenPlantOrDirectDate;
-      sowDate = addWeeks(plantDate, -(seed.presow_duration_weeks || 0)); // bereken terug in de tijd
+      sowDate = addWeeks(plantDate, -(seed.presow_duration_weeks || 0));
     } else {
-      plantDate = chosenPlantOrDirectDate; // direct zaaien = bezetting start nu
+      plantDate = chosenPlantOrDirectDate;
       sowDate = chosenPlantOrDirectDate;
     }
 
@@ -539,7 +542,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       const monday = new Date(currentWeek);
       const sunday = addDays(monday, 6);
       const activeNow = plantDate <= sunday && harvestEnd >= monday;
-      await reload();
+      await reloadAll();
       setPopup(null);
       setToast({ message: mode === "create" ? "Planting toegevoegd." : "Planting bijgewerkt.", type: "success" });
       if (!activeNow) {
@@ -584,7 +587,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
           );
         })}
 
-        {/* ghosts toggle */}
         <label className="ml-auto mr-1 flex items-center gap-2 text-sm">
           <input type="checkbox" checked={showGhosts} onChange={(e)=>setShowGhosts(e.target.checked)} />
           Toon toekomstige plantingen
@@ -600,64 +602,68 @@ export function PlannerPage({ garden }: { garden: Garden }) {
 
       <DndContext onDragEnd={handleDragEnd}>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          {/* Sidebar */}
-          <div className="col-span-1 space-y-4">
-            <h3 className="text-lg font-semibold">Zoek/filters</h3>
-            <input value={q} onChange={(e)=>setQ(e.target.value)} placeholder="Zoek op naam…"
-                   className="w-full border rounded-md px-2 py-1" />
+          {/* Sidebar (STICKY + eigen scroll) */}
+          <div className="col-span-1">
+            <div className="sticky top-24">
+              <div className="space-y-4 max-h-[calc(100vh-7rem)] overflow-auto pr-1 pb-4">
+                <h3 className="text-lg font-semibold">Zoek/filters</h3>
+                <input value={q} onChange={(e)=>setQ(e.target.value)} placeholder="Zoek op naam…"
+                       className="w-full border rounded-md px-2 py-1" />
 
-            <div className="space-y-2 text-sm">
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked={inStockOnly} onChange={e=>setInStockOnly(e.target.checked)} />
-                In voorraad
-              </label>
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked={greenhouseOnly} onChange={e=>setGreenhouseOnly(e.target.checked)} />
-                Alleen kas-geschikt
-              </label>
+                <div className="space-y-2 text-sm">
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={inStockOnly} onChange={e=>setInStockOnly(e.target.checked)} />
+                    In voorraad
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={greenhouseOnly} onChange={e=>setGreenhouseOnly(e.target.checked)} />
+                    Alleen kas-geschikt
+                  </label>
 
-              <div>
-                <div className="mb-1">In planner</div>
-                <div className="flex flex-wrap gap-2">
-                  {([
-                    ['all','Alle'],
-                    ['planned','Reeds gepland'],
-                    ['unplanned','Nog niet gepland'],
-                  ] as const).map(([k, lbl]) => (
-                    <button key={k}
-                      className={`px-2 py-0.5 rounded border text-xs ${inPlanner===k ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
-                      onClick={()=>setInPlanner(k as InPlannerFilter)}
-                      type="button"
-                    >{lbl}</button>
-                  ))}
+                  <div>
+                    <div className="mb-1">In planner</div>
+                    <div className="flex flex-wrap gap-2">
+                      {([
+                        ['all','Alle'],
+                        ['planned','Reeds gepland'],
+                        ['unplanned','Nog niet gepland'],
+                      ] as const).map(([k, lbl]) => (
+                        <button key={k}
+                          className={`px-2 py-0.5 rounded border text-xs ${inPlanner===k ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
+                          onClick={()=>setInPlanner(k as InPlannerFilter)}
+                          type="button"
+                        >{lbl}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* maandfilters */}
+                  <div className="space-y-2">
+                    <div>
+                      <div className="text-xs mb-1">Voorzaai maanden</div>
+                      <MonthChips selected={fPresow} onToggle={(m)=>setFPresow(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
+                    </div>
+                    <div>
+                      <div className="text-xs mb-1">Direct zaaien</div>
+                      <MonthChips selected={fDirect} onToggle={(m)=>setFDirect(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
+                    </div>
+                    <div>
+                      <div className="text-xs mb-1">Plantmaanden</div>
+                      <MonthChips selected={fPlant} onToggle={(m)=>setFPlant(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
+                    </div>
+                    <div>
+                      <div className="text-xs mb-1">Oogstmaanden</div>
+                      <MonthChips selected={fHarvest} onToggle={(m)=>setFHarvest(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
+                    </div>
+                  </div>
+                </div>
+
+                <h3 className="text-lg font-semibold mt-2">Beschikbare zaden</h3>
+                <div className="space-y-2">
+                  {filteredSeeds.map((seed) => <DraggableSeed key={seed.id} seed={seed} />)}
+                  {filteredSeeds.length === 0 && <p className="text-xs text-muted-foreground">Geen zaden gevonden met deze filters.</p>}
                 </div>
               </div>
-
-              {/* maandfilters */}
-              <div className="space-y-2">
-                <div>
-                  <div className="text-xs mb-1">Voorzaai maanden</div>
-                  <MonthChips selected={fPresow} onToggle={(m)=>setFPresow(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
-                </div>
-                <div>
-                  <div className="text-xs mb-1">Direct zaaien</div>
-                  <MonthChips selected={fDirect} onToggle={(m)=>setFDirect(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
-                </div>
-                <div>
-                  <div className="text-xs mb-1">Plantmaanden</div>
-                  <MonthChips selected={fPlant} onToggle={(m)=>setFPlant(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
-                </div>
-                <div>
-                  <div className="text-xs mb-1">Oogstmaanden</div>
-                  <MonthChips selected={fHarvest} onToggle={(m)=>setFHarvest(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
-                </div>
-              </div>
-            </div>
-
-            <h3 className="text-lg font-semibold mt-4">Beschikbare zaden</h3>
-            <div className="space-y-2">
-              {filteredSeeds.map((seed) => <DraggableSeed key={seed.id} seed={seed} />)}
-              {filteredSeeds.length === 0 && <p className="text-xs text-muted-foreground">Geen zaden gevonden met deze filters.</p>}
             </div>
           </div>
 
