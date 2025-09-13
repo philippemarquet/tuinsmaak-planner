@@ -1,8 +1,5 @@
 export type UUID = string;
 
-//
-// Profielen (gebruikersinstellingen, notificaties)
-//
 export interface Profile {
   id: UUID;
   display_name: string | null;
@@ -11,9 +8,6 @@ export interface Profile {
   updated_at: string;
 }
 
-//
-// Tuin & gebruikers
-//
 export interface Garden {
   id: UUID;
   name: string;
@@ -29,26 +23,21 @@ export interface GardenUser {
   created_at: string;
 }
 
-//
-// Gewassoorten
-//
 export interface CropType {
   id: UUID;
   name: string;
   created_at: string;
 }
 
-//
-// Zaden (voorraad)
-//
 export interface Seed {
   id: UUID;
   garden_id: UUID;
   name: string;
   crop_type_id: UUID | null;
   purchase_date: string | null;
-  stock_status: "adequate" | "low" | "out";
-  stock_quantity: number;
+
+  /** ✅ enkelvoudige voorraad: ja/nee */
+  in_stock: boolean;
 
   row_spacing_cm: number | null;
   plant_spacing_cm: number | null;
@@ -65,17 +54,12 @@ export interface Seed {
   harvest_months: number[] | null;
 
   notes: string | null;
-
-  // standaardkleur (optioneel, handig als default bij planting)
   default_color: string | null;
 
   created_at: string;
   updated_at: string;
 }
 
-//
-// Tuinbakken
-//
 export interface GardenBed {
   id: UUID;
   garden_id: UUID;
@@ -85,15 +69,12 @@ export interface GardenBed {
   location_x: number;
   location_y: number;
   is_greenhouse: boolean;
-  segments: number; // aantal segmenten waarin bak verdeeld is
-  sort_order: number; // 👈 nieuw: volgorde binnen groep (buiten/kas)
+  segments: number;
+  sort_order: number;
   created_at: string;
   updated_at: string;
 }
 
-//
-// Plantings (ingeplande / actuele beplanting)
-//
 export interface Planting {
   id: UUID;
   garden_id: UUID;
@@ -113,7 +94,6 @@ export interface Planting {
   method: "direct" | "presow" | null;
   status: "planned" | "sown" | "planted" | "growing" | "harvesting" | "completed";
 
-  // Segment-gebaseerde indeling
   start_segment: number | null;
   segments_used: number | null;
   color: string | null;
@@ -128,9 +108,6 @@ export interface Planting {
   updated_at: string;
 }
 
-//
-// Taken (automatisch gegenereerd)
-//
 export interface Task {
   id: UUID;
   garden_id: UUID;
@@ -144,9 +121,6 @@ export interface Task {
   updated_at: string;
 }
 
-//
-// Bezetting per week (view)
-//
 export interface BedOccupancyWeek {
   garden_bed_id: UUID;
   garden_id: UUID;
