@@ -16,7 +16,7 @@ export async function createSeed(fields: Partial<Seed>): Promise<Seed> {
     .from('seeds')
     .insert([fields as any])
     .select('*')
-    .single(); // <- belangrijk voor terugkrijgen van defaults
+    .single();
   if (error) throw error;
   return data as Seed;
 }
