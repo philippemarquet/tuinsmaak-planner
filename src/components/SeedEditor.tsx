@@ -3,7 +3,6 @@ import type { CropType, Seed, UUID } from '../lib/types';
 import { listCropTypes } from '../lib/api/cropTypes';
 import { createSeed, updateSeed } from '../lib/api/seeds';
 import { MonthSelector } from './MonthSelector';
-import { ColorField } from './ColorField';
 
 type Props = {
   gardenId: UUID;
@@ -14,13 +13,13 @@ type Props = {
 
 export default function SeedEditor({ gardenId, seed, onClose, onSaved }: Props) {
   const editing = !!seed;
-
   const [cropTypes, setCropTypes] = useState<CropType[]>([]);
+
   const [name, setName] = useState(seed?.name ?? '');
   const [cropTypeId, setCropTypeId] = useState<string | ''>(seed?.crop_type_id ?? '');
   const [purchaseDate, setPurchaseDate] = useState<string>(seed?.purchase_date ?? '');
 
-  // ✅ nieuwe voorraad: enkel boolean in_stock
+  // ✅ nieuw model: enkele boolean
   const [inStock, setInStock] = useState<boolean>(seed?.in_stock ?? true);
 
   const [rowSpacing, setRowSpacing] = useState<number | ''>(seed?.row_spacing_cm ?? '');
@@ -32,9 +31,12 @@ export default function SeedEditor({ gardenId, seed, onClose, onSaved }: Props) 
   const [growWeeks, setGrowWeeks] = useState<number | ''>(seed?.grow_duration_weeks ?? '');
   const [harvestWeeks, setHarvestWeeks] = useState<number | ''>(seed?.harvest_duration_weeks ?? '');
 
+  // Maanden — presow zichtbaar alleen bij presow/both; groundMonths = DIRECT ZAAIEN / PLANTEN (samengevoegd)
+  const initialGround =
+    (seed?.plant_months && seed.plant_months.length ? seed.plant_months :
+     (seed?.direct_sow_months ?? [])) ?? [];
   const [presowMonths, setPresowMonths] = useState<number[]>(seed?.presow_months ?? []);
-  const [directSowMonths, setDirectSowMonths] = useState<number[]>(seed?.direct_sow_months ?? []);
-  const [plantMonths, setPlantMonths] = useState<number[]>(seed?.plant_months ?? []);
+  const [groundMonths, setGroundMonths] = useState<number[]>(initialGround);
   const [harvestMonths, setHarvestMonths] = useState<number[]>(seed?.harvest_months ?? []);
 
   const [notes, setNotes] = useState<string>(seed?.notes ?? '');
@@ -53,7 +55,6 @@ export default function SeedEditor({ gardenId, seed, onClose, onSaved }: Props) 
       crop_type_id: cropTypeId || null,
       purchase_date: purchaseDate || null,
 
-      /** ✅ enkelvoudige voorraad */
       in_stock: !!inStock,
 
       row_spacing_cm: rowSpacing === '' ? null : Number(rowSpacing),
@@ -62,16 +63,17 @@ export default function SeedEditor({ gardenId, seed, onClose, onSaved }: Props) 
       sowing_type: sowingType,
 
       presow_duration_weeks: presowWeeks === '' ? null : Number(presowWeeks),
-      grow_duration_weeks:   growWeeks   === '' ? null : Number(growWeeks),
+      grow_duration_weeks: growWeeks === '' ? null : Number(growWeeks),
       harvest_duration_weeks: harvestWeeks === '' ? null : Number(harvestWeeks),
 
+      // Samengevoegd: sla naar beide kolommen zodat filters/queries blijven werken
       presow_months: presowMonths,
-      direct_sow_months: directSowMonths,
-      plant_months: plantMonths,
+      direct_sow_months: groundMonths,
+      plant_months: groundMonths,
       harvest_months: harvestMonths,
 
       default_color: color || '#22c55e',
-      notes: notes || null,
+      notes: notes || null
     };
 
     const saved = editing ? await updateSeed(seed!.id, payload) : await createSeed(payload);
@@ -86,9 +88,8 @@ export default function SeedEditor({ gardenId, seed, onClose, onSaved }: Props) 
           <button onClick={onClose} className="text-sm text-muted-foreground hover:underline">Sluiten</button>
         </div>
 
-        {/* Layout exact zoals afgesproken: 2 kolommen */}
         <div className="grid md:grid-cols-2 gap-4">
-          {/* Linker kolom */}
+          {/* Linkerkolom */}
           <div className="space-y-2">
             <label className="text-sm">Naam</label>
             <input className="w-full rounded-md border border-input bg-background px-3 py-2"
@@ -105,7 +106,7 @@ export default function SeedEditor({ gardenId, seed, onClose, onSaved }: Props) 
             <input type="date" className="w-full rounded-md border border-input bg-background px-3 py-2"
                    value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)} />
 
-            <label className="inline-flex items-center gap-2 text-sm mt-2">
+            <label className="inline-flex items-center gap-2 text-sm">
               <input type="checkbox" checked={inStock} onChange={e => setInStock(e.target.checked)} />
               In voorraad
             </label>
@@ -114,14 +115,12 @@ export default function SeedEditor({ gardenId, seed, onClose, onSaved }: Props) 
               <div>
                 <label className="text-sm">Rijafstand (cm)</label>
                 <input type="number" className="w-full rounded-md border border-input bg-background px-3 py-2"
-                       value={rowSpacing}
-                       onChange={e => setRowSpacing(e.target.value === '' ? '' : Number(e.target.value))} />
+                       value={rowSpacing} onChange={e => setRowSpacing(e.target.value === '' ? '' : Number(e.target.value))} />
               </div>
               <div>
                 <label className="text-sm">Plantafstand (cm)</label>
                 <input type="number" className="w-full rounded-md border border-input bg-background px-3 py-2"
-                       value={plantSpacing}
-                       onChange={e => setPlantSpacing(e.target.value === '' ? '' : Number(e.target.value))} />
+                       value={plantSpacing} onChange={e => setPlantSpacing(e.target.value === '' ? '' : Number(e.target.value))} />
               </div>
             </div>
 
@@ -133,7 +132,7 @@ export default function SeedEditor({ gardenId, seed, onClose, onSaved }: Props) 
             <div>
               <div className="text-sm mb-1">Zaaitype</div>
               <div className="flex gap-3 text-sm">
-                {(['direct','presow','both'] as const).map(opt => (
+                {(['direct', 'presow', 'both'] as const).map(opt => (
                   <label key={opt} className="inline-flex items-center gap-2">
                     <input type="radio" checked={sowingType === opt} onChange={() => setSowingType(opt)} />
                     {opt === 'direct' ? 'direct' : opt === 'presow' ? 'voorzaai' : 'beide'}
@@ -143,53 +142,84 @@ export default function SeedEditor({ gardenId, seed, onClose, onSaved }: Props) 
             </div>
           </div>
 
-          {/* Rechter kolom */}
+          {/* Rechterkolom */}
           <div className="space-y-3">
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <label className="text-sm">Voorzaaien (weken)</label>
                 <input type="number" className="w-full rounded-md border border-input bg-background px-3 py-2"
-                       value={presowWeeks}
-                       onChange={e => setPresowWeeks(e.target.value === '' ? '' : Number(e.target.value))} />
+                       value={presowWeeks} onChange={e => setPresowWeeks(e.target.value === '' ? '' : Number(e.target.value))} />
               </div>
               <div>
                 <label className="text-sm">Groei → oogst (weken)</label>
                 <input type="number" className="w-full rounded-md border border-input bg-background px-3 py-2"
-                       value={growWeeks}
-                       onChange={e => setGrowWeeks(e.target.value === '' ? '' : Number(e.target.value))} />
+                       value={growWeeks} onChange={e => setGrowWeeks(e.target.value === '' ? '' : Number(e.target.value))} />
               </div>
               <div>
                 <label className="text-sm">Oogstduur (weken)</label>
                 <input type="number" className="w-full rounded-md border border-input bg-background px-3 py-2"
-                       value={harvestWeeks}
-                       onChange={e => setHarvestWeeks(e.target.value === '' ? '' : Number(e.target.value))} />
+                       value={harvestWeeks} onChange={e => setHarvestWeeks(e.target.value === '' ? '' : Number(e.target.value))} />
               </div>
             </div>
 
-            <MonthSelector label="Voorzaaimaanden" value={presowMonths} onChange={setPresowMonths} />
-            <MonthSelector label="Direct zaaien"    value={directSowMonths} onChange={setDirectSowMonths} />
-            <MonthSelector label="Plantmaanden"      value={plantMonths} onChange={setPlantMonths} />
-            <MonthSelector label="Oogstmaanden"      value={harvestMonths} onChange={setHarvestMonths} />
+            {/* Alleen tonen als presow of both */}
+            {(sowingType === 'presow' || sowingType === 'both') && (
+              <MonthSelector label="Voorzaaimaanden" value={presowMonths} onChange={setPresowMonths} />
+            )}
 
-            <ColorField
-              label="Standaardkleur"
-              value={color}
-              onChange={setColor}
-              helperText="HEX (bijv. #22c55e) of rgb(r,g,b). We slaan #hex op."
+            {/* Samengevoegd: direct zaaien / planten */}
+            <MonthSelector
+              label="Direct zaaien / planten (maanden)"
+              value={groundMonths}
+              onChange={setGroundMonths}
             />
 
+            <MonthSelector label="Oogstmaanden" value={harvestMonths} onChange={setHarvestMonths} />
+
+            <div>
+              <label className="text-sm">Standaardkleur</label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="color"
+                  value={color.startsWith('#') ? color : '#22c55e'}
+                  onChange={e => setColor(e.target.value)}
+                  className="w-12 h-8 p-0 border-none cursor-pointer bg-transparent"
+                  title="Kies een kleur"
+                />
+                <input
+                  type="text"
+                  value={color}
+                  onChange={e => setColor(e.target.value)}
+                  className="flex-1 rounded-md border border-input bg-background px-3 py-2"
+                  placeholder="#22c55e of rgb(34,197,94)"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Voer een <strong>HEX</strong> (bijv. <code>#22c55e</code>) of <strong>rgb()</strong> in.
+              </p>
+            </div>
+
             <label className="text-sm">Notities</label>
-            <textarea className="w-full rounded-md border border-input bg-background px-3 py-2 min-h-[80px]"
-                      value={notes} onChange={e => setNotes(e.target.value)} />
+            <textarea
+              className="w-full rounded-md border border-input bg-background px-3 py-2 min-h-[80px]"
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+            />
           </div>
         </div>
 
         <div className="mt-4 flex justify-end gap-2">
-          <button onClick={onClose} className="inline-flex items-center rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 px-3 py-2">
+          <button
+            onClick={onClose}
+            className="inline-flex items-center rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 px-3 py-2"
+          >
             Annuleren
           </button>
-          <button disabled={!canSave} onClick={handleSave}
-                  className="inline-flex items-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-2 disabled:opacity-50">
+          <button
+            disabled={!canSave}
+            onClick={handleSave}
+            className="inline-flex items-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-2 disabled:opacity-50"
+          >
             {editing ? 'Opslaan' : 'Toevoegen'}
           </button>
         </div>
