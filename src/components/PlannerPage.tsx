@@ -133,6 +133,7 @@ function PlannerMap({
   }
 
   function isActiveInWeek(p: Planting) {
+    // bezetting begint op plantdatum (of direct-zaaidatum)
     const start = new Date(p.planned_plant_date ?? p.planned_sow_date ?? "");
     const end = new Date(p.planned_harvest_end ?? "");
     if (isNaN(start.getTime()) || isNaN(end.getTime())) return false;
@@ -180,7 +181,6 @@ function PlannerMap({
                 ? plantings.filter(p => p.garden_bed_id === bed.id && !isActiveInWeek(p) && isFutureRelativeToWeek(p))
                 : [];
 
-              // snelle helper: is er in deze bed-segmentrange iets actiefs (nu) dat deze segment raakt?
               function segmentFreeNow(rangeStart: number, rangeLen: number) {
                 const rs = rangeStart, re = rangeStart + rangeLen - 1;
                 return !active.some(p => {
@@ -242,7 +242,7 @@ function PlannerMap({
                           const top = start * segH;
                           const height = used * segH;
                           const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
-                          const bg = isHex ? p.color! : "rgba(34,197,94,.35)"; // fallback groen
+                          const bg = isHex ? p.color! : "rgba(34,197,94,.35)";
                           return (
                             <div
                               key={`ghost-${p.id}`}
@@ -339,6 +339,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     .sort((a,b)=>(a.sort_order??0)-(b.sort_order??0) || a.created_at.localeCompare(b.created_at)), [beds]);
 
   function isActiveInWeek(p: Planting, week: Date) {
+    // bezetting begint op plantdatum (of direct-zaaidatum)
     const start = new Date(p.planned_plant_date ?? p.planned_sow_date ?? "");
     const end = new Date(p.planned_harvest_end ?? "");
     if (isNaN(start.getTime()) || isNaN(end.getTime())) return false;
@@ -381,7 +382,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   const seedHasPlanned = (seedId: string) => {
     const todayISO = toISO(new Date());
     return plantings.some(p => p.seed_id === seedId && (p.planned_harvest_end ?? p.actual_harvest_end ?? todayISO) >= todayISO);
-    // "nu of toekomst"
   };
 
   const filteredSeeds = useMemo(() => {
@@ -390,7 +390,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       const term = q.trim().toLowerCase();
       arr = arr.filter(s => s.name.toLowerCase().includes(term));
     }
-    if ((inStockOnly as any)) arr = arr.filter(s => (s as any).in_stock ?? true); // UI gebruikt boolean in_stock
+    if ((inStockOnly as any)) arr = arr.filter(s => (s as any).in_stock ?? true);
     if (greenhouseOnly) arr = arr.filter(s => !!s.greenhouse_compatible);
     if ((inPlanner as any) !== 'all') {
       arr = arr.filter(s => (inPlanner === 'planned') ? seedHasPlanned(s.id) : !seedHasPlanned(s.id));
@@ -485,9 +485,17 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       return;
     }
 
-    const chosen = new Date(dateISO);
-    const plantDate = method === "presow" ? addWeeks(chosen, seed.presow_duration_weeks || 0) : chosen;
-    const sowDate = chosen;
+    // ✅ GEKOZEN DATUM = plant/zaai in de bak
+    const chosenPlantOrDirectDate = new Date(dateISO);
+    let plantDate: Date, sowDate: Date;
+    if (method === "presow") {
+      plantDate = chosenPlantOrDirectDate;
+      sowDate = addWeeks(plantDate, -(seed.presow_duration_weeks || 0)); // bereken terug in de tijd
+    } else {
+      plantDate = chosenPlantOrDirectDate; // direct zaaien = bezetting start nu
+      sowDate = chosenPlantOrDirectDate;
+    }
+
     const harvestStart = addWeeks(plantDate, seed.grow_duration_weeks!);
     const harvestEnd   = addWeeks(harvestStart, seed.harvest_duration_weeks!);
 
@@ -528,7 +536,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       }
       if (markOutOfStock && (seed as any).in_stock) await updateSeed(seed.id, { in_stock: false } as any);
 
-      // UX-hint: als de gekozen planning niet in de huidige week valt, leg uit waarom je niets ziet
       const monday = new Date(currentWeek);
       const sunday = addDays(monday, 6);
       const activeNow = plantDate <= sunday && harvestEnd >= monday;
@@ -537,7 +544,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       setToast({ message: mode === "create" ? "Planting toegevoegd." : "Planting bijgewerkt.", type: "success" });
       if (!activeNow) {
         const wk = isoWeekNumber(plantDate);
-        setToast({ message: `Voorzaai gepland — verschijnt vanaf week WK ${wk} (uitplanten).`, type: "info" });
+        setToast({ message: `Gepland — zichtbaar vanaf week WK ${wk}.`, type: "info" });
       }
     } catch (e: any) {
       setToast({ message: "Kon planting niet opslaan: " + (e?.message ?? e), type: "error" });
@@ -577,7 +584,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
           );
         })}
 
-        {/* Show ghosts toggle (blijft bescheiden) */}
+        {/* ghosts toggle */}
         <label className="ml-auto mr-1 flex items-center gap-2 text-sm">
           <input type="checkbox" checked={showGhosts} onChange={(e)=>setShowGhosts(e.target.checked)} />
           Toon toekomstige plantingen
@@ -669,7 +676,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                         ? plantings.filter((p) => p.garden_bed_id === bed.id && !isActiveInWeek(p, currentWeek) && isFutureRelativeToWeek(p, currentWeek))
                         : [];
 
-                      // helper om te kijken of segment-rij vrij is deze week
                       const segmentIsFreeNow = (idx: number) =>
                         !activePlantings.some(p => {
                           const s = p.start_segment ?? 0;
@@ -912,7 +918,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
               defaultSegment={popup.segmentIndex}
               defaultDateISO={
                 popup.mode === "edit"
-                  ? (popup.planting.planned_sow_date ?? popup.planting.planned_plant_date ?? toISO(currentWeek))
+                  ? (popup.planting.planned_plant_date ?? popup.planting.planned_sow_date ?? toISO(currentWeek))
                   : toISO(currentWeek)
               }
               existing={popup.mode === "edit" ? popup.planting : undefined}
@@ -960,7 +966,7 @@ function PlantingForm({
   const [method, setMethod] = useState<"direct" | "presow">(
     existing?.method ?? ((seed.sowing_type === "direct" || seed.sowing_type === "presow") ? seed.sowing_type : "direct")
   );
-  const [date, setDate] = useState<string>(existing?.planned_sow_date ?? existing?.planned_plant_date ?? defaultDateISO);
+  const [date, setDate] = useState<string>(existing?.planned_plant_date ?? existing?.planned_sow_date ?? defaultDateISO);
   const [color, setColor] = useState<string>(() => {
     const source = existing?.color ?? seed.default_color ?? "#22c55e";
     return source.startsWith("#") || source.startsWith("rgb") ? source : "#22c55e";
@@ -1001,7 +1007,7 @@ function PlantingForm({
         <input type="date" name="date" value={date} onChange={(e) => setDate(e.target.value)}
                className="border rounded-md px-2 py-1 w-full" />
         <p className="text-xs text-muted-foreground mt-1">
-          Bij <strong>voorzaaien</strong> is dit de <em>zaaidatum</em> (uitplantdatum berekenen we automatisch).
+          Bij <strong>voorzaaien</strong> is dit de <em>uitplantdatum</em> (zaaidatum berekenen we automatisch terug).
         </p>
       </div>
 
