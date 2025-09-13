@@ -280,6 +280,80 @@ function MapDroppableSegment({ bed, segmentIndex }: { bed: GardenBed; segmentInd
   );
 }
 
+/* ========== Voorzaaien sectie (Lijstweergave) ========== */
+function PresowSection({
+  plantings,
+  seedsById,
+  weekStart,
+}: {
+  plantings: Planting[];
+  seedsById: Record<string, Seed>;
+  weekStart: Date;
+}) {
+  const weekEnd = addDays(weekStart, 6);
+
+  // Toon items met method='presow' waarvan [sow .. plant] de geselecteerde week overlapt
+  const items = useMemo(() => {
+    return plantings
+      .filter((p) => p.method === "presow")
+      .filter((p) => {
+        const sow = p.actual_sow_date ? new Date(p.actual_sow_date) : p.planned_sow_date ? new Date(p.planned_sow_date) : null;
+        const plant = p.actual_plant_date ? new Date(p.actual_plant_date) : p.planned_plant_date ? new Date(p.planned_plant_date) : null;
+        if (!sow || !plant) return false;
+        return sow <= weekEnd && plant >= weekStart; // overlap
+      })
+      .map((p) => ({ p, seed: seedsById[p.seed_id] }))
+      .filter((x) => !!x.seed);
+  }, [plantings, seedsById, weekStart, weekEnd]);
+
+  if (items.length === 0) return null;
+
+  const wk = isoWeekNumber(weekStart);
+
+  return (
+    <section className="space-y-3">
+      <h4 className="text-lg font-semibold">Voorzaaien — WK {wk}</h4>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        {items.map(({ p, seed }) => {
+          const sow = p.actual_sow_date ? new Date(p.actual_sow_date) : new Date(p.planned_sow_date!);
+          const plant = p.actual_plant_date ? new Date(p.actual_plant_date) : new Date(p.planned_plant_date!);
+          const color =
+            (p.color && (p.color.startsWith("#") || p.color.startsWith("rgb"))) ? p.color :
+            (seed!.default_color && (seed!.default_color.startsWith("#") || seed!.default_color.startsWith("rgb"))) ? seed!.default_color! :
+            "#22c55e";
+
+          // eenvoudige progress binnen de presow-periode (optisch)
+          let pct = 0;
+          if (plant > sow) {
+            const now = Math.min(Math.max(weekStart.getTime(), sow.getTime()), plant.getTime());
+            pct = ((now - sow.getTime()) / (plant.getTime() - sow.getTime())) * 100;
+          }
+
+          return (
+            <div key={p.id} className="p-3 border rounded-md bg-card shadow-sm space-y-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="inline-block w-2.5 h-2.5 rounded" style={{ backgroundColor: color }} />
+                <div className="min-w-0">
+                  <div className="font-medium truncate">{seed!.name}</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {sow.toLocaleDateString()} → {plant.toLocaleDateString()}
+                  </div>
+                </div>
+              </div>
+              <div className="h-1.5 w-full bg-muted rounded">
+                <div className="h-1.5 rounded" style={{ width: `${Math.max(0, Math.min(100, pct))}%`, backgroundColor: color }} />
+              </div>
+              <div className="text-[11px] text-muted-foreground">
+                Uitplanten: <span className="font-medium">{plant.toLocaleDateString()}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 /* ========== hoofdpagina ========== */
 export function PlannerPage({ garden }: { garden: Garden }) {
   const [beds, setBeds] = useState<GardenBed[]>([]);
@@ -671,6 +745,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
           <div className="col-span-3 space-y-8">
             {view === "list" ? (
               <>
+                {/* Voorzaaien-sectie (overzicht) */}
+                <PresowSection plantings={plantings} seedsById={seedsById} weekStart={currentWeek} />
+
                 {/* Buiten */}
                 {outdoorBeds.length > 0 && (
                   <div className="space-y-6">
