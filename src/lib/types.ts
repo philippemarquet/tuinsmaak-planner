@@ -30,7 +30,7 @@ export interface CropType {
 }
 
 //
-// Zaden (voorraad) —> in_stock boolean ipv stock_status/quantity
+// Zaden (voorraad)
 //
 export interface Seed {
   id: UUID;
@@ -39,7 +39,6 @@ export interface Seed {
   crop_type_id: UUID | null;
   purchase_date: string | null;
 
-  /** Nieuw model: enkel boolean i.p.v. status/aantallen */
   in_stock: boolean;
 
   row_spacing_cm: number | null;
@@ -52,12 +51,10 @@ export interface Seed {
   harvest_duration_weeks: number | null;
 
   presow_months: number[] | null;
-  direct_sow_months: number[] | null;
-  plant_months: number[] | null;
+  ground_months: number[] | null;     // ✅ samengevoegd: direct/plant
   harvest_months: number[] | null;
 
   notes: string | null;
-
   default_color: string | null;
 
   created_at: string;
@@ -79,20 +76,22 @@ export interface GardenBed {
   updated_at: string;
 }
 
+//
+// Plantings
+//
 export interface Planting {
   id: UUID;
   garden_id: UUID;
   garden_bed_id: UUID;
   seed_id: UUID;
 
-  /** Samengevoegd bronveld na je migratie */
-  planned_date: string | null;
-
+  planned_date: string | null;            // ✅ enige grond-datum
+  planned_presow_date: string | null;     // ✅ alleen bij presow/both
   planned_harvest_start: string | null;
   planned_harvest_end: string | null;
 
-  actual_sow_date: string | null;
-  actual_plant_date: string | null;
+  actual_presow_date: string | null;      // (voorzaaien daadwerkelijk)
+  actual_ground_date: string | null;      // ✅ nieuw: direct of uitplanten
   actual_harvest_start: string | null;
   actual_harvest_end: string | null;
 
