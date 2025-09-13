@@ -9,12 +9,11 @@ import {
   useDraggable,
   useDroppable,
   DragOverlay,
-  closestCenter,
+  pointerWithin, // betere uitlijning: droppen waar de cursor is
   useSensor,
   useSensors,
   PointerSensor,
 } from "@dnd-kit/core";
-import { snapCenterToCursor } from "@dnd-kit/modifiers";
 import { ColorField } from "./ColorField";
 import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
 
@@ -30,6 +29,18 @@ function isoWeekNumber(date: Date) {
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   return Math.ceil((((d as any) - (yearStart as any)) / 86400000 + 1) / 7);
 }
+
+/* ========== mini modifier (geen extra package nodig) ========== */
+/** Centreer het drag-item onder de cursor, vergelijkbaar met snapCenterToCursor */
+const centerToCursor = ({ transform, draggingNodeRect, overlayNodeRect }: any) => {
+  const w = overlayNodeRect?.width ?? draggingNodeRect?.width ?? 0;
+  const h = overlayNodeRect?.height ?? draggingNodeRect?.height ?? 0;
+  return {
+    ...transform,
+    x: transform.x - w / 2,
+    y: transform.y - h / 2,
+  };
+};
 
 /* ========== tiny UI bits ========== */
 function Toast({ message, type, onClose }: { message: string; type: "success" | "error" | "info"; onClose: () => void }) {
@@ -79,7 +90,7 @@ function DroppableSegment({
   bed, segmentIndex, occupied, children,
 }: { bed: GardenBed; segmentIndex: number; occupied: boolean; children: React.ReactNode; }) {
   const { setNodeRef, isOver } = useDroppable({ id: `bed__${bed.id}__segment__${segmentIndex}` });
-  const base = "flex items-center justify-center border border-dashed rounded-sm min-h-[48px] transition";
+  const base = "flex items-center justify-center border border-dashed rounded-sm min-h-[56px] transition"; // iets hoger voor makkelijker mikken
   const color = isOver ? "bg-green-200" : occupied ? "bg-emerald-50" : "bg-muted";
   return <div ref={setNodeRef} className={`${base} ${color}`}>{children}</div>;
 }
@@ -357,7 +368,6 @@ function PresowSection({
             (seed!.default_color && (seed!.default_color.startsWith("#") || seed!.default_color.startsWith("rgb"))) ? seed!.default_color! :
             "#22c55e";
 
-          // simpele progress binnen de presow-periode (visueel)
           let pct = 0;
           if (plant > sow) {
             const now = Math.min(Math.max(weekStart.getTime(), sow.getTime()), plant.getTime());
@@ -725,8 +735,10 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
-        collisionDetection={closestCenter}
-        modifiers={[snapCenterToCursor]}
+        collisionDetection={pointerWithin}
+        // eigen modifier ipv externe package
+        // @ts-ignore - type uit modifiers-pakket is niet geïnstalleerd
+        modifiers={[centerToCursor] as any}
       >
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           {/* Sidebar (STICKY + eigen scroll) */}
@@ -802,238 +814,239 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 <PresowSection plantings={plantings} seedsById={seedsById} weekStart={currentWeek} />
 
                 {/* Buiten */}
-                {outdoorBeds.length > 0 && (
-                  <div className="space-y-6">
-                    <h4 className="text-lg font-semibold">Buiten</h4>
-                    {outdoorBeds.map((bed) => {
-                      const activePlantings = plantings.filter((p) => p.garden_bed_id === bed.id && isActiveInWeek(p, currentWeek));
-                      const historyPlantings = plantings.filter((p) => p.garden_bed_id === bed.id && getPhase(p, currentWeek) === "afgelopen");
-                      const futurePlantings = showGhosts
-                        ? plantings.filter((p) => p.garden_bed_id === bed.id && !isActiveInWeek(p, currentWeek) && isFutureRelativeToWeek(p, currentWeek))
-                        : [];
+                {/* ... (ongewijzigd t.o.v. eerdere versie) ... */}
+                {/* ——— begin Buiten ——— */}
+                {(() => {
+                  const outdoorBedsList = outdoorBeds;
+                  if (outdoorBedsList.length === 0) return null;
+                  return (
+                    <div className="space-y-6">
+                      <h4 className="text-lg font-semibold">Buiten</h4>
+                      {outdoorBedsList.map((bed) => {
+                        const activePlantings = plantings.filter((p) => p.garden_bed_id === bed.id && isActiveInWeek(p, currentWeek));
+                        const historyPlantings = plantings.filter((p) => p.garden_bed_id === bed.id && getPhase(p, currentWeek) === "afgelopen");
+                        const futurePlantings = showGhosts
+                          ? plantings.filter((p) => p.garden_bed_id === bed.id && !isActiveInWeek(p, currentWeek) && isFutureRelativeToWeek(p, currentWeek))
+                          : [];
 
-                      const segmentIsFreeNow = (idx: number) =>
-                        !activePlantings.some(p => {
-                          const s = p.start_segment ?? 0;
-                          const e = s + (p.segments_used ?? 1) - 1;
-                          return idx >= s && idx <= e;
-                        });
+                        const segmentIsFreeNow = (idx: number) =>
+                          !activePlantings.some(p => {
+                            const s = p.start_segment ?? 0;
+                            const e = s + (p.segments_used ?? 1) - 1;
+                            return idx >= s && idx <= e;
+                          });
 
-                      return (
-                        <div key={bed.id} className="space-y-4">
-                          <h5 className="font-semibold">{bed.name} ({bed.segments} segmenten)</h5>
+                        return (
+                          <div key={bed.id} className="space-y-4">
+                            <h5 className="font-semibold">{bed.name} ({bed.segments} segmenten)</h5>
+                            <div className="grid gap-2" style={{ gridTemplateRows: `repeat(${bed.segments}, minmax(56px, auto))` }}>
+                              {Array.from({ length: bed.segments }, (_, i) => {
+                                const covering = activePlantings.filter((p) => {
+                                  const start = p.start_segment ?? 0;
+                                  const used = p.segments_used ?? 1;
+                                  return i >= start && i < start + used;
+                                });
+                                const ghosts = segmentIsFreeNow(i)
+                                  ? futurePlantings.filter((p) => {
+                                      const start = p.start_segment ?? 0;
+                                      const used = p.segments_used ?? 1;
+                                      return i >= start && i < start + used;
+                                    })
+                                  : [];
 
-                          {/* HORIZONTAAL = rijen */}
-                          <div className="grid gap-2" style={{ gridTemplateRows: `repeat(${bed.segments}, minmax(48px, auto))` }}>
-                            {Array.from({ length: bed.segments }, (_, i) => {
-                              const covering = activePlantings.filter((p) => {
-                                const start = p.start_segment ?? 0;
-                                const used = p.segments_used ?? 1;
-                                return i >= start && i < start + used;
-                              });
-                              const ghosts = segmentIsFreeNow(i)
-                                ? futurePlantings.filter((p) => {
-                                    const start = p.start_segment ?? 0;
-                                    const used = p.segments_used ?? 1;
-                                    return i >= start && i < start + used;
-                                  })
-                                : [];
-
-                              return (
-                                <DroppableSegment key={i} bed={bed} segmentIndex={i} occupied={covering.length > 0}>
-                                  <div className="flex flex-col gap-1 w-full px-1">
-                                    {covering.map((p) => {
-                                      const seed = seedsById[p.seed_id];
-                                      const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
-                                      return (
-                                        <div key={`${p.id}-${i}`}
-                                             className={`${isHex ? "" : (p.color ?? "bg-primary")} text-white text-xs rounded px-2 py-1 flex flex-col cursor-pointer`}
-                                             style={isHex ? { backgroundColor: p.color ?? "#22c55e" } : undefined}
-                                             onClick={() => setPopup({ mode: "edit", bed, seed, planting: p, segmentIndex: p.start_segment ?? i })}
-                                        >
-                                          <div className="flex justify-between items-center">
-                                            <span>{seed?.name ?? "Onbekend"}</span>
-                                            {i === p.start_segment && (
-                                              <button
-                                                onClick={(e) => { e.stopPropagation(); handleDeletePlanting(p.id); }}
-                                                className="ml-2 text-red-200 hover:text-red-500"
-                                              >
-                                                ✕
-                                              </button>
-                                            )}
+                                return (
+                                  <DroppableSegment key={i} bed={bed} segmentIndex={i} occupied={covering.length > 0}>
+                                    <div className="flex flex-col gap-1 w-full px-1">
+                                      {covering.map((p) => {
+                                        const seed = seedsById[p.seed_id];
+                                        const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
+                                        return (
+                                          <div key={`${p.id}-${i}`}
+                                               className={`${isHex ? "" : (p.color ?? "bg-primary")} text-white text-xs rounded px-2 py-1 flex flex-col cursor-pointer`}
+                                               style={isHex ? { backgroundColor: p.color ?? "#22c55e" } : undefined}
+                                               onClick={() => setPopup({ mode: "edit", bed, seed, planting: p, segmentIndex: p.start_segment ?? i })}
+                                          >
+                                            <div className="flex justify-between items-center">
+                                              <span>{seed?.name ?? "Onbekend"}</span>
+                                              {i === p.start_segment && (
+                                                <button onClick={(e) => { e.stopPropagation(); handleDeletePlanting(p.id); }}
+                                                        className="ml-2 text-red-200 hover:text-red-500">✕</button>
+                                              )}
+                                            </div>
+                                            <span className="italic text-[10px]">{getPhase(p, currentWeek)}</span>
                                           </div>
-                                          <span className="italic text-[10px]">{getPhase(p, currentWeek)}</span>
-                                        </div>
-                                      );
-                                    })}
+                                        );
+                                      })}
 
-                                    {/* Ghosts */}
-                                    {ghosts.map((p) => {
-                                      const seed = seedsById[p.seed_id];
-                                      const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
-                                      const bg = isHex ? (p.color ?? "#22c55e") : "rgba(34,197,94,.35)";
-                                      return (
-                                        <div
-                                          key={`ghost-${p.id}-${i}`}
-                                          className="text-white text-xs rounded px-2 py-1 flex flex-col cursor-pointer"
-                                          style={{
-                                            backgroundColor: bg,
-                                            opacity: 0.35,
-                                            border: "1px dashed rgba(0,0,0,.45)",
-                                          }}
-                                          onClick={() => seed && setPopup({ mode: "edit", bed, seed, planting: p, segmentIndex: p.start_segment ?? i })}
-                                          title={`${seed?.name ?? "Onbekend"} (toekomstig)`}
-                                        >
-                                          <div className="flex justify-between items-center">
-                                            <span>{seed?.name ?? "Onbekend"}</span>
+                                      {/* Ghosts */}
+                                      {ghosts.map((p) => {
+                                        const seed = seedsById[p.seed_id];
+                                        const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
+                                        const bg = isHex ? (p.color ?? "#22c55e") : "rgba(34,197,94,.35)";
+                                        return (
+                                          <div
+                                            key={`ghost-${p.id}-${i}`}
+                                            className="text-white text-xs rounded px-2 py-1 flex flex-col cursor-pointer"
+                                            style={{
+                                              backgroundColor: bg,
+                                              opacity: 0.35,
+                                              border: "1px dashed rgba(0,0,0,.45)",
+                                            }}
+                                            onClick={() => seed && setPopup({ mode: "edit", bed, seed, planting: p, segmentIndex: p.start_segment ?? i })}
+                                            title={`${seed?.name ?? "Onbekend"} (toekomstig)`}
+                                          >
+                                            <div className="flex justify-between items-center">
+                                              <span>{seed?.name ?? "Onbekend"} </span>
+                                            </div>
+                                            <span className="italic text-[10px]">toekomstig</span>
                                           </div>
-                                          <span className="italic text-[10px]">toekomstig</span>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </DroppableSegment>
-                              );
-                            })}
-                          </div>
-
-                          {historyPlantings.length > 0 && (
-                            <div>
-                              <h6 className="text-sm font-semibold mt-2">Historie</h6>
-                              <ul className="text-xs space-y-1">
-                                {historyPlantings.map((p) => {
-                                  const seed = seedsById[p.seed_id];
-                                  return (
-                                    <li key={p.id} className="text-muted-foreground">
-                                      {seed?.name ?? "Onbekend"} (geoogst tot {p.planned_harvest_end ?? p.actual_harvest_end})
-                                    </li>
-                                  );
-                                })}
-                              </ul>
+                                        );
+                                      })}
+                                    </div>
+                                  </DroppableSegment>
+                                );
+                              })}
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+
+                            {historyPlantings.length > 0 && (
+                              <div>
+                                <h6 className="text-sm font-semibold mt-2">Historie</h6>
+                                <ul className="text-xs space-y-1">
+                                  {historyPlantings.map((p) => {
+                                    const seed = seedsById[p.seed_id];
+                                    return (
+                                      <li key={p.id} className="text-muted-foreground">
+                                        {seed?.name ?? "Onbekend"} (geoogst tot {p.planned_harvest_end ?? p.actual_harvest_end})
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+                {/* ——— einde Buiten ——— */}
 
                 {/* Kas */}
-                {greenhouseBeds.length > 0 && (
-                  <div className="space-y-6">
-                    <h4 className="text-lg font-semibold">Kas</h4>
-                    {greenhouseBeds.map((bed) => {
-                      const activePlantings = plantings.filter((p) => p.garden_bed_id === bed.id && isActiveInWeek(p, currentWeek));
-                      const historyPlantings = plantings.filter((p) => p.garden_bed_id === bed.id && getPhase(p, currentWeek) === "afgelopen");
-                      const futurePlantings = showGhosts
-                        ? plantings.filter((p) => p.garden_bed_id === bed.id && !isActiveInWeek(p, currentWeek) && isFutureRelativeToWeek(p, currentWeek))
-                        : [];
+                {/* ——— begin Kas ——— */}
+                {(() => {
+                  const greenhouseBedsList = greenhouseBeds;
+                  if (greenhouseBedsList.length === 0) return null;
+                  return (
+                    <div className="space-y-6">
+                      <h4 className="text-lg font-semibold">Kas</h4>
+                      {greenhouseBedsList.map((bed) => {
+                        const activePlantings = plantings.filter((p) => p.garden_bed_id === bed.id && isActiveInWeek(p, currentWeek));
+                        const historyPlantings = plantings.filter((p) => p.garden_bed_id === bed.id && getPhase(p, currentWeek) === "afgelopen");
+                        const futurePlantings = showGhosts
+                          ? plantings.filter((p) => p.garden_bed_id === bed.id && !isActiveInWeek(p, currentWeek) && isFutureRelativeToWeek(p, currentWeek))
+                          : [];
 
-                      const segmentIsFreeNow = (idx: number) =>
-                        !activePlantings.some(p => {
-                          const s = p.start_segment ?? 0;
-                          const e = s + (p.segments_used ?? 1) - 1;
-                          return idx >= s && idx <= e;
-                        });
+                        const segmentIsFreeNow = (idx: number) =>
+                          !activePlantings.some(p => {
+                            const s = p.start_segment ?? 0;
+                            const e = s + (p.segments_used ?? 1) - 1;
+                            return idx >= s && idx <= e;
+                          });
 
-                      return (
-                        <div key={bed.id} className="space-y-4">
-                          <h5 className="font-semibold">{bed.name} ({bed.segments} segmenten)</h5>
+                        return (
+                          <div key={bed.id} className="space-y-4">
+                            <h5 className="font-semibold">{bed.name} ({bed.segments} segmenten)</h5>
+                            <div className="grid gap-2" style={{ gridTemplateRows: `repeat(${bed.segments}, minmax(56px, auto))` }}>
+                              {Array.from({ length: bed.segments }, (_, i) => {
+                                const covering = activePlantings.filter((p) => {
+                                  const start = p.start_segment ?? 0;
+                                  const used = p.segments_used ?? 1;
+                                  return i >= start && i < start + used;
+                                });
+                                const ghosts = segmentIsFreeNow(i)
+                                  ? futurePlantings.filter((p) => {
+                                      const start = p.start_segment ?? 0;
+                                      const used = p.segments_used ?? 1;
+                                      return i >= start && i < start + used;
+                                    })
+                                  : [];
 
-                          {/* HORIZONTAAL = rijen */}
-                          <div className="grid gap-2" style={{ gridTemplateRows: `repeat(${bed.segments}, minmax(48px, auto))` }}>
-                            {Array.from({ length: bed.segments }, (_, i) => {
-                              const covering = activePlantings.filter((p) => {
-                                const start = p.start_segment ?? 0;
-                                const used = p.segments_used ?? 1;
-                                return i >= start && i < start + used;
-                              });
-                              const ghosts = segmentIsFreeNow(i)
-                                ? futurePlantings.filter((p) => {
-                                    const start = p.start_segment ?? 0;
-                                    const used = p.segments_used ?? 1;
-                                    return i >= start && i < start + used;
-                                  })
-                                : [];
-
-                              return (
-                                <DroppableSegment key={i} bed={bed} segmentIndex={i} occupied={covering.length > 0}>
-                                  <div className="flex flex-col gap-1 w-full px-1">
-                                    {covering.map((p) => {
-                                      const seed = seedsById[p.seed_id];
-                                      const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
-                                      return (
-                                        <div key={`${p.id}-${i}`}
-                                             className={`${isHex ? "" : (p.color ?? "bg-primary")} text-white text-xs rounded px-2 py-1 flex flex-col cursor-pointer`}
-                                             style={isHex ? { backgroundColor: p.color ?? "#22c55e" } : undefined}
-                                             onClick={() => setPopup({ mode: "edit", bed, seed, planting: p, segmentIndex: p.start_segment ?? i })}
-                                        >
-                                          <div className="flex justify-between items-center">
-                                            <span>{seed?.name ?? "Onbekend"}</span>
-                                            {i === p.start_segment && (
-                                              <button
-                                                onClick={(e) => { e.stopPropagation(); handleDeletePlanting(p.id); }}
-                                                className="ml-2 text-red-200 hover:text-red-500"
-                                              >
-                                                ✕
-                                              </button>
-                                            )}
+                                return (
+                                  <DroppableSegment key={i} bed={bed} segmentIndex={i} occupied={covering.length > 0}>
+                                    <div className="flex flex-col gap-1 w-full px-1">
+                                      {covering.map((p) => {
+                                        const seed = seedsById[p.seed_id];
+                                        const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
+                                        return (
+                                          <div key={`${p.id}-${i}`}
+                                               className={`${isHex ? "" : (p.color ?? "bg-primary")} text-white text-xs rounded px-2 py-1 flex flex-col cursor-pointer`}
+                                               style={isHex ? { backgroundColor: p.color ?? "#22c55e" } : undefined}
+                                               onClick={() => setPopup({ mode: "edit", bed, seed, planting: p, segmentIndex: p.start_segment ?? i })}
+                                          >
+                                            <div className="flex justify-between items-center">
+                                              <span>{seed?.name ?? "Onbekend"}</span>
+                                              {i === p.start_segment && (
+                                                <button onClick={(e) => { e.stopPropagation(); handleDeletePlanting(p.id); }}
+                                                        className="ml-2 text-red-200 hover:text-red-500">✕</button>
+                                              )}
+                                            </div>
+                                            <span className="italic text-[10px]">{getPhase(p, currentWeek)}</span>
                                           </div>
-                                          <span className="italic text-[10px]">{getPhase(p, currentWeek)}</span>
-                                        </div>
-                                      );
-                                    })}
+                                        );
+                                      })}
 
-                                    {/* Ghosts */}
-                                    {ghosts.map((p) => {
-                                      const seed = seedsById[p.seed_id];
-                                      const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
-                                      const bg = isHex ? (p.color ?? "#22c55e") : "rgba(34,197,94,.35)";
-                                      return (
-                                        <div
-                                          key={`ghost-${p.id}-${i}`}
-                                          className="text-white text-xs rounded px-2 py-1 flex flex-col cursor-pointer"
-                                          style={{
-                                            backgroundColor: bg,
-                                            opacity: 0.35,
-                                            border: "1px dashed rgba(0,0,0,.45)",
-                                          }}
-                                          onClick={() => seed && setPopup({ mode: "edit", bed, seed, planting: p, segmentIndex: p.start_segment ?? i })}
-                                          title={`${seed?.name ?? "Onbekend"} (toekomstig)`}
-                                        >
-                                          <div className="flex justify-between items-center">
-                                            <span>{seed?.name ?? "Onbekend"}</span>
+                                      {/* Ghosts */}
+                                      {ghosts.map((p) => {
+                                        const seed = seedsById[p.seed_id];
+                                        const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
+                                        const bg = isHex ? (p.color ?? "#22c55e") : "rgba(34,197,94,.35)";
+                                        return (
+                                          <div
+                                            key={`ghost-${p.id}-${i}`}
+                                            className="text-white text-xs rounded px-2 py-1 flex flex-col cursor-pointer"
+                                            style={{
+                                              backgroundColor: bg,
+                                              opacity: 0.35,
+                                              border: "1px dashed rgba(0,0,0,.45)",
+                                            }}
+                                            onClick={() => seed && setPopup({ mode: "edit", bed, seed, planting: p, segmentIndex: p.start_segment ?? i })}
+                                            title={`${seed?.name ?? "Onbekend"} (toekomstig)`}
+                                          >
+                                            <div className="flex justify-between items-center">
+                                              <span>{seed?.name ?? "Onbekend"}</span>
+                                            </div>
+                                            <span className="italic text-[10px]">toekomstig</span>
                                           </div>
-                                          <span className="italic text-[10px]">toekomstig</span>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </DroppableSegment>
-                              );
-                            })}
-                          </div>
-
-                          {historyPlantings.length > 0 && (
-                            <div>
-                              <h6 className="text-sm font-semibold mt-2">Historie</h6>
-                              <ul className="text-xs space-y-1">
-                                {historyPlantings.map((p) => {
-                                  const seed = seedsById[p.seed_id];
-                                  return (
-                                    <li key={p.id} className="text-muted-foreground">
-                                      {seed?.name ?? "Onbekend"} (geoogst tot {p.planned_harvest_end ?? p.actual_harvest_end})
-                                    </li>
-                                  );
-                                })}
-                              </ul>
+                                        );
+                                      })}
+                                    </div>
+                                  </DroppableSegment>
+                                );
+                              })}
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+
+                            {historyPlantings.length > 0 && (
+                              <div>
+                                <h6 className="text-sm font-semibold mt-2">Historie</h6>
+                                <ul className="text-xs space-y-1">
+                                  {historyPlantings.map((p) => {
+                                    const seed = seedsById[p.seed_id];
+                                    return (
+                                      <li key={p.id} className="text-muted-foreground">
+                                        {seed?.name ?? "Onbekend"} (geoogst tot {p.planned_harvest_end ?? p.actual_harvest_end})
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+                {/* ——— einde Kas ——— */}
               </>
             ) : (
               <PlannerMap
@@ -1048,7 +1061,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
             )}
           </div>
 
-          {/* Drag overlay voor strakke uitlijning */}
+          {/* Drag overlay */}
           <DragOverlay>
             {activeSeed ? <SeedChip seed={activeSeed} /> : null}
           </DragOverlay>
