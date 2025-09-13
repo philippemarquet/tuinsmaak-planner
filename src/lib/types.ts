@@ -1,129 +1,78 @@
-export type UUID = string;
-
-export interface Profile {
-  id: UUID;
-  display_name: string | null;
-  notification_prefs: Record<string, any>;
-  created_at: string;
-  updated_at: string;
-}
-
+// src/lib/types.ts
 export interface Garden {
-  id: UUID;
-  name: string;
-  join_code: string;
-  created_at: string;
-}
-
-export interface GardenUser {
-  id: UUID;
-  garden_id: UUID;
-  user_id: UUID;
-  role: "owner" | "member";
-  created_at: string;
-}
-
-export interface CropType {
-  id: UUID;
+  id: string;
   name: string;
   created_at: string;
-}
-
-export interface Seed {
-  id: UUID;
-  garden_id: UUID;
-  name: string;
-  crop_type_id: UUID | null;
-  purchase_date: string | null;
-
-  /** ✅ enkelvoudige voorraad: ja/nee */
-  in_stock: boolean;
-
-  row_spacing_cm: number | null;
-  plant_spacing_cm: number | null;
-  greenhouse_compatible: boolean;
-  sowing_type: "direct" | "presow" | "both";
-
-  presow_duration_weeks: number | null;
-  grow_duration_weeks: number | null;
-  harvest_duration_weeks: number | null;
-
-  presow_months: number[] | null;
-  direct_sow_months: number[] | null;
-  plant_months: number[] | null;
-  harvest_months: number[] | null;
-
-  notes: string | null;
-  default_color: string | null;
-
-  created_at: string;
-  updated_at: string;
 }
 
 export interface GardenBed {
-  id: UUID;
-  garden_id: UUID;
+  id: string;
+  garden_id: string;
   name: string;
-  width_cm: number;
-  length_cm: number;
-  location_x: number;
-  location_y: number;
-  is_greenhouse: boolean;
   segments: number;
-  sort_order: number;
+  sort_order?: number | null;
+  is_greenhouse?: boolean;
+  length_cm?: number | null;
+  width_cm?: number | null;
+  location_x?: number | null;
+  location_y?: number | null;
   created_at: string;
-  updated_at: string;
+}
+
+export type SowingType = 'direct' | 'presow' | 'both';
+
+export interface Seed {
+  id: string;
+  garden_id: string;
+  name: string;
+  crop_type_id?: string | null;
+
+  presow_duration_weeks?: number | null;
+  grow_duration_weeks?: number | null;
+  harvest_duration_weeks?: number | null;
+
+  presow_months?: number[] | null;
+  direct_sow_months?: number[] | null;
+  plant_months?: number[] | null;
+  harvest_months?: number[] | null;
+
+  greenhouse_compatible?: boolean;
+  sowing_type: SowingType;
+
+  default_color?: string | null;
+  notes?: string | null;
+
+  in_stock?: boolean; // nieuwe boolean
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Planting {
-  id: UUID;
-  garden_id: UUID;
-  garden_bed_id: UUID;
-  seed_id: UUID;
+  id: string;
+  garden_id: string;
+  garden_bed_id: string;
+  seed_id: string;
 
-  planned_sow_date: string | null;
-  planned_plant_date: string | null;
+  method: 'direct' | 'presow';
+
+  // Eén bronveld voor planning (de grond in)
+  planned_date: string; // YYYY-MM-DD
+
+  // Afgeleiden (door trigger of UI berekend)
   planned_harvest_start: string | null;
   planned_harvest_end: string | null;
 
-  actual_sow_date: string | null;
-  actual_plant_date: string | null;
-  actual_harvest_start: string | null;
-  actual_harvest_end: string | null;
+  // Eventuele werkelijke data (laten we ongemoeid)
+  actual_sow_date?: string | null;
+  actual_plant_date?: string | null;
+  actual_harvest_start?: string | null;
+  actual_harvest_end?: string | null;
 
-  method: "direct" | "presow" | null;
-  status: "planned" | "sown" | "planted" | "growing" | "harvesting" | "completed";
+  start_segment: number;
+  segments_used: number;
+  color?: string | null;
+  status?: string | null;
 
-  start_segment: number | null;
-  segments_used: number | null;
-  color: string | null;
-
-  rows: number | null;
-  plants_per_row: number | null;
-  area_percentage: number | null;
-
-  notes: string | null;
-
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Task {
-  id: UUID;
-  garden_id: UUID;
-  planting_id: UUID;
-  type: "sow" | "plant_out" | "harvest_start" | "harvest_end";
-  due_date: string;
-  status: "pending" | "done" | "skipped";
-  assignee_user_id: UUID | null;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface BedOccupancyWeek {
-  garden_bed_id: UUID;
-  garden_id: UUID;
-  week_start: string;
-  occupancy_pct: number;
+  created_at?: string;
+  updated_at?: string;
 }
