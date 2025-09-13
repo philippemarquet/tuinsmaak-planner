@@ -19,7 +19,6 @@ export default function SeedEditor({ gardenId, seed, onClose, onSaved }: Props) 
   const [cropTypeId, setCropTypeId] = useState<string | ''>(seed?.crop_type_id ?? '');
   const [purchaseDate, setPurchaseDate] = useState<string>(seed?.purchase_date ?? '');
 
-  // ✅ nieuw model: enkele boolean
   const [inStock, setInStock] = useState<boolean>(seed?.in_stock ?? true);
 
   const [rowSpacing, setRowSpacing] = useState<number | ''>(seed?.row_spacing_cm ?? '');
@@ -31,12 +30,8 @@ export default function SeedEditor({ gardenId, seed, onClose, onSaved }: Props) 
   const [growWeeks, setGrowWeeks] = useState<number | ''>(seed?.grow_duration_weeks ?? '');
   const [harvestWeeks, setHarvestWeeks] = useState<number | ''>(seed?.harvest_duration_weeks ?? '');
 
-  // Maanden — presow zichtbaar alleen bij presow/both; groundMonths = DIRECT ZAAIEN / PLANTEN (samengevoegd)
-  const initialGround =
-    (seed?.plant_months && seed.plant_months.length ? seed.plant_months :
-     (seed?.direct_sow_months ?? [])) ?? [];
   const [presowMonths, setPresowMonths] = useState<number[]>(seed?.presow_months ?? []);
-  const [groundMonths, setGroundMonths] = useState<number[]>(initialGround);
+  const [groundMonths, setGroundMonths] = useState<number[]>(seed?.ground_months ?? []);
   const [harvestMonths, setHarvestMonths] = useState<number[]>(seed?.harvest_months ?? []);
 
   const [notes, setNotes] = useState<string>(seed?.notes ?? '');
@@ -66,10 +61,8 @@ export default function SeedEditor({ gardenId, seed, onClose, onSaved }: Props) 
       grow_duration_weeks: growWeeks === '' ? null : Number(growWeeks),
       harvest_duration_weeks: harvestWeeks === '' ? null : Number(harvestWeeks),
 
-      // Samengevoegd: sla naar beide kolommen zodat filters/queries blijven werken
       presow_months: presowMonths,
-      direct_sow_months: groundMonths,
-      plant_months: groundMonths,
+      ground_months: groundMonths,
       harvest_months: harvestMonths,
 
       default_color: color || '#22c55e',
@@ -89,7 +82,7 @@ export default function SeedEditor({ gardenId, seed, onClose, onSaved }: Props) 
         </div>
 
         <div className="grid md:grid-cols-2 gap-4">
-          {/* Linkerkolom */}
+          {/* Linker kolom */}
           <div className="space-y-2">
             <label className="text-sm">Naam</label>
             <input className="w-full rounded-md border border-input bg-background px-3 py-2"
@@ -142,7 +135,7 @@ export default function SeedEditor({ gardenId, seed, onClose, onSaved }: Props) 
             </div>
           </div>
 
-          {/* Rechterkolom */}
+          {/* Rechter kolom */}
           <div className="space-y-3">
             <div className="grid grid-cols-3 gap-2">
               <div>
@@ -162,17 +155,11 @@ export default function SeedEditor({ gardenId, seed, onClose, onSaved }: Props) 
               </div>
             </div>
 
-            {/* Alleen tonen als presow of both */}
             {(sowingType === 'presow' || sowingType === 'both') && (
               <MonthSelector label="Voorzaaimaanden" value={presowMonths} onChange={setPresowMonths} />
             )}
 
-            {/* Samengevoegd: direct zaaien / planten */}
-            <MonthSelector
-              label="Direct zaaien / planten (maanden)"
-              value={groundMonths}
-              onChange={setGroundMonths}
-            />
+            <MonthSelector label="Direct / planten (maanden)" value={groundMonths} onChange={setGroundMonths} />
 
             <MonthSelector label="Oogstmaanden" value={harvestMonths} onChange={setHarvestMonths} />
 
@@ -194,9 +181,6 @@ export default function SeedEditor({ gardenId, seed, onClose, onSaved }: Props) 
                   placeholder="#22c55e of rgb(34,197,94)"
                 />
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Voer een <strong>HEX</strong> (bijv. <code>#22c55e</code>) of <strong>rgb()</strong> in.
-              </p>
             </div>
 
             <label className="text-sm">Notities</label>
