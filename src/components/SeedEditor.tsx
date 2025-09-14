@@ -53,57 +53,73 @@ export default function SeedEditor({
   const [color, setColor] = useState<string>(seed?.default_color ?? '#22c55e');
   const [notes, setNotes] = useState<string>(seed?.notes ?? '');
 
+  // UX state
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
   useEffect(() => {
     listCropTypes().then(setCropTypes).catch(console.error);
   }, []);
 
-  // 🔒 Als zaaitype → Direct: presow-weken disablen én leegmaken
+  // Als zaaitype → Direct: presow-weken disablen én leegmaken
   useEffect(() => {
     if (sowingType === 'direct' && presowWeeks !== '') {
-      setPresowWeeks(''); // leeg zodra je naar "Direct" klikt
+      setPresowWeeks('');
     }
   }, [sowingType]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const canSave = useMemo(() => name.trim().length > 0, [name]);
 
   async function handleSave() {
-    const payload: Partial<Seed> = {
-      garden_id: gardenId,
-      name: name.trim(),
-      crop_type_id: cropTypeId || null,
-      purchase_date: purchaseDate || null,
+    if (!canSave || saving) return;
+    setSaving(true);
+    setErrorMsg(null);
+    try {
+      const payload: Partial<Seed> = {
+        garden_id: gardenId,
+        name: name.trim(),
+        crop_type_id: cropTypeId || null,
+        purchase_date: purchaseDate || null,
 
-      // boolean voorraad
-      ...(inStock !== undefined ? { in_stock: !!inStock } as any : {}),
+        // boolean voorraad
+        ...(inStock !== undefined ? ({ in_stock: !!inStock } as any) : {}),
 
-      // afstanden
-      row_spacing_cm: rowSpacing === '' ? null : Number(rowSpacing),
-      plant_spacing_cm: plantSpacing === '' ? null : Number(plantSpacing),
+        // afstanden
+        row_spacing_cm: rowSpacing === '' ? null : Number(rowSpacing),
+        plant_spacing_cm: plantSpacing === '' ? null : Number(plantSpacing),
 
-      greenhouse_compatible: greenhouse,
+        greenhouse_compatible: greenhouse,
 
-      // zaaitype + duur
-      sowing_type: sowingType,
-      // ⬇️ als direct -> altijd null opslaan voor presow_weeks
-      presow_duration_weeks:
-        sowingType === 'direct'
-          ? null
-          : (presowWeeks === '' ? null : Number(presowWeeks)),
-      grow_duration_weeks: growWeeks === '' ? null : Number(growWeeks),
-      harvest_duration_weeks: harvestWeeks === '' ? null : Number(harvestWeeks),
+        // zaaitype + duur
+        sowing_type: sowingType,
+        presow_duration_weeks:
+          sowingType === 'direct'
+            ? null
+            : (presowWeeks === '' ? null : Number(presowWeeks)),
+        grow_duration_weeks: growWeeks === '' ? null : Number(growWeeks),
+        harvest_duration_weeks: harvestWeeks === '' ? null : Number(harvestWeeks),
 
-      // maanden (presowMonths alleen relevant/zichtbaar bij presow/both; opslaan kan altijd)
-      presow_months: presowMonths,
-      direct_sow_months: directSowMonths,
-      plant_months: plantMonths,
-      harvest_months: harvestMonths,
+        // maanden
+        presow_months: presowMonths,
+        direct_sow_months: directSowMonths,
+        plant_months: plantMonths,
+        harvest_months: harvestMonths,
 
-      default_color: color || '#22c55e',
-      notes: notes || null
-    };
+        default_color: color || '#22c55e',
+        notes: notes || null
+      };
 
-    const saved = editing ? await updateSeed(seed!.id, payload) : await createSeed(payload);
-    onSaved(saved);
+      const saved = editing
+        ? await updateSeed(seed!.id, payload)
+        : await createSeed(payload);
+
+      onSaved(saved);
+    } catch (e: any) {
+      console.error(e);
+      setErrorMsg(e?.message ?? 'Opslaan mislukt');
+    } finally {
+      setSaving(false);
+    }
   }
 
   const showPresowMonths = sowingType !== 'direct'; // alleen Voorzaai/Beide
@@ -113,7 +129,14 @@ export default function SeedEditor({
       <div className="w-full max-w-3xl bg-card text-card-foreground border border-border rounded-xl shadow-xl p-4 max-h-[90vh] overflow-auto">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-lg font-semibold">{editing ? 'Zaad bewerken' : 'Nieuw zaad'}</h3>
-          <button onClick={onClose} className="text-sm text-muted-foreground hover:underline">Sluiten</button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-sm text-muted-foreground hover:underline"
+            disabled={saving}
+          >
+            Sluiten
+          </button>
         </div>
 
         {/* twee kolommen */}
@@ -243,7 +266,7 @@ export default function SeedEditor({
             </div>
 
             {/* Maanden */}
-            {showPresowMonths && (
+            {sowingType !== 'direct' && (
               <MonthSelector label="Voorzaaimaanden" value={presowMonths} onChange={setPresowMonths} />
             )}
             <MonthSelector label="Direct zaaien" value={directSowMonths} onChange={setDirectSowMonths} />
@@ -283,19 +306,29 @@ export default function SeedEditor({
           </div>
         </div>
 
+        {/* foutmelding */}
+        {errorMsg && (
+          <div className="mt-3 text-sm text-red-600">
+            {errorMsg}
+          </div>
+        )}
+
         <div className="mt-4 flex justify-end gap-2">
           <button
+            type="button"
             onClick={onClose}
             className="inline-flex items-center rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 px-3 py-2"
+            disabled={saving}
           >
             Annuleren
           </button>
           <button
-            disabled={!canSave}
+            type="button"
+            disabled={!canSave || saving}
             onClick={handleSave}
             className="inline-flex items-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-2 disabled:opacity-50"
           >
-            {editing ? 'Opslaan' : 'Toevoegen'}
+            {saving ? 'Opslaan…' : (editing ? 'Opslaan' : 'Toevoegen')}
           </button>
         </div>
       </div>
