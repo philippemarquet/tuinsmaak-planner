@@ -1,8 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Garden, Seed } from "../lib/types";
 import { listSeeds, createSeed, updateSeed, deleteSeed } from "../lib/api/seeds";
+import { listCropTypes } from "../lib/api/cropTypes";
 import { Pencil, Trash2, Copy, PlusCircle } from "lucide-react";
 import SeedEditor from "./SeedEditor";
+
+/* ---------- helpers ---------- */
+
+function sowingTypeLabel(v?: string) {
+  switch ((v || "").toLowerCase()) {
+    case "direct": return "Direct";
+    case "presow": return "Voorzaai";
+    case "both":  return "Beide";
+    default:      return "—";
+  }
+}
+
+function nextCopyName(name: string) {
+  if (!name) return "Nieuw zaad (kopie)";
+  if (/\(kopie\)$/i.test(name)) return `${name} 2`;
+  return `${name} (kopie)`;
+}
+
+/* ---------- kaartje ---------- */
 
 function SeedCard({
   seed,
@@ -15,10 +35,11 @@ function SeedCard({
   onDelete: (s: Seed) => void;
   onDuplicate: (s: Seed) => void;
 }) {
-  const stockBadgeText = seed.in_stock ? "In voorraad" : "Niet op voorraad";
-  const stockBadgeClass = seed.in_stock
-    ? "bg-emerald-100 text-emerald-700"
-    : "bg-red-100 text-red-700";
+  // na migratie -> boolean in_stock
+  const inStock = (seed as any).in_stock !== false;
+
+  const stockBadgeText = inStock ? "In voorraad" : "Niet op voorraad";
+  const stockBadgeClass = inStock ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700";
 
   const colorDot =
     seed.default_color && seed.default_color.startsWith("#") ? (
@@ -75,7 +96,7 @@ function SeedCard({
         <span className={`text-xs px-2 py-0.5 rounded ${stockBadgeClass}`}>{stockBadgeText}</span>
         {seed.sowing_type && (
           <span className="text-xs px-2 py-0.5 rounded bg-secondary text-secondary-foreground">
-            Zaaitype: {seed.sowing_type}
+            Zaaitype: {sowingTypeLabel(seed.sowing_type)}
           </span>
         )}
         {seed.greenhouse_compatible && (
@@ -96,24 +117,31 @@ function SeedCard({
   );
 }
 
-function nextCopyName(name: string) {
-  if (!name) return "Nieuw zaad (kopie)";
-  if (/\(kopie\)$/i.test(name)) return `${name} 2`;
-  return `${name} (kopie)`;
-}
+/* ---------- pagina ---------- */
+
+type CropType = { id: string; name: string };
 
 export function InventoryPage({ garden }: { garden: Garden }) {
   const [seeds, setSeeds] = useState<Seed[]>([]);
+  const [cropTypes, setCropTypes] = useState<CropType[]>([]);
   const [editorOpen, setEditorOpen] = useState<{ seed: Seed | null } | null>(null);
 
+  // filters
+  const [inStockOnly, setInStockOnly] = useState<boolean>(false);
+  const [cropTypeFilter, setCropTypeFilter] = useState<string>("all");
+  const [q, setQ] = useState<string>(() => localStorage.getItem("inventoryQ") ?? "");
+
   useEffect(() => {
-    listSeeds(garden.id).then(setSeeds).catch(console.error);
+    (async () => {
+      const [ss, cts] = await Promise.all([listSeeds(garden.id), listCropTypes()]);
+      setSeeds(ss);
+      setCropTypes(cts);
+    })().catch(console.error);
   }, [garden.id]);
 
-  const sortedSeeds = useMemo(
-    () => seeds.slice().sort((a, b) => a.name.localeCompare(b.name)),
-    [seeds]
-  );
+  useEffect(() => {
+    localStorage.setItem("inventoryQ", q);
+  }, [q]);
 
   function upsertLocal(updated: Seed) {
     setSeeds((prev) => {
@@ -142,10 +170,6 @@ export function InventoryPage({ garden }: { garden: Garden }) {
         name: nextCopyName(seed.name),
         crop_type_id: seed.crop_type_id ?? null,
         purchase_date: seed.purchase_date ?? null,
-
-        // nieuw model
-        in_stock: seed.in_stock ?? true,
-
         row_spacing_cm: seed.row_spacing_cm ?? null,
         plant_spacing_cm: seed.plant_spacing_cm ?? null,
         greenhouse_compatible: !!seed.greenhouse_compatible,
@@ -153,13 +177,10 @@ export function InventoryPage({ garden }: { garden: Garden }) {
         presow_duration_weeks: seed.presow_duration_weeks ?? null,
         grow_duration_weeks: seed.grow_duration_weeks ?? null,
         harvest_duration_weeks: seed.harvest_duration_weeks ?? null,
-
-        // Maanden: kopiëren zoals ze zijn
         presow_months: seed.presow_months ?? [],
         direct_sow_months: seed.direct_sow_months ?? [],
         plant_months: seed.plant_months ?? [],
         harvest_months: seed.harvest_months ?? [],
-
         notes: seed.notes ?? null,
         default_color: seed.default_color ?? "#22c55e",
       };
@@ -170,33 +191,122 @@ export function InventoryPage({ garden }: { garden: Garden }) {
     }
   }
 
+  // filters toepassen
+  const filtered = useMemo(() => {
+    let arr = seeds.slice();
+
+    // tekst-zoek (case-insensitive, op naam)
+    if (q.trim()) {
+      const term = q.trim().toLowerCase();
+      arr = arr.filter((s) => s.name.toLowerCase().includes(term));
+    }
+
+    if (inStockOnly) {
+      arr = arr.filter((s: any) => (s as any).in_stock !== false);
+    }
+    if (cropTypeFilter !== "all") {
+      if (cropTypeFilter === "__none__") {
+        arr = arr.filter((s) => !s.crop_type_id);
+      } else {
+        arr = arr.filter((s) => s.crop_type_id === cropTypeFilter);
+      }
+    }
+
+    return arr;
+  }, [seeds, inStockOnly, cropTypeFilter, q]);
+
+  // groepering op gewastype
+  const groups = useMemo(() => {
+    const nameById = new Map<string, string>(cropTypes.map(ct => [ct.id, ct.name]));
+    const map = new Map<string, { label: string; items: Seed[] }>();
+
+    for (const s of filtered) {
+      const key = s.crop_type_id || "__none__";
+      const label = s.crop_type_id ? (nameById.get(s.crop_type_id) || "Onbekend") : "Overig";
+      if (!map.has(key)) map.set(key, { label, items: [] });
+      map.get(key)!.items.push(s);
+    }
+
+    // sorteer groepen en items binnen groep
+    const out = Array.from(map.entries())
+      .sort(([, A], [, B]) => A.label.localeCompare(B.label, "nl"))
+      .map(([id, g]) => ({
+        id,
+        label: g.label,
+        items: g.items.slice().sort((a, b) => a.name.localeCompare(b.name, "nl")),
+      }));
+
+    return out;
+  }, [filtered, cropTypes]);
+
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
+      {/* header + filters */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-3xl font-bold">Voorraad</h2>
-        <button
-          onClick={() => setEditorOpen({ seed: null })}
-          className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-3 py-1 rounded-md"
-        >
-          <PlusCircle className="h-4 w-4" />
-          Nieuw zaad
-        </button>
+
+        <div className="flex flex-wrap items-center gap-3">
+          {/* zoekveld */}
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Zoek op naam…"
+            className="w-48 md:w-64 border rounded-md px-2 py-1 text-sm"
+          />
+
+          <label className="inline-flex items-center gap-2 text-sm border rounded-md px-2 py-1">
+            <input
+              type="checkbox"
+              checked={inStockOnly}
+              onChange={(e) => setInStockOnly(e.target.checked)}
+            />
+            In voorraad
+          </label>
+
+          <select
+            className="border rounded-md px-2 py-1 text-sm"
+            value={cropTypeFilter}
+            onChange={(e) => setCropTypeFilter(e.target.value)}
+          >
+            <option value="all">Alle gewastypen</option>
+            {cropTypes.map((ct) => (
+              <option key={ct.id} value={ct.id}>{ct.name}</option>
+            ))}
+            <option value="__none__">Overig (geen soort)</option>
+          </select>
+
+          <button
+            onClick={() => setEditorOpen({ seed: null })}
+            className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-3 py-1 rounded-md"
+          >
+            <PlusCircle className="h-4 w-4" />
+            Nieuw zaad
+          </button>
+        </div>
       </div>
 
-      {sortedSeeds.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nog geen zaden toegevoegd.</p>
+      {/* gegroepeerde kaarten */}
+      {groups.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Geen zaden gevonden.</p>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {sortedSeeds.map((seed) => (
-            <SeedCard
-              key={seed.id}
-              seed={seed}
-              onEdit={(s) => setEditorOpen({ seed: s })}
-              onDelete={handleDelete}
-              onDuplicate={handleDuplicate}
-            />
-          ))}
-        </div>
+        groups.map((g) => (
+          <section key={g.id} className="space-y-3">
+            <h3 className="text-xl font-semibold">
+              {g.label} <span className="text-sm text-muted-foreground">({g.items.length})</span>
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {g.items.map((seed) => (
+                <SeedCard
+                  key={seed.id}
+                  seed={seed}
+                  onEdit={(s) => setEditorOpen({ seed: s })}
+                  onDelete={handleDelete}
+                  onDuplicate={handleDuplicate}
+                />
+              ))}
+            </div>
+          </section>
+        ))
       )}
 
       {editorOpen && (
@@ -213,3 +323,5 @@ export function InventoryPage({ garden }: { garden: Garden }) {
     </div>
   );
 }
+
+export default InventoryPage;
