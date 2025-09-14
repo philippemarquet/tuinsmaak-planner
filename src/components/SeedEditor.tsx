@@ -25,7 +25,7 @@ export default function SeedEditor({
   const [cropTypeId, setCropTypeId] = useState<string | ''>(seed?.crop_type_id ?? '');
   const [purchaseDate, setPurchaseDate] = useState<string>(seed?.purchase_date ?? '');
 
-  // voorraad (boolean i.p.v. status/quantity)
+  // voorraad (boolean)
   const [inStock, setInStock] = useState<boolean>((seed as any)?.in_stock ?? true);
 
   // afstanden
@@ -45,8 +45,7 @@ export default function SeedEditor({
 
   // maanden
   const [presowMonths, setPresowMonths] = useState<number[]>(seed?.presow_months ?? []);
-  const [directSowMonths, setDirectSowMonths] = useState<number[]>(seed?.direct_sow_months ?? []);
-  const [plantMonths, setPlantMonths] = useState<number[]>(seed?.plant_months ?? []);
+  const [directPlantMonths, setDirectPlantMonths] = useState<number[]>(seed?.direct_plant_months ?? []);
   const [harvestMonths, setHarvestMonths] = useState<number[]>(seed?.harvest_months ?? []);
 
   // overige
@@ -99,10 +98,9 @@ export default function SeedEditor({
         grow_duration_weeks: growWeeks === '' ? null : Number(growWeeks),
         harvest_duration_weeks: harvestWeeks === '' ? null : Number(harvestWeeks),
 
-        // maanden
+        // maanden (samengevoegd)
         presow_months: presowMonths,
-        direct_sow_months: directSowMonths,
-        plant_months: plantMonths,
+        direct_plant_months: directPlantMonths,
         harvest_months: harvestMonths,
 
         default_color: color || '#22c55e',
@@ -269,8 +267,7 @@ export default function SeedEditor({
             {sowingType !== 'direct' && (
               <MonthSelector label="Voorzaaimaanden" value={presowMonths} onChange={setPresowMonths} />
             )}
-            <MonthSelector label="Direct zaaien" value={directSowMonths} onChange={setDirectSowMonths} />
-            <MonthSelector label="Plantmaanden" value={plantMonths} onChange={setPlantMonths} />
+            <MonthSelector label="Direct/Plant maanden" value={directPlantMonths} onChange={setDirectPlantMonths} />
             <MonthSelector label="Oogstmaanden" value={harvestMonths} onChange={setHarvestMonths} />
 
             {/* Kleur */}
