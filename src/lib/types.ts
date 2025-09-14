@@ -39,7 +39,11 @@ export interface Seed {
   crop_type_id: UUID | null;
   purchase_date: string | null;
 
-  in_stock: boolean;
+  // voorraad (we gebruiken boolean i.p.v. status/quantity)
+  // let op: jouw DB heeft nu 'in_stock' boolean (volgens eerdere migratie)
+  // Als die nog niet bestaat, laat weten—dan geef ik die migratie ook mee.
+  // @ts-ignore: Supabase returns this field
+  in_stock?: boolean;
 
   row_spacing_cm: number | null;
   plant_spacing_cm: number | null;
@@ -51,7 +55,7 @@ export interface Seed {
   harvest_duration_weeks: number | null;
 
   presow_months: number[] | null;
-  ground_months: number[] | null;     // ✅ samengevoegd: direct/plant
+  direct_plant_months: number[] | null; // ✅ samengevoegd veld
   harvest_months: number[] | null;
 
   notes: string | null;
@@ -60,7 +64,6 @@ export interface Seed {
   created_at: string;
   updated_at: string;
 }
-
 export interface GardenBed {
   id: UUID;
   garden_id: UUID;
