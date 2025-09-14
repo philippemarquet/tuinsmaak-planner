@@ -2,9 +2,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Garden, GardenBed, Planting, Seed } from "../lib/types";
 import { listBeds } from "../lib/api/beds";
-import { listSeeds, updateSeed } from "../lib/api/seeds";
+import { listSeeds } from "../lib/api/seeds";
 import { createPlanting, listPlantings, deletePlanting, updatePlanting } from "../lib/api/plantings";
-import { DndContext, useDraggable, useDroppable } from "@dnd-kit/core";
+import { DndContext, useDraggable, useDroppable, DragOverlay } from "@dnd-kit/core";
 import { ColorField } from "./ColorField";
 import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
 
@@ -36,16 +36,22 @@ function Toast({ message, type, onClose }: { message: string; type: "success" | 
   );
 }
 
-function DraggableSeed({ seed }: { seed: Seed }) {
+function DraggableSeed({ seed, isDragging = false }: { seed: Seed; isDragging?: boolean }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: `seed-${seed.id}` });
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
+  const dot =
+    seed.default_color?.startsWith("#")
+      ? <span className="inline-block w-3 h-3 rounded" style={{ background: seed.default_color }} />
+      : <span className={`inline-block w-3 h-3 rounded ${seed.default_color ?? "bg-green-500"}`} />;
   return (
-    <div ref={setNodeRef} style={style} {...listeners} {...attributes}
-         className="p-2 border rounded-md bg-secondary cursor-move text-sm flex items-center gap-2">
-      {seed.default_color?.startsWith("#")
-        ? <span className="inline-block w-3 h-3 rounded" style={{ background: seed.default_color }} />
-        : <span className={`inline-block w-3 h-3 rounded ${seed.default_color ?? "bg-green-500"}`} />
-      }
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...listeners}
+      {...attributes}
+      className={`px-2 py-1 border rounded-md bg-secondary cursor-move text-sm flex items-center gap-2 ${isDragging ? "opacity-50" : ""}`}
+    >
+      {dot}
       <span className="truncate">{seed.name}</span>
     </div>
   );
@@ -56,7 +62,7 @@ function DroppableSegment({
   bed, segmentIndex, occupied, children,
 }: { bed: GardenBed; segmentIndex: number; occupied: boolean; children: React.ReactNode; }) {
   const { setNodeRef, isOver } = useDroppable({ id: `bed__${bed.id}__segment__${segmentIndex}` });
-  const base = "flex items-center justify-center border border-dashed rounded-sm min-h-[32px] transition"; // compacter (32px)
+  const base = "flex items-center justify-center border border-dashed rounded-sm min-h-[28px] transition"; // compacter (28px)
   const color = isOver ? "bg-green-200" : occupied ? "bg-emerald-50" : "bg-muted";
   return <div ref={setNodeRef} className={`${base} ${color}`}>{children}</div>;
 }
@@ -75,7 +81,7 @@ function MonthChips({ selected, onToggle }: { selected: number[]; onToggle: (m: 
           <button key={m}
             type="button"
             onClick={() => onToggle(m)}
-            className={`px-2 py-0.5 rounded text-xs border ${on ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+            className={`px-1.5 py-0.5 rounded text-[11px] border ${on ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
             {lbl}
           </button>
         );
@@ -84,17 +90,15 @@ function MonthChips({ selected, onToggle }: { selected: number[]; onToggle: (m: 
   );
 }
 
-/* ========== Plattegrond subview (ongewijzigd) ========== */
+/* ========== Plattegrond subview (zoals je had) ========== */
 function PlannerMap({
   beds, seedsById, plantings, currentWeek, showGhosts,
-  onClickPlanting,
 }: {
   beds: GardenBed[];
   seedsById: Record<string, Seed>;
   plantings: Planting[];
   currentWeek: Date;
   showGhosts: boolean;
-  onClickPlanting: (p: Planting, bed: GardenBed, seed: Seed) => void;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const CANVAS_W = 2400;
@@ -108,51 +112,44 @@ function PlannerMap({
     const zx = vw / CANVAS_W; const zy = vh / CANVAS_H;
     setZoomClamped(Math.min(zx, zy));
   };
-
   useEffect(() => { fitToViewport(); }, []);
 
-  function ZoomControls() {
-    return (
-      <div className="flex items-center gap-2">
-        <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1 bg-secondary hover:bg-secondary/80" onClick={() => setZoomClamped(zoom - 0.1)} title="Uitzoomen">
-          <ZoomOut className="h-4 w-4" />-
-        </button>
-        <input type="range" min={minZoom} max={maxZoom} step={0.05} value={zoom} onChange={(e) => setZoomClamped(parseFloat(e.target.value))} className="w-40" />
-        <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1 bg-secondary hover:bg-secondary/80" onClick={() => setZoomClamped(zoom + 0.1)} title="Inzoomen">
-          <ZoomIn className="h-4 w-4" />+
-        </button>
-        <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1" onClick={() => setZoomClamped(1)} title="100%">
-          100%
-        </button>
-        <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1" onClick={fitToViewport} title="Passend maken">
-          <Maximize2 className="h-4 w-4" /> Fit
-        </button>
-        <span className="text-xs text-muted-foreground ml-1">{Math.round(zoom * 100)}%</span>
-      </div>
-    );
-  }
-
-  function isActiveInWeek(p: Planting) {
+  const isActiveInWeek = (p: Planting) => {
     const start = new Date(p.planned_date ?? "");
     const end = new Date(p.planned_harvest_end ?? "");
     if (isNaN(start.getTime()) || isNaN(end.getTime())) return false;
     const monday = new Date(currentWeek);
     const sunday = addDays(monday, 6);
     return start <= sunday && end >= monday;
-  }
-  function isFutureRelativeToWeek(p: Planting) {
+  };
+  const isFutureRelativeToWeek = (p: Planting) => {
     const start = new Date(p.planned_date ?? "");
     if (isNaN(start.getTime())) return false;
     const monday = new Date(currentWeek);
     const sunday = addDays(monday, 6);
     return start > sunday;
-  }
+  };
 
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-xl font-semibold">Plattegrond</h3>
-        <ZoomControls />
+        <div className="flex items-center gap-2">
+          <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1 bg-secondary hover:bg-secondary/80" onClick={() => setZoomClamped(zoom - 0.1)} title="Uitzoomen">
+            <ZoomOut className="h-4 w-4" />-
+          </button>
+          <input type="range" min={minZoom} max={maxZoom} step={0.05} value={zoom} onChange={(e) => setZoomClamped(parseFloat(e.target.value))} className="w-40" />
+          <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1 bg-secondary hover:bg-secondary/80" onClick={() => setZoomClamped(zoom + 0.1)} title="Inzoomen">
+            <ZoomIn className="h-4 w-4" />+
+          </button>
+          <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1" onClick={() => setZoomClamped(1)} title="100%">
+            100%
+          </button>
+          <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1" onClick={fitToViewport} title="Passend maken">
+            <Maximize2 className="h-4 w-4" /> Fit
+          </button>
+          <span className="text-xs text-muted-foreground ml-1">{Math.round(zoom * 100)}%</span>
+        </div>
       </div>
 
       <div ref={viewportRef} className="relative w-full h-[70vh] rounded-xl border border-border overflow-auto bg-background">
@@ -164,8 +161,7 @@ function PlannerMap({
               transform: `scale(${zoom})`, transformOrigin: "0 0",
               backgroundImage:
                 "linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(180deg, rgba(0,0,0,0.04) 1px, transparent 1px)",
-              backgroundSize: "24px 24px",
-              borderRadius: 12,
+              backgroundSize: "24px 24px", borderRadius: 12,
             }}
           >
             {beds.map((bed) => {
@@ -176,15 +172,15 @@ function PlannerMap({
               const segH = h / Math.max(1, bed.segments);
 
               const active = plantings.filter(p => p.garden_bed_id === bed.id && isActiveInWeek(p));
-              const future = plantings.filter(p => p.garden_bed_id === bed.id && !isActiveInWeek(p) && isFutureRelativeToWeek(p));
+              const future = showGhosts ? plantings.filter(p => p.garden_bed_id === bed.id && !isActiveInWeek(p) && isFutureRelativeToWeek(p)) : [];
 
-              function segmentFreeNow(rangeStart: number, rangeLen: number) {
-                const rs = rangeStart, re = rangeStart + rangeLen - 1;
+              const segmentFreeNow = (rs: number, len: number) => {
+                const re = rs + len - 1;
                 return !active.some(p => {
                   const ps = p.start_segment ?? 0, pe = ps + (p.segments_used ?? 1) - 1;
                   return rs <= pe && ps <= re;
                 });
-              }
+              };
 
               return (
                 <div key={bed.id}
@@ -199,9 +195,7 @@ function PlannerMap({
                   <div className="relative w-full h-[calc(100%-28px)]">
                     {/* droppable segment-rijen */}
                     <div className="absolute inset-0 grid gap-[2px]" style={{ gridTemplateRows: `repeat(${bed.segments}, 1fr)` }}>
-                      {Array.from({ length: bed.segments }, (_, i) => (
-                        <MapDroppableSegment key={i} bed={bed} segmentIndex={i} />
-                      ))}
+                      {Array.from({ length: bed.segments }, (_, i) => <MapDroppableSegment key={i} bed={bed} segmentIndex={i} />)}
                     </div>
 
                     {/* actieve plantingen */}
@@ -216,16 +210,15 @@ function PlannerMap({
                         return (
                           <div key={p.id}
                                className={`absolute left-1 right-1 rounded ${isHex ? "" : (p.color ?? "bg-primary")} text-white text-[10px] px-1 flex items-center`}
-                               style={{ top, height: Math.max(18, height), backgroundColor: isHex ? (p.color ?? "#22c55e") : undefined }}
-                               title={seed?.name ?? "Onbekend"}
-                          >
+                               style={{ top, height: Math.max(16, height), backgroundColor: isHex ? (p.color ?? "#22c55e") : undefined }}
+                               title={seed?.name ?? "Onbekend"}>
                             <span className="truncate">{seed?.name ?? "—"}</span>
                           </div>
                         );
                       })}
                     </div>
 
-                    {/* toekomstige (ghost) plantingen: alleen tonen waar segment nu vrij is */}
+                    {/* toekomstige (ghosts) */}
                     {future.length > 0 && (
                       <div className="absolute inset-0 pointer-events-none">
                         {future.map((p) => {
@@ -234,24 +227,14 @@ function PlannerMap({
                           const start = p.start_segment ?? 0;
                           const used = p.segments_used ?? 1;
                           if (!segmentFreeNow(start, used)) return null;
-
                           const top = start * segH;
                           const height = used * segH;
                           const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
                           const bg = isHex ? p.color! : "rgba(34,197,94,.35)";
                           return (
-                            <div
-                              key={`ghost-${p.id}`}
-                              className="absolute left-1 right-1 rounded text-white text-[10px] px-1 flex items-center"
-                              style={{
-                                top,
-                                height: Math.max(18, height),
-                                backgroundColor: bg,
-                                opacity: 0.35,
-                                border: "1px dashed rgba(0,0,0,.45)",
-                              }}
-                              title={`${seed.name} (toekomstig)`}
-                            >
+                            <div key={`ghost-${p.id}`}
+                                 className="absolute left-1 right-1 rounded text-white text-[10px] px-1 flex items-center"
+                                 style={{ top, height: Math.max(16, height), backgroundColor: bg, opacity: 0.35, border: "1px dashed rgba(0,0,0,.45)" }}>
                               <span className="truncate">{seed.name}</span>
                             </div>
                           );
@@ -271,20 +254,12 @@ function PlannerMap({
 
 function MapDroppableSegment({ bed, segmentIndex }: { bed: GardenBed; segmentIndex: number }) {
   const { setNodeRef, isOver } = useDroppable({ id: `mapbed__${bed.id}__segment__${segmentIndex}` });
-  return (
-    <div ref={setNodeRef} className={`w-full h-full border border-dashed ${isOver ? "bg-green-200/70" : "bg-transparent"}`} />
-  );
+  return <div ref={setNodeRef} className={`w-full h-full border border-dashed ${isOver ? "bg-green-200/70" : "bg-transparent"}`} />;
 }
 
 /* ========== compacte kaart per bak voor LIST-view ========== */
 function BedCard({
-  bed,
-  seedsById,
-  plantings,
-  currentWeek,
-  showGhosts,
-  onDeletePlanting,
-  onClickPlanting,
+  bed, seedsById, plantings, currentWeek, showGhosts, onDeletePlanting, onClickPlanting,
 }: {
   bed: GardenBed;
   seedsById: Record<string, Seed>;
@@ -311,9 +286,7 @@ function BedCard({
   };
 
   const activePlantings = plantings.filter((p) => p.garden_bed_id === bed.id && isActiveInWeek(p));
-  const futurePlantings = showGhosts
-    ? plantings.filter((p) => p.garden_bed_id === bed.id && !isActiveInWeek(p) && isFutureRelativeToWeek(p))
-    : [];
+  const futurePlantings = showGhosts ? plantings.filter((p) => p.garden_bed_id === bed.id && !isActiveInWeek(p) && isFutureRelativeToWeek(p)) : [];
 
   const segmentIsFreeNow = (idx: number) =>
     !activePlantings.some(p => {
@@ -323,19 +296,17 @@ function BedCard({
     });
 
   return (
-    <div className="p-4 border rounded-xl bg-card shadow-sm hover:shadow-md transition">
-      <div className="flex items-center justify-between mb-3">
+    <div className="p-3 border rounded-xl bg-card shadow-sm hover:shadow-md transition">
+      <div className="flex items-center justify-between mb-2">
         <div>
-          <h5 className="font-semibold">{bed.name}</h5>
-          <p className="text-xs text-muted-foreground">{bed.segments} segmenten</p>
+          <h5 className="font-semibold text-sm">{bed.name}</h5>
+          <p className="text-[11px] text-muted-foreground">{bed.segments} segmenten</p>
         </div>
-        {bed.is_greenhouse && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-600 text-white">Kas</span>
-        )}
+        {bed.is_greenhouse && <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-600 text-white">Kas</span>}
       </div>
 
-      {/* HORIZONTAAL = rijen, compact hoogte */}
-      <div className="grid gap-1.5" style={{ gridTemplateRows: `repeat(${bed.segments}, minmax(32px, auto))` }}>
+      {/* HORIZONTAAL = rijen, compact */}
+      <div className="grid gap-1" style={{ gridTemplateRows: `repeat(${bed.segments}, minmax(28px, auto))` }}>
         {Array.from({ length: bed.segments }, (_, i) => {
           const covering = activePlantings.filter((p) => {
             const start = p.start_segment ?? 0;
@@ -352,14 +323,14 @@ function BedCard({
 
           return (
             <DroppableSegment key={i} bed={bed} segmentIndex={i} occupied={covering.length > 0}>
-              <div className="flex flex-col gap-1 w-full px-1">
+              <div className="flex flex-col gap-0.5 w-full px-1">
                 {covering.map((p) => {
                   const seed = seedsById[p.seed_id];
                   const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
                   return (
                     <div
                       key={`${p.id}-${i}`}
-                      className={`text-white text-[11px] rounded px-2 py-1 flex items-center justify-between gap-2 cursor-pointer`}
+                      className="text-white text-[11px] rounded px-2 py-1 flex items-center justify-between gap-2 cursor-pointer"
                       style={{ background: isHex ? (p.color ?? "#22c55e") : undefined }}
                       onClick={() => seed && onClickPlanting(p, seed, p.start_segment ?? i)}
                     >
@@ -374,8 +345,6 @@ function BedCard({
                     </div>
                   );
                 })}
-
-                {/* Ghosts (optioneel) */}
                 {ghosts.map((p) => {
                   const seed = seedsById[p.seed_id];
                   const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
@@ -413,6 +382,14 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     | null
   >(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
+
+  // dnd overlay state (tegen verspringen)
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const activeSeed = useMemo(() => {
+    if (!activeDragId) return null;
+    const id = activeDragId.replace("seed-", "");
+    return seeds.find(s => s.id === id) || null;
+  }, [activeDragId, seeds]);
 
   const [currentWeek, setCurrentWeek] = useState<Date>(() => {
     const saved = localStorage.getItem("plannerWeekISO");
@@ -532,16 +509,20 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     setPopup({ mode: "create", seed, bed, segmentIndex: segIdx });
   }
 
+  function handleDragStart(event: any) {
+    setActiveDragId(String(event.active?.id ?? ""));
+  }
   function handleDragEnd(event: any) {
-    if (!event.over) return;
-    const overId = String(event.over.id);
-    const activeId = String(event.active.id);
-    if (!activeId.startsWith("seed-")) return;
+    const over = event.over;
+    const activeId = String(event.active?.id ?? "");
+    setActiveDragId(null);
+    if (!over || !activeId.startsWith("seed-")) return;
 
     const seedId = activeId.replace("seed-", "");
     const seed = seeds.find((s) => s.id === seedId);
     if (!seed) return;
 
+    const overId = String(over.id);
     if (overId.startsWith("bed__") || overId.startsWith("mapbed__")) {
       const parts = overId.split("__");
       const bedId = parts[1];
@@ -593,9 +574,8 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     method: "direct" | "presow";
     dateISO: string;
     hexColor: string;
-    markOutOfStock: boolean;
   }) {
-    const { mode, target, segmentsUsed, method, dateISO, hexColor, markOutOfStock } = opts;
+    const { mode, target, segmentsUsed, method, dateISO, hexColor } = opts;
     const { seed, bed, segmentIndex } = target;
 
     if (!seed.grow_duration_weeks || !seed.harvest_duration_weeks) {
@@ -633,8 +613,8 @@ export function PlannerPage({ garden }: { garden: Garden }) {
           seed_id: seed.id,
           garden_bed_id: bed.id,
           garden_id: bed.garden_id,
-          planned_sow_date: toISO(sowDate),           // legacy kolommen worden door triggers nog gebruikt indien aanwezig
-          planned_date: toISO(plantDate),             // nieuwe bronveld
+          planned_sow_date: toISO(sowDate),       // legacy compat (mag blijven staan)
+          planned_date: toISO(plantDate),         // één bronveld
           planned_harvest_start: toISO(harvestStart),
           planned_harvest_end: toISO(harvestEnd),
           method,
@@ -656,7 +636,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
           color: hexColor || p.color || seed.default_color || "#22c55e",
         } as any);
       }
-      if (markOutOfStock && (seed as any).in_stock) await updateSeed(seed.id, { in_stock: false } as any);
 
       const monday = new Date(currentWeek);
       const sunday = addDays(monday, 6);
@@ -676,8 +655,8 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   /* sticky header */
   const HeaderBar = (
     <div className="sticky top-0 z-30 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
-      <div className="py-3 flex items-center justify-between">
-        <h2 className="text-3xl font-bold">Planner</h2>
+      <div className="py-2.5 flex items-center justify-between">
+        <h2 className="text-2xl font-bold">Planner</h2>
         <div className="flex items-center gap-2 text-sm">
           <button onClick={prevWeek} className="px-2 py-1 border rounded">← Vorige week</button>
           <span className="font-medium whitespace-nowrap">{formatWeek(currentWeek)}</span>
@@ -687,7 +666,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       </div>
 
       {/* subtabs */}
-      <div className="flex items-center gap-3 pb-3">
+      <div className="flex items-center gap-3 pb-2">
         {[
           { k: "list", label: "Lijstweergave" },
           { k: "map",  label: "Plattegrond"   },
@@ -719,13 +698,16 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     <div className="space-y-6">
       {HeaderBar}
 
-      <DndContext onDragEnd={handleDragEnd}>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          {/* Sidebar (STICKY + eigen scroll) */}
+      <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+          {/* Sidebar (STICKY + eigen scroll, stabiele scrollbar) */}
           <div className="col-span-1">
             <div className="sticky top-24">
-              <div className="space-y-4 max-h-[calc(100vh-7rem)] overflow-auto pr-1 pb-4">
-                <h3 className="text-lg font-semibold">Zoek/filters</h3>
+              <div
+                className="space-y-3 max-h-[calc(100vh-7rem)] overflow-auto pr-1 pb-3"
+                style={{ scrollbarGutter: "stable both-edges" as any }}
+              >
+                <h3 className="text-base font-semibold">Zoek/filters</h3>
                 <input value={q} onChange={(e)=>setQ(e.target.value)} placeholder="Zoek op naam…"
                        className="w-full border rounded-md px-2 py-1" />
 
@@ -757,29 +739,31 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                   </div>
 
                   {/* maandfilters */}
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <div>
-                      <div className="text-xs mb-1">Voorzaai maanden</div>
+                      <div className="text-[11px] mb-1">Voorzaai maanden</div>
                       <MonthChips selected={fPresow} onToggle={(m)=>setFPresow(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
                     </div>
                     <div>
-                      <div className="text-xs mb-1">Direct zaaien</div>
+                      <div className="text-[11px] mb-1">Direct zaaien</div>
                       <MonthChips selected={fDirect} onToggle={(m)=>setFDirect(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
                     </div>
                     <div>
-                      <div className="text-xs mb-1">Plantmaanden</div>
+                      <div className="text-[11px] mb-1">Plantmaanden</div>
                       <MonthChips selected={fPlant} onToggle={(m)=>setFPlant(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
                     </div>
                     <div>
-                      <div className="text-xs mb-1">Oogstmaanden</div>
+                      <div className="text-[11px] mb-1">Oogstmaanden</div>
                       <MonthChips selected={fHarvest} onToggle={(m)=>setFHarvest(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
                     </div>
                   </div>
                 </div>
 
-                <h3 className="text-lg font-semibold mt-2">Beschikbare zaden</h3>
-                <div className="space-y-2">
-                  {filteredSeeds.map((seed) => <DraggableSeed key={seed.id} seed={seed} />)}
+                <h3 className="text-base font-semibold mt-1.5">Beschikbare zaden</h3>
+                <div className="space-y-1.5">
+                  {filteredSeeds.map((seed) => (
+                    <DraggableSeed key={seed.id} seed={seed} isDragging={activeDragId === `seed-${seed.id}`} />
+                  ))}
                   {filteredSeeds.length === 0 && <p className="text-xs text-muted-foreground">Geen zaden gevonden met deze filters.</p>}
                 </div>
               </div>
@@ -787,18 +771,14 @@ export function PlannerPage({ garden }: { garden: Garden }) {
           </div>
 
           {/* Content area */}
-          <div className="col-span-3 space-y-8">
+          <div className="col-span-3 space-y-6">
             {view === "list" ? (
               <>
                 {/* Buiten */}
                 {outdoorBeds.length > 0 && (
-                  <section className="space-y-3">
+                  <section className="space-y-2">
                     <h4 className="text-lg font-semibold">Buiten</h4>
-                    {/* slimme grid met min. 3 kaarten op grote schermen */}
-                    <div
-                      className="grid gap-4"
-                      style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}
-                    >
+                    <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}>
                       {outdoorBeds.map((bed) => (
                         <BedCard
                           key={bed.id}
@@ -817,12 +797,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
 
                 {/* Kas */}
                 {greenhouseBeds.length > 0 && (
-                  <section className="space-y-3">
+                  <section className="space-y-2">
                     <h4 className="text-lg font-semibold">Kas</h4>
-                    <div
-                      className="grid gap-4"
-                      style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}
-                    >
+                    <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}>
                       {greenhouseBeds.map((bed) => (
                         <BedCard
                           key={bed.id}
@@ -846,17 +823,29 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 plantings={plantings}
                 currentWeek={currentWeek}
                 showGhosts={showGhosts}
-                onClickPlanting={(p, bed, seed) => setPopup({ mode: "edit", bed, seed, planting: p, segmentIndex: p.start_segment ?? 0 })}
               />
             )}
           </div>
         </div>
+
+        {/* Drag overlay zodat de sidebar niet verspringt */}
+        <DragOverlay dropAnimation={null}>
+          {activeSeed ? (
+            <div className="px-2 py-1 border rounded-md bg-secondary text-sm flex items-center gap-2 pointer-events-none shadow-lg">
+              {activeSeed.default_color?.startsWith("#")
+                ? <span className="inline-block w-3 h-3 rounded" style={{ background: activeSeed.default_color }} />
+                : <span className={`inline-block w-3 h-3 rounded ${activeSeed.default_color ?? "bg-green-500"}`} />
+              }
+              <span className="truncate">{activeSeed.name}</span>
+            </div>
+          ) : null}
+        </DragOverlay>
       </DndContext>
 
       {/* Popup */}
       {popup && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-card p-6 rounded-lg shadow-lg w-full max-w-md space-y-4"
+          <div className="bg-card p-5 rounded-lg shadow-lg w-full max-w-md space-y-4"
                onPointerDown={(e)=>e.stopPropagation()}>
             <h3 className="text-lg font-semibold">{popup.mode === "create" ? "Nieuwe planting" : "Planting bewerken"}</h3>
             <PlantingForm
@@ -864,26 +853,31 @@ export function PlannerPage({ garden }: { garden: Garden }) {
               seed={popup.seed}
               bed={popup.bed}
               defaultSegment={popup.segmentIndex}
-              defaultDateISO={
-                popup.mode === "edit"
-                  ? (popup.planting.planned_date ?? toISO(currentWeek))
-                  : toISO(currentWeek)
-              }
+              defaultDateISO={popup.mode === "edit" ? (popup.planting.planned_date ?? toISO(currentWeek)) : toISO(currentWeek)}
               existing={popup.mode === "edit" ? popup.planting : undefined}
               onCancel={() => setPopup(null)}
-              onConfirm={(segmentsUsed, method, date, hex, markOut) =>
+              onConfirm={(segmentsUsed, method, date, hex) =>
                 handleConfirmPlanting({
                   mode: popup.mode,
                   target: popup.mode === "create"
                     ? { seed: popup.seed, bed: popup.bed, segmentIndex: popup.segmentIndex }
                     : { seed: popup.seed, bed: popup.bed, segmentIndex: popup.segmentIndex, planting: popup.planting },
-                  segmentsUsed, method, dateISO: date, hexColor: hex, markOutOfStock: markOut
+                  segmentsUsed, method, dateISO: date, hexColor: hex
                 })
               }
             />
           </div>
         </div>
       )}
+
+      {/* Floating naar-boven knop (handig bij veel bakken) */}
+      <button
+        onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+        className="fixed bottom-6 right-6 z-40 px-3 py-2 rounded-full border bg-background/90 backdrop-blur shadow"
+        title="Naar boven"
+      >
+        ↥
+      </button>
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
@@ -892,14 +886,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
 
 /* ========== PlantingForm (snelle popup) ========== */
 function PlantingForm({
-  mode,
-  seed,
-  bed,
-  defaultSegment,
-  defaultDateISO,
-  existing,
-  onCancel,
-  onConfirm,
+  mode, seed, bed, defaultSegment, defaultDateISO, existing, onCancel, onConfirm,
 }: {
   mode: "create" | "edit";
   seed: Seed;
@@ -908,7 +895,7 @@ function PlantingForm({
   defaultDateISO: string;
   existing?: Planting;
   onCancel: () => void;
-  onConfirm: (segmentsUsed: number, method: "direct" | "presow", dateISO: string, hexColor: string, markOutOfStock: boolean) => void;
+  onConfirm: (segmentsUsed: number, method: "direct" | "presow", dateISO: string, hexColor: string) => void;
 }) {
   const [segmentsUsed, setSegmentsUsed] = useState<number>(existing?.segments_used ?? 1);
   const [method, setMethod] = useState<"direct" | "presow">(
@@ -919,11 +906,10 @@ function PlantingForm({
     const source = existing?.color ?? seed.default_color ?? "#22c55e";
     return source.startsWith("#") || source.startsWith("rgb") ? source : "#22c55e";
   });
-  const [markOut, setMarkOut] = useState<boolean>(false);
   const maxSeg = Math.max(1, bed.segments - defaultSegment);
 
   return (
-    <form onSubmit={(e) => { e.preventDefault(); onConfirm(segmentsUsed, method, date, color, markOut); }} className="space-y-4">
+    <form onSubmit={(e) => { e.preventDefault(); onConfirm(segmentsUsed, method, date, color); }} className="space-y-4">
       <div>
         <label className="block text-sm font-medium mb-1">Aantal segmenten</label>
         <input type="number" name="segmentsUsed" min={1} max={maxSeg} value={segmentsUsed}
@@ -965,12 +951,6 @@ function PlantingForm({
         onChange={setColor}
         helperText="Voer #RRGGBB of rgb(r,g,b) in. We slaan #hex op."
       />
-
-      {/* Laat voorlopig staan als toggle; kun je later weghalen als je wilt */}
-      <label className="inline-flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={markOut} onChange={(e)=>setMarkOut(e.target.checked)} />
-        Zijn de zaden nu op? (zet voorraad op “niet op voorraad”)
-      </label>
 
       <div className="flex justify-end gap-2">
         <button type="button" onClick={onCancel}
