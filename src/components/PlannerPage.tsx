@@ -62,7 +62,7 @@ function DroppableSegment({
   bed, segmentIndex, occupied, children,
 }: { bed: GardenBed; segmentIndex: number; occupied: boolean; children: React.ReactNode; }) {
   const { setNodeRef, isOver } = useDroppable({ id: `bed__${bed.id}__segment__${segmentIndex}` });
-  const base = "flex items-center justify-center border border-dashed rounded-sm min-h-[28px] transition"; // compacter (28px)
+  const base = "flex items-center justify-center border border-dashed rounded-sm min-h-[28px] transition";
   const color = isOver ? "bg-green-200" : occupied ? "bg-emerald-50" : "bg-muted";
   return <div ref={setNodeRef} className={`${base} ${color}`}>{children}</div>;
 }
@@ -90,7 +90,7 @@ function MonthChips({ selected, onToggle }: { selected: number[]; onToggle: (m: 
   );
 }
 
-/* ========== Plattegrond subview (zoals je had) ========== */
+/* ========== Plattegrond subview (compact, strakke uitlijning) ========== */
 function PlannerMap({
   beds, seedsById, plantings, currentWeek, showGhosts,
 }: {
@@ -165,8 +165,8 @@ function PlannerMap({
             }}
           >
             {beds.map((bed) => {
-              const w = Math.max(40, Math.round((bed.length_cm || 200)));
-              const h = Math.max(24, Math.round((bed.width_cm || 100)));
+              const w = Math.max(60, Math.round((bed.length_cm || 200)));
+              const h = Math.max(36, Math.round((bed.width_cm || 100)));
               const x = bed.location_x ?? 20;
               const y = bed.location_y ?? 20;
               const segH = h / Math.max(1, bed.segments);
@@ -208,10 +208,17 @@ function PlannerMap({
                         const height = used * segH;
                         const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
                         return (
-                          <div key={p.id}
-                               className={`absolute left-1 right-1 rounded ${isHex ? "" : (p.color ?? "bg-primary")} text-white text-[10px] px-1 flex items-center`}
-                               style={{ top, height: Math.max(16, height), backgroundColor: isHex ? (p.color ?? "#22c55e") : undefined }}
-                               title={seed?.name ?? "Onbekend"}>
+                          <div
+                            key={p.id}
+                            className={`absolute left-[3px] right-[3px] rounded ${isHex ? "" : (p.color ?? "bg-primary")} text-white text-[10px] px-1 flex items-center`}
+                            style={{
+                              top,
+                              height: Math.max(14, height - 2),
+                              backgroundColor: isHex ? (p.color ?? "#22c55e") : undefined,
+                              outline: "1px solid rgba(0,0,0,.06)"
+                            }}
+                            title={seed?.name ?? "Onbekend"}
+                          >
                             <span className="truncate">{seed?.name ?? "—"}</span>
                           </div>
                         );
@@ -232,9 +239,16 @@ function PlannerMap({
                           const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
                           const bg = isHex ? p.color! : "rgba(34,197,94,.35)";
                           return (
-                            <div key={`ghost-${p.id}`}
-                                 className="absolute left-1 right-1 rounded text-white text-[10px] px-1 flex items-center"
-                                 style={{ top, height: Math.max(16, height), backgroundColor: bg, opacity: 0.35, border: "1px dashed rgba(0,0,0,.45)" }}>
+                            <div
+                              key={`ghost-${p.id}`}
+                              className="absolute left-[3px] right-[3px] rounded text-white text-[10px] px-1 flex items-center"
+                              style={{
+                                top,
+                                height: Math.max(14, height - 2),
+                                backgroundColor: bg,
+                                opacity: 0.35,
+                                border: "1px dashed rgba(0,0,0,.45)"
+                              }}>
                               <span className="truncate">{seed.name}</span>
                             </div>
                           );
@@ -296,8 +310,8 @@ function BedCard({
     });
 
   return (
-    <div className="p-3 border rounded-xl bg-card shadow-sm hover:shadow-md transition">
-      <div className="flex items-center justify-between mb-2">
+    <div className="p-2.5 border rounded-xl bg-card shadow-sm hover:shadow-md transition">
+      <div className="flex items-center justify-between mb-1.5">
         <div>
           <h5 className="font-semibold text-sm">{bed.name}</h5>
           <p className="text-[11px] text-muted-foreground">{bed.segments} segmenten</p>
@@ -306,7 +320,7 @@ function BedCard({
       </div>
 
       {/* HORIZONTAAL = rijen, compact */}
-      <div className="grid gap-1" style={{ gridTemplateRows: `repeat(${bed.segments}, minmax(28px, auto))` }}>
+      <div className="grid gap-1" style={{ gridTemplateRows: `repeat(${bed.segments}, minmax(26px, auto))` }}>
         {Array.from({ length: bed.segments }, (_, i) => {
           const covering = activePlantings.filter((p) => {
             const start = p.start_segment ?? 0;
@@ -407,19 +421,23 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   const [inStockOnly, setInStockOnly] = useState<boolean>(() => localStorage.getItem("plannerInStock") === "1");
   const [inPlanner, setInPlanner] = useState<InPlannerFilter>(() => (localStorage.getItem("plannerInPlanner") as InPlannerFilter) ?? "all");
   const [greenhouseOnly, setGreenhouseOnly] = useState<boolean>(() => localStorage.getItem("plannerGHOnly") === "1");
+
+  // 3 definitieve maandfilters
   const [fPresow, setFPresow] = useState<number[]>(() => JSON.parse(localStorage.getItem("plannerM_presow") ?? "[]"));
-  const [fDirect, setFDirect] = useState<number[]>(() => JSON.parse(localStorage.getItem("plannerM_direct") ?? "[]"));
-  const [fPlant, setFPlant] = useState<number[]>(() => JSON.parse(localStorage.getItem("plannerM_plant") ?? "[]"));
+  const [fDirectPlant, setFDirectPlant] = useState<number[]>(() => JSON.parse(localStorage.getItem("plannerM_directplant") ?? "[]"));
   const [fHarvest, setFHarvest] = useState<number[]>(() => JSON.parse(localStorage.getItem("plannerM_harvest") ?? "[]"));
+
   const [showGhosts, setShowGhosts] = useState<boolean>(() => localStorage.getItem("plannerShowGhosts") === "1");
+
   useEffect(() => { localStorage.setItem("plannerQ", q); }, [q]);
   useEffect(() => { localStorage.setItem("plannerInStock", inStockOnly ? "1" : "0"); }, [inStockOnly]);
   useEffect(() => { localStorage.setItem("plannerInPlanner", inPlanner); }, [inPlanner]);
   useEffect(() => { localStorage.setItem("plannerGHOnly", greenhouseOnly ? "1" : "0"); }, [greenhouseOnly]);
+
   useEffect(() => { localStorage.setItem("plannerM_presow", JSON.stringify(fPresow)); }, [fPresow]);
-  useEffect(() => { localStorage.setItem("plannerM_direct", JSON.stringify(fDirect)); }, [fDirect]);
-  useEffect(() => { localStorage.setItem("plannerM_plant", JSON.stringify(fPlant)); }, [fPlant]);
+  useEffect(() => { localStorage.setItem("plannerM_directplant", JSON.stringify(fDirectPlant)); }, [fDirectPlant]);
   useEffect(() => { localStorage.setItem("plannerM_harvest", JSON.stringify(fHarvest)); }, [fHarvest]);
+
   useEffect(() => { localStorage.setItem("plannerShowGhosts", showGhosts ? "1" : "0"); }, [showGhosts]);
 
   async function reload() {
@@ -485,21 +503,20 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       const term = q.trim().toLowerCase();
       arr = arr.filter(s => s.name.toLowerCase().includes(term));
     }
-    if ((inStockOnly as any)) arr = arr.filter(s => (s as any).in_stock ?? true);
+    if (inStockOnly) arr = arr.filter(s => (s as any).in_stock ?? true);
     if (greenhouseOnly) arr = arr.filter(s => !!s.greenhouse_compatible);
-    if ((inPlanner as any) !== 'all') {
+    if (inPlanner !== 'all') {
       arr = arr.filter(s => (inPlanner === 'planned') ? seedHasPlanned(s.id) : !seedHasPlanned(s.id));
     }
     const anyMatch = (vals: number[] | null | undefined, selected: number[]) =>
       !selected.length || (vals ?? []).some(v => selected.includes(v));
     arr = arr.filter(s =>
       anyMatch(s.presow_months ?? [], fPresow) &&
-      anyMatch(s.direct_sow_months ?? [], fDirect) &&
-      anyMatch(s.plant_months ?? [], fPlant) &&
+      anyMatch((s as any).direct_plant_months ?? [], fDirectPlant) &&
       anyMatch(s.harvest_months ?? [], fHarvest)
     );
     return arr;
-  }, [seeds, q, inStockOnly, greenhouseOnly, inPlanner, fPresow, fDirect, fPlant, fHarvest, plantings]);
+  }, [seeds, q, inStockOnly, greenhouseOnly, inPlanner, fPresow, fDirectPlant, fHarvest, plantings]);
 
   function openCreatePopup(bed: GardenBed, seed: Seed, segIdx: number) {
     if (bed.is_greenhouse && !seed.greenhouse_compatible) {
@@ -588,16 +605,8 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     }
 
     // GEKOZEN DATUM = in de grond (plant of direct)
-    const chosenPlantOrDirectDate = new Date(dateISO);
-    let plantDate: Date, sowDate: Date;
-    if (method === "presow") {
-      plantDate = chosenPlantOrDirectDate;
-      sowDate = addWeeks(plantDate, -(seed.presow_duration_weeks || 0));
-    } else {
-      plantDate = chosenPlantOrDirectDate;
-      sowDate = chosenPlantOrDirectDate;
-    }
-
+    const plantDate = new Date(dateISO);
+    // sowDate wordt alleen conceptueel gebruikt (triggers/server kunnen dit berekenen uit presow_weeks)
     const harvestStart = addWeeks(plantDate, seed.grow_duration_weeks!);
     const harvestEnd   = addWeeks(harvestStart, seed.harvest_duration_weeks!);
 
@@ -613,8 +622,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
           seed_id: seed.id,
           garden_bed_id: bed.id,
           garden_id: bed.garden_id,
-          planned_sow_date: toISO(sowDate),       // legacy compat (mag blijven staan)
-          planned_date: toISO(plantDate),         // één bronveld
+          planned_date: toISO(plantDate),
           planned_harvest_start: toISO(harvestStart),
           planned_harvest_end: toISO(harvestEnd),
           method,
@@ -626,7 +634,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       } else {
         const p = target.planting!;
         await updatePlanting(p.id, {
-          planned_sow_date: toISO(sowDate),
           planned_date: toISO(plantDate),
           planned_harvest_start: toISO(harvestStart),
           planned_harvest_end: toISO(harvestEnd),
@@ -738,19 +745,15 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                     </div>
                   </div>
 
-                  {/* maandfilters */}
+                  {/* maandfilters — definitief 3 */}
                   <div className="space-y-1.5">
                     <div>
-                      <div className="text-[11px] mb-1">Voorzaai maanden</div>
+                      <div className="text-[11px] mb-1">Voorzaaimaanden</div>
                       <MonthChips selected={fPresow} onToggle={(m)=>setFPresow(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
                     </div>
                     <div>
-                      <div className="text-[11px] mb-1">Direct zaaien</div>
-                      <MonthChips selected={fDirect} onToggle={(m)=>setFDirect(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
-                    </div>
-                    <div>
-                      <div className="text-[11px] mb-1">Plantmaanden</div>
-                      <MonthChips selected={fPlant} onToggle={(m)=>setFPlant(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
+                      <div className="text-[11px] mb-1">Direct/Plant maanden</div>
+                      <MonthChips selected={fDirectPlant} onToggle={(m)=>setFDirectPlant(prev=>prev.includes(m)? prev.filter(x=>x!==m): [...prev,m])}/>
                     </div>
                     <div>
                       <div className="text-[11px] mb-1">Oogstmaanden</div>
@@ -778,7 +781,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 {outdoorBeds.length > 0 && (
                   <section className="space-y-2">
                     <h4 className="text-lg font-semibold">Buiten</h4>
-                    <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}>
+                    <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
                       {outdoorBeds.map((bed) => (
                         <BedCard
                           key={bed.id}
@@ -799,7 +802,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 {greenhouseBeds.length > 0 && (
                   <section className="space-y-2">
                     <h4 className="text-lg font-semibold">Kas</h4>
-                    <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}>
+                    <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
                       {greenhouseBeds.map((bed) => (
                         <BedCard
                           key={bed.id}
@@ -870,7 +873,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         </div>
       )}
 
-      {/* Floating naar-boven knop (handig bij veel bakken) */}
+      {/* Floating naar-boven knop */}
       <button
         onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
         className="fixed bottom-6 right-6 z-40 px-3 py-2 rounded-full border bg-background/90 backdrop-blur shadow"
