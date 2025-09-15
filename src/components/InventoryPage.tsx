@@ -4,6 +4,7 @@ import { listSeeds, createSeed, updateSeed, deleteSeed } from "../lib/api/seeds"
 import { listCropTypes } from "../lib/api/cropTypes";
 import { Pencil, Trash2, Copy, PlusCircle } from "lucide-react";
 import SeedEditor from "./SeedEditor";
+import { SeedModal } from "./SeedModal";
 
 /* ---------- helpers ---------- */
 
@@ -309,14 +310,26 @@ export function InventoryPage({ garden }: { garden: Garden }) {
       )}
 
       {editorOpen && (
-        <SeedEditor
-          seed={editorOpen.seed as any}
-          onClose={() => setEditorOpen(null)}
-          onSaved={(saved) => {
-            upsertLocal(saved);
-            setEditorOpen(null);
-          }}
-        />
+        editorOpen.seed ? (
+          <SeedEditor
+            seed={editorOpen.seed as any}
+            onClose={() => setEditorOpen(null)}
+            onSaved={(saved) => {
+              upsertLocal(saved);
+              setEditorOpen(null);
+            }}
+          />
+        ) : (
+          <SeedModal
+            gardenId={garden.id}
+            seed={{} as any}
+            onClose={() => setEditorOpen(null)}
+            onSaved={(saved) => {
+              upsertLocal(saved);
+              setEditorOpen(null);
+            }}
+          />
+        )
       )}
     </div>
   );
