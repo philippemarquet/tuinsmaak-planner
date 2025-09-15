@@ -1,22 +1,33 @@
-// lib/api/tasks.ts
-import { supabase } from "./supabase";
-import type { Task } from "../types";
+import { supabase } from "../supabaseClient";
+import type { Task, UUID } from "../types";
 
-export async function updateTask(id: string, patch: Partial<Task>) {
-  // 1) Do the update WITHOUT .select().single() (this avoids the coercion error)
-  const { error: upErr } = await supabase
-    .from("tasks")
-    .update(patch)
-    .eq("id", id);
-  if (upErr) throw upErr;
-
-  // 2) Fetch the single row explicitly
-  const { data, error: selErr } = await supabase
+/**
+ * Alle taken voor een tuin ophalen
+ */
+export async function listTasks(gardenId: UUID): Promise<Task[]> {
+  const { data, error } = await supabase
     .from("tasks")
     .select("*")
-    .eq("id", id)
-    .single(); // now it's a plain SELECT, safe to coerce to one
-  if (selErr) throw selErr;
+    .eq("garden_id", gardenId);
 
+  if (error) throw error;
+  return data as Task[];
+}
+
+/**
+ * Eén taak bijwerken
+ */
+export async function updateTask(
+  id: UUID,
+  values: Partial<Task>
+): Promise<Task> {
+  const { data, error } = await supabase
+    .from("tasks")
+    .update(values)
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) throw error;
   return data as Task;
 }
