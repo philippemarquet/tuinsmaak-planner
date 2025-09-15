@@ -173,13 +173,12 @@ export function InventoryPage({ garden }: { garden: Garden }) {
         row_spacing_cm: seed.row_spacing_cm ?? null,
         plant_spacing_cm: seed.plant_spacing_cm ?? null,
         greenhouse_compatible: !!seed.greenhouse_compatible,
-        sowing_type: seed.sowing_type ?? "both",
+        sowing_type: seed.sowing_type ?? "direct",
         presow_duration_weeks: seed.presow_duration_weeks ?? null,
         grow_duration_weeks: seed.grow_duration_weeks ?? null,
         harvest_duration_weeks: seed.harvest_duration_weeks ?? null,
         presow_months: seed.presow_months ?? [],
-        direct_sow_months: seed.direct_sow_months ?? [],
-        plant_months: seed.plant_months ?? [],
+        direct_plant_months: (seed as any).direct_plant_months ?? (seed as any).direct_sow_months ?? [],
         harvest_months: seed.harvest_months ?? [],
         notes: seed.notes ?? null,
         default_color: seed.default_color ?? "#22c55e",
@@ -311,8 +310,7 @@ export function InventoryPage({ garden }: { garden: Garden }) {
 
       {editorOpen && (
         <SeedEditor
-          gardenId={garden.id}
-          seed={editorOpen.seed}
+          seed={editorOpen.seed as any}
           onClose={() => setEditorOpen(null)}
           onSaved={(saved) => {
             upsertLocal(saved);

@@ -8,7 +8,10 @@ export async function listSeeds(gardenId: UUID): Promise<Seed[]> {
     .eq('garden_id', gardenId)
     .order('name', { ascending: true });
   if (error) throw error;
-  return data as Seed[];
+  return ((data || []) as any[]).map((row) => ({
+    ...(row as any),
+    direct_plant_months: (row as any).direct_plant_months ?? (row as any).direct_sow_months ?? [],
+  })) as Seed[];
 }
 
 export async function createSeed(fields: Partial<Seed>): Promise<Seed> {
@@ -18,7 +21,10 @@ export async function createSeed(fields: Partial<Seed>): Promise<Seed> {
     .select('*')
     .single();
   if (error) throw error;
-  return data as Seed;
+  return ({
+    ...(data as any),
+    direct_plant_months: (data as any).direct_plant_months ?? (data as any).direct_sow_months ?? [],
+  }) as Seed;
 }
 
 export async function updateSeed(id: UUID, fields: Partial<Seed>): Promise<Seed> {
@@ -29,7 +35,10 @@ export async function updateSeed(id: UUID, fields: Partial<Seed>): Promise<Seed>
     .select('*')
     .single();
   if (error) throw error;
-  return data as Seed;
+  return ({
+    ...(data as any),
+    direct_plant_months: (data as any).direct_plant_months ?? (data as any).direct_sow_months ?? [],
+  }) as Seed;
 }
 
 export async function deleteSeed(id: UUID): Promise<void> {

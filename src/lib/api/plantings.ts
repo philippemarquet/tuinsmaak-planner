@@ -9,7 +9,7 @@ export async function listPlantings(garden_id: string): Promise<Planting[]> {
     .eq("garden_id", garden_id)
     .order("planned_date", { ascending: true });
   if (error) throw error;
-  return (data || []) as Planting[];
+  return (data as unknown as Planting[]) || [];
 }
 
 type CreatePlantingInput = {
@@ -33,7 +33,7 @@ export async function createPlanting(input: CreatePlantingInput): Promise<Planti
     .select("*")
     .single();
   if (error) throw error;
-  return data as Planting;
+  return data as unknown as Planting;
 }
 
 type UpdatePlantingInput = Partial<Pick<
@@ -50,7 +50,7 @@ export async function updatePlanting(id: string, input: UpdatePlantingInput): Pr
     .select("*")
     .single();
   if (error) throw error;
-  return data as Planting;
+  return data as unknown as Planting;
 }
 
 export async function deletePlanting(id: string): Promise<void> {

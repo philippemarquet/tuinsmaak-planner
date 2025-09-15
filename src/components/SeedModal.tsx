@@ -23,23 +23,20 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
     name: seed.name ?? "",
     crop_type_id: seed.crop_type_id ?? null,
     purchase_date: seed.purchase_date ?? "",
-    stock_status: seed.stock_status ?? "adequate",
-    stock_quantity: seed.stock_quantity ?? 0,
     row_spacing_cm: seed.row_spacing_cm ?? null,
     plant_spacing_cm: seed.plant_spacing_cm ?? null,
     greenhouse_compatible: seed.greenhouse_compatible ?? false,
-    sowing_type: seed.sowing_type ?? "both",
+    sowing_type: (seed.sowing_type === "presow" ? "presow" : "direct"),
 
     presow_duration_weeks: seed.presow_duration_weeks ?? null,
     grow_duration_weeks: seed.grow_duration_weeks ?? null,
     harvest_duration_weeks: seed.harvest_duration_weeks ?? null,
 
     presow_months: seed.presow_months ?? [],
-    direct_sow_months: seed.direct_sow_months ?? [],
-    plant_months: seed.plant_months ?? [],
+    direct_plant_months: (seed as any).direct_plant_months ?? (seed as any).direct_sow_months ?? [],
     harvest_months: seed.harvest_months ?? [],
 
-    default_color: seed.default_color ?? null, // kan tailwind of #hex zijn; we schrijven #hex terug
+    default_color: seed.default_color ?? null,
     notes: seed.notes ?? "",
   });
 
@@ -152,13 +149,12 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
           <div>
             <label className="block text-sm font-medium mb-1">Zaaitype</label>
             <select
-              value={form.sowing_type ?? "both"}
+              value={form.sowing_type ?? "direct"}
               onChange={(e) => handleChange("sowing_type", e.target.value)}
               className="w-full border rounded-md px-2 py-1"
             >
               <option value="direct">Direct zaaien</option>
               <option value="presow">Voorzaaien</option>
-              <option value="both">Beide</option>
             </select>
           </div>
         </div>
@@ -194,25 +190,20 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
           </div>
         </div>
 
-        {/* Maanden-selectors (jouw UI unchanged) */}
+        {/* Maanden-selectors */}
         <MonthSelector
           label="Voorzaaien"
-          value={form.presow_months ?? []}
+          value={(form.presow_months ?? []) as number[]}
           onChange={(val) => handleChange("presow_months", val)}
         />
         <MonthSelector
-          label="Direct zaaien"
-          value={form.direct_sow_months ?? []}
-          onChange={(val) => handleChange("direct_sow_months", val)}
-        />
-        <MonthSelector
-          label="Planten"
-          value={form.plant_months ?? []}
-          onChange={(val) => handleChange("plant_months", val)}
+          label="Direct/Plant"
+          value={(form.direct_plant_months ?? []) as number[]}
+          onChange={(val) => handleChange("direct_plant_months", val)}
         />
         <MonthSelector
           label="Oogsten"
-          value={form.harvest_months ?? []}
+          value={(form.harvest_months ?? []) as number[]}
           onChange={(val) => handleChange("harvest_months", val)}
         />
 

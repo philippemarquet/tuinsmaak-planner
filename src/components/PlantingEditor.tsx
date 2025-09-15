@@ -20,8 +20,8 @@ export default function PlantingEditor({ gardenId, planting, onClose, onSaved }:
   const [bedId, setBedId] = useState<string>(planting?.garden_bed_id ?? '');
   const [method, setMethod] = useState<'direct'|'presow'>( (planting?.method as any) ?? 'direct');
 
-  const [sowDate, setSowDate] = useState<string>(planting?.planned_sow_date ?? '');
-  const [plantDate, setPlantDate] = useState<string>(planting?.planned_plant_date ?? '');
+  const [sowDate, setSowDate] = useState<string>(planting?.planned_presow_date ?? '');
+  const [plantDate, setPlantDate] = useState<string>(planting?.planned_date ?? '');
   const [harvestStart, setHarvestStart] = useState<string>(planting?.planned_harvest_start ?? '');
   const [harvestEnd, setHarvestEnd] = useState<string>(planting?.planned_harvest_end ?? '');
 
@@ -35,19 +35,43 @@ export default function PlantingEditor({ gardenId, planting, onClose, onSaved }:
   }, [gardenId]);
 
   async function handleSave() {
-    const payload: Partial<Planting> = {
-      garden_id: gardenId,
-      seed_id: seedId || undefined,
-      garden_bed_id: bedId || undefined,
+    const pd = method === 'presow' ? (plantDate || sowDate) : (sowDate || plantDate);
+
+    const payloadUpdate: Partial<Planting> = {
       method,
-      planned_sow_date: sowDate || null,
-      planned_plant_date: plantDate || null,
+      planned_date: pd || null,
       planned_harvest_start: harvestStart || null,
       planned_harvest_end: harvestEnd || null,
-      rows, plants_per_row: plantsPerRow,
-      status, notes: notes || null,
+      rows,
+      plants_per_row: plantsPerRow,
+      status,
+      notes: notes || null,
     };
-    const saved = editing ? await updatePlanting(planting!.id, payload) : await createPlanting(payload);
+
+    if (editing) {
+      const saved = await updatePlanting(planting!.id, payloadUpdate as any);
+      onSaved(saved);
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0,10);
+    const baseDate = pd || today;
+
+    const payloadCreate = {
+      seed_id: seedId,
+      garden_id: gardenId,
+      garden_bed_id: bedId,
+      method,
+      planned_date: baseDate,
+      planned_harvest_start: harvestStart || baseDate,
+      planned_harvest_end:   harvestEnd   || harvestStart || baseDate,
+      start_segment: 0,
+      segments_used: 1,
+      color: null,
+      status,
+    } as const;
+
+    const saved = await createPlanting(payloadCreate as any);
     onSaved(saved);
   }
 

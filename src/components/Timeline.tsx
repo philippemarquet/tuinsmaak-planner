@@ -25,7 +25,7 @@ export function Timeline({ plantings, seeds }: TimelineProps) {
   }
 
   function barStyle(p: Planting) {
-    const start = new Date(p.planned_plant_date ?? p.planned_sow_date ?? "");
+    const start = new Date(p.planned_date ?? p.planned_presow_date ?? "");
     const end = new Date(p.planned_harvest_end ?? "");
     if (!start || !end) return { left: 0, width: 0 };
     const startIdx = weeks.findIndex((w) => w >= start);
