@@ -91,6 +91,7 @@ function MonthChips({ selected, onToggle }: { selected: number[]; onToggle: (m: 
 }
 
 /* ========== Plattegrond subview (compact, strakke uitlijning) ========== */
+/* ========== Plattegrond subview (compact, strakke uitlijning + langste zijde) ========== */
 function PlannerMap({
   beds, seedsById, plantings, currentWeek, showGhosts,
 }: {
@@ -135,19 +136,11 @@ function PlannerMap({
       <div className="flex items-center justify-between">
         <h3 className="text-xl font-semibold">Plattegrond</h3>
         <div className="flex items-center gap-2">
-          <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1 bg-secondary hover:bg-secondary/80" onClick={() => setZoomClamped(zoom - 0.1)} title="Uitzoomen">
-            <ZoomOut className="h-4 w-4" />-
-          </button>
+          <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1 bg-secondary hover:bg-secondary/80" onClick={() => setZoomClamped(zoom - 0.1)} title="Uitzoomen">-</button>
           <input type="range" min={minZoom} max={maxZoom} step={0.05} value={zoom} onChange={(e) => setZoomClamped(parseFloat(e.target.value))} className="w-40" />
-          <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1 bg-secondary hover:bg-secondary/80" onClick={() => setZoomClamped(zoom + 0.1)} title="Inzoomen">
-            <ZoomIn className="h-4 w-4" />+
-          </button>
-          <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1" onClick={() => setZoomClamped(1)} title="100%">
-            100%
-          </button>
-          <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1" onClick={fitToViewport} title="Passend maken">
-            <Maximize2 className="h-4 w-4" /> Fit
-          </button>
+          <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1 bg-secondary hover:bg-secondary/80" onClick={() => setZoomClamped(zoom + 0.1)} title="Inzoomen">+</button>
+          <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1" onClick={() => setZoomClamped(1)} title="100%">100%</button>
+          <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1" onClick={fitToViewport} title="Passend maken">Fit</button>
           <span className="text-xs text-muted-foreground ml-1">{Math.round(zoom * 100)}%</span>
         </div>
       </div>
@@ -165,11 +158,22 @@ function PlannerMap({
             }}
           >
             {beds.map((bed) => {
-              const w = Math.max(60, Math.round((bed.length_cm || 200)));
-              const h = Math.max(36, Math.round((bed.width_cm || 100)));
+              // Buitenkader (pixels vóór zoom)
+              const w = Math.max(60, Math.round(bed.length_cm || 200));
+              const h = Math.max(36, Math.round(bed.width_cm  || 100));
               const x = bed.location_x ?? 20;
               const y = bed.location_y ?? 20;
-              const segH = h / Math.max(1, bed.segments);
+
+              // Inner content (onder header)
+              const HEADER_H = 28;                   // moet gelijk zijn aan header-div hoogte
+              const innerW   = w;                    // inner container gebruikt w-full
+              const innerH   = Math.max(1, h - HEADER_H);
+
+              // Segment-oriëntatie langs langste zijde
+              const segCount = Math.max(1, bed.segments);
+              const vertical = innerW >= innerH;     // true = kolommen; false = rijen
+              const segW = vertical ? innerW / segCount : innerW;
+              const segH = vertical ? innerH : innerH / segCount;
 
               const active = plantings.filter(p => p.garden_bed_id === bed.id && isActiveInWeek(p));
               const future = showGhosts ? plantings.filter(p => p.garden_bed_id === bed.id && !isActiveInWeek(p) && isFutureRelativeToWeek(p)) : [];
@@ -183,72 +187,115 @@ function PlannerMap({
               };
 
               return (
-                <div key={bed.id}
-                     className={`absolute rounded-lg shadow-sm border select-none ${bed.is_greenhouse ? "border-green-600/60 bg-green-50" : "bg-white"}`}
-                     style={{ left: x, top: y, width: w, height: h }}>
-                  <div className="flex items-center justify-between px-2 py-1 border-b bg-muted/50 rounded-t-lg">
+                <div
+                  key={bed.id}
+                  className={`absolute rounded-lg shadow-sm border select-none ${bed.is_greenhouse ? "border-green-600/60 bg-green-50" : "bg-white"}`}
+                  style={{ left: x, top: y, width: w, height: h }}
+                >
+                  {/* header */}
+                  <div className="flex items-center justify-between px-2 py-1 border-b bg-muted/50 rounded-t-lg" style={{ height: HEADER_H }}>
                     <span className="text-xs font-medium truncate">{bed.name}</span>
                     {bed.is_greenhouse && <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-600 text-white">Kas</span>}
                   </div>
 
-                  {/* segmenten (HORIZONTAAL = rijen) + plantingen */}
-                  <div className="relative w-full h-[calc(100%-28px)]">
-                    {/* droppable segment-rijen */}
-                    <div className="absolute inset-0 grid gap-[2px]" style={{ gridTemplateRows: `repeat(${bed.segments}, 1fr)` }}>
-                      {Array.from({ length: bed.segments }, (_, i) => <MapDroppableSegment key={i} bed={bed} segmentIndex={i} />)}
+                  {/* SEGMENT-LAAG */}
+                  <div className="relative w-full" style={{ height: innerH }}>
+                    {/* droppable cellen exact passend (geen gap!) */}
+                    <div
+                      className="absolute inset-0 grid"
+                      style={{
+                        gridTemplateColumns: vertical ? `repeat(${segCount}, 1fr)` : '1fr',
+                        gridTemplateRows:    vertical ? '1fr' : `repeat(${segCount}, 1fr)`,
+                      }}
+                    >
+                      {Array.from({ length: segCount }, (_, i) => (
+                        <div key={i} className="relative">
+                          <MapDroppableSegment bed={bed} segmentIndex={i} />
+                          {/* subtiele rasterlijn */}
+                          <div className="absolute inset-0 pointer-events-none border border-dashed border-black/10" />
+                        </div>
+                      ))}
                     </div>
 
-                    {/* actieve plantingen */}
+                    {/* ACTIEVE plantingen — perfect uitgelijnd binnen cellen */}
                     <div className="absolute inset-0">
                       {active.map((p) => {
                         const seed = seedsById[p.seed_id];
                         const start = p.start_segment ?? 0;
-                        const used = p.segments_used ?? 1;
-                        const top = start * segH;
-                        const height = used * segH;
+                        const used = Math.max(1, p.segments_used ?? 1);
                         const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
+
+                        // 1px inset zodat randen zichtbaar blijven en niets "lekt"
+                        const inset = 1;
+
+                        const style = vertical
+                          ? {
+                              top: inset,
+                              height: Math.max(1, innerH - inset * 2),
+                              left: inset + start * segW,
+                              width: Math.max(1, used * segW - inset * 2),
+                            }
+                          : {
+                              left: inset,
+                              width: Math.max(1, innerW - inset * 2),
+                              top: inset + start * segH,
+                              height: Math.max(1, used * segH - inset * 2),
+                            };
+
                         return (
                           <div
                             key={p.id}
-                            className={`absolute left-[3px] right-[3px] rounded ${isHex ? "" : (p.color ?? "bg-primary")} text-white text-[10px] px-1 flex items-center`}
+                            className={`absolute rounded text-white text-[10px] px-1 flex items-center`}
                             style={{
-                              top,
-                              height: Math.max(14, height - 2),
+                              ...style,
                               backgroundColor: isHex ? (p.color ?? "#22c55e") : undefined,
-                              outline: "1px solid rgba(0,0,0,.06)"
+                              outline: "1px solid rgba(0,0,0,.06)",
                             }}
                             title={seed?.name ?? "Onbekend"}
                           >
+                            {/* fallback kleurklasse als p.color geen hex is */}
+                            {!isHex && <div className={`${p.color ?? "bg-primary"} absolute inset-0 rounded -z-10`} />}
                             <span className="truncate">{seed?.name ?? "—"}</span>
                           </div>
                         );
                       })}
                     </div>
 
-                    {/* toekomstige (ghosts) */}
+                    {/* TOEKOMSTIGE (ghosts) — zelfde exacte plaatsing */}
                     {future.length > 0 && (
                       <div className="absolute inset-0 pointer-events-none">
                         {future.map((p) => {
                           const seed = seedsById[p.seed_id];
                           if (!seed) return null;
                           const start = p.start_segment ?? 0;
-                          const used = p.segments_used ?? 1;
+                          const used = Math.max(1, p.segments_used ?? 1);
                           if (!segmentFreeNow(start, used)) return null;
-                          const top = start * segH;
-                          const height = used * segH;
+
+                          const inset = 1;
+                          const style = vertical
+                            ? {
+                                top: inset,
+                                height: Math.max(1, innerH - inset * 2),
+                                left: inset + start * segW,
+                                width: Math.max(1, used * segW - inset * 2),
+                              }
+                            : {
+                                left: inset,
+                                width: Math.max(1, innerW - inset * 2),
+                                top: inset + start * segH,
+                                height: Math.max(1, used * segH - inset * 2),
+                              };
+
                           const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
-                          const bg = isHex ? p.color! : "rgba(34,197,94,.35)";
+                          const bg = isHex ? (p.color ?? "rgba(34,197,94,.35)") : "rgba(34,197,94,.35)";
+
                           return (
                             <div
                               key={`ghost-${p.id}`}
-                              className="absolute left-[3px] right-[3px] rounded text-white text-[10px] px-1 flex items-center"
-                              style={{
-                                top,
-                                height: Math.max(14, height - 2),
-                                backgroundColor: bg,
-                                opacity: 0.35,
-                                border: "1px dashed rgba(0,0,0,.45)"
-                              }}>
+                              className="absolute rounded text-white text-[10px] px-1 flex items-center"
+                              style={{ ...style, backgroundColor: bg, opacity: 0.35, border: "1px dashed rgba(0,0,0,.45)" }}
+                              title={seed.name}
+                            >
                               <span className="truncate">{seed.name}</span>
                             </div>
                           );
@@ -266,9 +313,16 @@ function PlannerMap({
   );
 }
 
+/* droppable cel (ongewijzigde id-structuur) */
 function MapDroppableSegment({ bed, segmentIndex }: { bed: GardenBed; segmentIndex: number }) {
   const { setNodeRef, isOver } = useDroppable({ id: `mapbed__${bed.id}__segment__${segmentIndex}` });
-  return <div ref={setNodeRef} className={`w-full h-full border border-dashed ${isOver ? "bg-green-200/70" : "bg-transparent"}`} />;
+  return (
+    <div
+      ref={setNodeRef}
+      className={`w-full h-full ${isOver ? "bg-green-200/50" : "bg-transparent"}`}
+      style={{ transition: "background-color .12s ease" }}
+    />
+  );
 }
 
 /* ========== compacte kaart per bak voor LIST-view ========== */
