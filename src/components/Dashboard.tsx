@@ -1,4 +1,3 @@
-// src/components/Dashboard.tsx
 import { useEffect, useState } from "react";
 import type { Garden, GardenBed, Planting, Seed, Task } from "../lib/types";
 import { listBeds } from "../lib/api/beds";
@@ -11,44 +10,22 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const [plantings, setPlantings] = useState<Planting[]>([]);
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setLoadError(null);
-
-    (async () => {
-      try {
-        // Use robust listBeds: will fallback to unfiltered if filtered is empty
-        const [b, p, s, t] = await Promise.all([
-          listBeds(garden?.id),   // <= robust now
-          listPlantings(garden?.id),
-          listSeeds(garden?.id),
-          listTasks(garden?.id),
-        ]);
-        if (cancelled) return;
-
-        // Keep ordering consistent with Planner (sort_order then created_at)
-        const sortedBeds = (b ?? []).slice().sort((a, c) =>
-          (a.sort_order ?? 0) - (c.sort_order ?? 0) ||
-          a.created_at.localeCompare(c.created_at)
-        );
-
-        setBeds(sortedBeds);
-        setPlantings(p ?? []);
-        setSeeds(s ?? []);
-        setTasks(t ?? []);
-      } catch (e: any) {
-        if (!cancelled) setLoadError(e?.message ?? String(e));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [garden?.id]);
+    Promise.all([
+      listBeds(garden.id),
+      listPlantings(garden.id),
+      listSeeds(garden.id),
+      listTasks(garden.id),
+    ])
+      .then(([b, p, s, t]) => {
+        setBeds(b);
+        setPlantings(p);
+        setSeeds(s);
+        setTasks(t);
+      })
+      .catch(console.error);
+  }, [garden.id]);
 
   async function toggleTask(task: Task) {
     try {
@@ -56,7 +33,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
       const updated = await updateTask(task.id, { status: newStatus });
       setTasks(tasks.map((t) => (t.id === task.id ? updated : t)));
     } catch (e: any) {
-      alert("Kon taak niet bijwerken: " + (e?.message ?? e));
+      alert("Kon taak niet bijwerken: " + e.message);
     }
   }
 
@@ -68,28 +45,19 @@ export function Dashboard({ garden }: { garden: Garden }) {
     <div className="space-y-12">
       <h2 className="text-3xl font-bold">Dashboard</h2>
 
-      {/* Status */}
-      {loading && (
-        <p className="text-sm text-muted-foreground">Gegevens laden…</p>
-      )}
-      {loadError && (
-        <p className="text-sm text-red-600">
-          Fout bij laden: {loadError}
-        </p>
-      )}
-
       {/* Bakken overzicht */}
       <section>
         <h3 className="text-xl font-semibold mb-4">Mijn bakken</h3>
-
-        {!loading && beds.length === 0 ? (
+        {beds.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Geen bakken gevonden. (Controleer tuinselectie of rechten.)
+            Nog geen bakken toegevoegd.
           </p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {beds.map((bed) => {
-              const bedPlantings = plantings.filter((p) => p.garden_bed_id === bed.id);
+              const bedPlantings = plantings.filter(
+                (p) => p.garden_bed_id === bed.id
+              );
               return (
                 <div
                   key={bed.id}
@@ -137,13 +105,12 @@ export function Dashboard({ garden }: { garden: Garden }) {
       <section>
         <h3 className="text-xl font-semibold mb-4">Actielijst</h3>
         <div className="bg-card border border-border rounded-lg shadow-sm divide-y">
-          {(!loading && tasks.length === 0) && (
+          {tasks.length === 0 && (
             <p className="p-4 text-sm text-muted-foreground">
               Geen openstaande taken.
             </p>
           )}
           {tasks
-            .slice()
             .sort((a, b) => a.due_date.localeCompare(b.due_date))
             .map((t) => (
               <div
