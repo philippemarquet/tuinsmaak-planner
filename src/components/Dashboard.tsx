@@ -1,3 +1,4 @@
+// src/components/Dashboard.tsx
 import { useEffect, useMemo, useState } from "react";
 import type { Garden, GardenBed, Planting, Seed, Task } from "../lib/types";
 import { listBeds } from "../lib/api/beds";
@@ -5,9 +6,10 @@ import { listPlantings, updatePlanting } from "../lib/api/plantings";
 import { listSeeds } from "../lib/api/seeds";
 import { listTasks, updateTask } from "../lib/api/tasks";
 
-/* helpers */
+/* Helpers */
 function toISO(d: Date) { return d.toISOString().slice(0, 10); }
 function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+function addWeeks(d: Date, w: number) { const x = new Date(d); x.setDate(x.getDate() + w * 7); return x; }
 function startOfMondayWeek(d: Date) {
   const x = new Date(d); const day = x.getDay() || 7; // 1=ma .. 7=zo
   x.setHours(0,0,0,0);
@@ -30,6 +32,7 @@ function formatWeekRange(d: Date) {
   return `WK ${isoWeekNumber(mon)} • ${pad(mon.getDate())}/${pad(mon.getMonth()+1)} – ${pad(sun.getDate())}/${pad(sun.getMonth()+1)}`;
 }
 
+/* UI component */
 export function Dashboard({ garden }: { garden: Garden }) {
   const [beds, setBeds] = useState<GardenBed[]>([]);
   const [plantings, setPlantings] = useState<Planting[]>([]);
@@ -37,8 +40,13 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [showAll, setShowAll] = useState(false);
 
-  // modal state voor "actie uitvoeren"
-  const [runDialog, setRunDialog] = useState<{ task: Task; dateISO: string } | null>(null);
+  // Dialoog state: run (uitvoeren) of reopen (heropenen/verplaatsen)
+  const [dialog, setDialog] = useState<{
+    mode: "run" | "reopen";
+    task: Task;
+    dateISO: string;
+  } | null>(null);
+
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -89,7 +97,6 @@ export function Dashboard({ garden }: { garden: Garden }) {
       if (!map.has(wkStart)) map.set(wkStart, []);
       map.get(wkStart)!.push(t);
     }
-    // sort keys
     const keys = Array.from(map.keys()).sort();
     return keys.map(k => ({ weekStartISO: k, tasks: map.get(k)!.sort((a,b)=>a.due_date.localeCompare(b.due_date)) }));
   }
@@ -116,30 +123,167 @@ export function Dashboard({ garden }: { garden: Garden }) {
     }
   }
 
+  /* ========= Kernlogica voor plannen schuiven ========= */
+
+  // Uitvoeren: sla actual_* op en verschuif planned_* vanaf uitgevoerde datum
   async function runTask(task: Task, performedISO: string) {
     setBusyId(task.id);
     try {
-      // 1) plantings: zet de juiste actual_* datum
-      const payload: any = {};
-      if (task.type === "sow") payload.actual_presow_date = performedISO;
-      else if (task.type === "plant_out") payload.actual_ground_date = performedISO;
-      else if (task.type === "harvest_start") payload.actual_harvest_start = performedISO;
-      else if (task.type === "harvest_end") payload.actual_harvest_end = performedISO;
+      const pl = plantingsById[task.planting_id];
+      const seed = pl ? seedsById[pl.seed_id] : null;
 
-      if (Object.keys(payload).length) {
-        await updatePlanting(task.planting_id, payload);
-        // optimistisch ook lokaal bijwerken
-        setPlantings(prev => prev.map(p => p.id === task.planting_id ? { ...p, ...payload } : p));
+      const actuals: any = {};
+      if (task.type === "sow") {
+        // bij direct zaaien → actual_ground_date; bij presow → actual_presow_date
+        if (pl?.method === "presow") actuals.actual_presow_date = performedISO;
+        else actuals.actual_ground_date = performedISO;
+      } else if (task.type === "plant_out") {
+        actuals.actual_ground_date = performedISO;
+      } else if (task.type === "harvest_start") {
+        actuals.actual_harvest_start = performedISO;
+      } else if (task.type === "harvest_end") {
+        actuals.actual_harvest_end = performedISO;
       }
 
-      // 2) taak afronden
-      const updated = await updateTask(task.id, { status: "done" });
-      setTasks(prev => prev.map(t => t.id === task.id ? updated : t));
+      const planUpdates: any = {};
+      if (pl && seed) {
+        const presowW = seed.presow_duration_weeks ?? null;
+        const growW = seed.grow_duration_weeks ?? null;
+        const harvestW = seed.harvest_duration_weeks ?? null;
+
+        let planned_date = pl.planned_date || performedISO;
+        let planned_presow_date = pl.planned_presow_date || null;
+        let planned_harvest_start = pl.planned_harvest_start || null;
+        let planned_harvest_end = pl.planned_harvest_end || null;
+
+        if (task.type === "sow") {
+          if (pl.method === "presow") {
+            planned_presow_date = performedISO;
+            if (presowW != null) planned_date = toISO(addWeeks(new Date(performedISO), presowW));
+            if (growW != null) planned_harvest_start = toISO(addWeeks(new Date(planned_date), growW));
+            if (harvestW != null && planned_harvest_start) planned_harvest_end = toISO(addWeeks(new Date(planned_harvest_start), harvestW));
+          } else {
+            planned_presow_date = null;
+            planned_date = performedISO;
+            if (growW != null) planned_harvest_start = toISO(addWeeks(new Date(planned_date), growW));
+            if (harvestW != null && planned_harvest_start) planned_harvest_end = toISO(addWeeks(new Date(planned_harvest_start), harvestW));
+          }
+        } else if (task.type === "plant_out") {
+          planned_date = performedISO;
+          if (growW != null) planned_harvest_start = toISO(addWeeks(new Date(planned_date), growW));
+          if (harvestW != null && planned_harvest_start) planned_harvest_end = toISO(addWeeks(new Date(planned_harvest_start), harvestW));
+        } else if (task.type === "harvest_start") {
+          planned_harvest_start = performedISO;
+          if (harvestW != null) planned_harvest_end = toISO(addWeeks(new Date(performedISO), harvestW));
+        } else if (task.type === "harvest_end") {
+          planned_harvest_end = performedISO;
+        }
+
+        planUpdates.planned_date = planned_date;
+        planUpdates.planned_presow_date = planned_presow_date;
+        planUpdates.planned_harvest_start = planned_harvest_start;
+        planUpdates.planned_harvest_end = planned_harvest_end;
+      }
+
+      // Planting bijwerken
+      const payload = { ...actuals, ...planUpdates };
+      await updatePlanting(task.planting_id, payload as any);
+      setPlantings(prev => prev.map(p => p.id === task.planting_id ? { ...p, ...payload } : p));
+
+      // Taak afronden
+      const updatedTask = await updateTask(task.id, { status: "done" });
+      setTasks(prev => prev.map(t => t.id === task.id ? updatedTask : t));
+
+      // Taken opnieuw laden (zodat due_dates meeschuiven indien triggers)
+      try {
+        const fresh = await listTasks(garden.id);
+        setTasks(fresh);
+      } catch {}
     } catch (e: any) {
       alert("Kon actie niet afronden: " + (e?.message ?? e));
     } finally {
       setBusyId(null);
-      setRunDialog(null);
+      setDialog(null);
+    }
+  }
+
+  // Heropenen/verplaatsen: zet status terug naar pending, wis relevante actual_* en zet nieuwe planned_* vanaf gekozen datum
+  async function reopenTask(task: Task, newPlannedISO: string) {
+    setBusyId(task.id);
+    try {
+      const pl = plantingsById[task.planting_id];
+      const seed = pl ? seedsById[pl.seed_id] : null;
+
+      const clearActuals: any = {};
+      if (task.type === "sow") {
+        if (pl?.method === "presow") clearActuals.actual_presow_date = null;
+        else clearActuals.actual_ground_date = null;
+      } else if (task.type === "plant_out") {
+        clearActuals.actual_ground_date = null;
+      } else if (task.type === "harvest_start") {
+        clearActuals.actual_harvest_start = null;
+      } else if (task.type === "harvest_end") {
+        clearActuals.actual_harvest_end = null;
+      }
+
+      const planUpdates: any = {};
+      if (pl && seed) {
+        const presowW = seed.presow_duration_weeks ?? null;
+        const growW = seed.grow_duration_weeks ?? null;
+        const harvestW = seed.harvest_duration_weeks ?? null;
+
+        let planned_date = pl.planned_date || newPlannedISO;
+        let planned_presow_date = pl.planned_presow_date || null;
+        let planned_harvest_start = pl.planned_harvest_start || null;
+        let planned_harvest_end = pl.planned_harvest_end || null;
+
+        if (task.type === "sow") {
+          if (pl.method === "presow") {
+            // nieuwe zaaidatum (presow) → bereken uitplant & oogst
+            planned_presow_date = newPlannedISO;
+            if (presowW != null) planned_date = toISO(addWeeks(new Date(newPlannedISO), presowW));
+          } else {
+            // direct zaaien → grond-datum = nieuwe geplande datum
+            planned_presow_date = null;
+            planned_date = newPlannedISO;
+          }
+          if (growW != null) planned_harvest_start = toISO(addWeeks(new Date(planned_date), growW));
+          if (harvestW != null && planned_harvest_start) planned_harvest_end = toISO(addWeeks(new Date(planned_harvest_start), harvestW));
+        } else if (task.type === "plant_out") {
+          planned_date = newPlannedISO;
+          if (growW != null) planned_harvest_start = toISO(addWeeks(new Date(planned_date), growW));
+          if (harvestW != null && planned_harvest_start) planned_harvest_end = toISO(addWeeks(new Date(planned_harvest_start), harvestW));
+        } else if (task.type === "harvest_start") {
+          planned_harvest_start = newPlannedISO;
+          if (harvestW != null) planned_harvest_end = toISO(addWeeks(new Date(newPlannedISO), harvestW));
+        } else if (task.type === "harvest_end") {
+          planned_harvest_end = newPlannedISO;
+        }
+
+        planUpdates.planned_date = planned_date;
+        planUpdates.planned_presow_date = planned_presow_date;
+        planUpdates.planned_harvest_start = planned_harvest_start;
+        planUpdates.planned_harvest_end = planned_harvest_end;
+      }
+
+      const payload = { ...clearActuals, ...planUpdates };
+      await updatePlanting(task.planting_id, payload as any);
+      setPlantings(prev => prev.map(p => p.id === task.planting_id ? { ...p, ...payload } : p));
+
+      // taak terug naar pending
+      const updatedTask = await updateTask(task.id, { status: "pending" });
+      setTasks(prev => prev.map(t => t.id === task.id ? updatedTask : t));
+
+      // taken verversen
+      try {
+        const fresh = await listTasks(garden.id);
+        setTasks(fresh);
+      } catch {}
+    } catch (e: any) {
+      alert("Kon actie niet heropenen: " + (e?.message ?? e));
+    } finally {
+      setBusyId(null);
+      setDialog(null);
     }
   }
 
@@ -181,10 +325,12 @@ export function Dashboard({ garden }: { garden: Garden }) {
                       return (
                         <button
                           key={t.id}
-                          onClick={() => !isDone && setRunDialog({ task: t, dateISO: toISO(new Date()) })}
-                          className={`w-full text-left p-4 hover:bg-muted/40 transition flex items-center justify-between gap-3 ${isDone ? "opacity-70" : ""}`}
-                          disabled={isDone}
-                          title={isDone ? "Al afgerond" : "Klik om uit te voeren"}
+                          onClick={() => {
+                            const defaultDate = isDone ? (t.due_date || toISO(new Date())) : toISO(new Date());
+                            setDialog({ mode: isDone ? "reopen" : "run", task: t, dateISO: defaultDate });
+                          }}
+                          className={`w-full text-left p-4 hover:bg-muted/40 transition flex items-center justify-between gap-3`}
+                          title={isDone ? "Klik om te heropenen/verplaatsen" : "Klik om uit te voeren"}
                         >
                           <div className="flex items-center gap-3">
                             <span
@@ -216,32 +362,44 @@ export function Dashboard({ garden }: { garden: Garden }) {
         )}
       </section>
 
-      {/* Dialog: actie uitvoeren */}
-      {runDialog && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setRunDialog(null)}>
+      {/* Dialog */}
+      {dialog && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setDialog(null)}>
           <div className="bg-card w-full max-w-sm rounded-lg shadow-lg p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h4 className="text-lg font-semibold">Actie uitvoeren</h4>
+            <h4 className="text-lg font-semibold">
+              {dialog.mode === "run" ? "Actie uitvoeren" : "Actie heropenen / verplaatsen"}
+            </h4>
             <p className="text-sm">
-              {labelForTask(runDialog.task)} • {seedName(runDialog.task)} • {bedName(runDialog.task)}
+              {labelForTask(dialog.task)} • {seedName(dialog.task)} • {bedName(dialog.task)}
             </p>
             <label className="block text-sm">
-              Uitgevoerd op
+              {dialog.mode === "run" ? "Uitgevoerd op" : "Nieuwe geplande datum"}
               <input
                 type="date"
-                value={runDialog.dateISO}
-                onChange={(e) => setRunDialog(d => d ? { ...d, dateISO: e.target.value } : d)}
+                value={dialog.dateISO}
+                onChange={(e) => setDialog(d => d ? { ...d, dateISO: e.target.value } : d)}
                 className="mt-1 w-full border rounded-md px-2 py-1"
               />
             </label>
             <div className="flex justify-end gap-2">
-              <button className="px-3 py-1.5 rounded-md border" onClick={() => setRunDialog(null)}>Annuleren</button>
-              <button
-                className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
-                onClick={() => runTask(runDialog.task, runDialog.dateISO)}
-                disabled={busyId === runDialog.task.id}
-              >
-                {busyId === runDialog.task.id ? "Opslaan…" : "Opslaan"}
-              </button>
+              <button className="px-3 py-1.5 rounded-md border" onClick={() => setDialog(null)}>Annuleren</button>
+              {dialog.mode === "run" ? (
+                <button
+                  className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
+                  onClick={() => runTask(dialog.task, dialog.dateISO)}
+                  disabled={busyId === dialog.task.id}
+                >
+                  {busyId === dialog.task.id ? "Opslaan…" : "Opslaan"}
+                </button>
+              ) : (
+                <button
+                  className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
+                  onClick={() => reopenTask(dialog.task, dialog.dateISO)}
+                  disabled={busyId === dialog.task.id}
+                >
+                  {busyId === dialog.task.id ? "Heropenen…" : "Heropenen"}
+                </button>
+              )}
             </div>
           </div>
         </div>
