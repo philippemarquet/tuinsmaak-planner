@@ -38,6 +38,7 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
 
     default_color: seed.default_color ?? null,
     notes: seed.notes ?? "",
+    in_stock: (seed as any).in_stock !== false,
   });
 
   useEffect(() => {
@@ -126,7 +127,28 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
           </div>
         </div>
 
-        {/* Afstanden + zaaitype */}
+        {/* Aankoopdatum + In voorraad */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">Aankoopdatum</label>
+            <input
+              type="date"
+              value={form.purchase_date ?? ""}
+              onChange={(e) => handleChange("purchase_date", e.target.value || null)}
+              className="w-full border rounded-md px-2 py-1"
+            />
+          </div>
+          <div>
+            <label className="inline-flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={form.in_stock ?? true}
+                onChange={(e) => handleChange("in_stock", e.target.checked)}
+              />
+              <span className="text-sm font-medium">In voorraad</span>
+            </label>
+          </div>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium mb-1">Rijafstand (cm)</label>
@@ -168,6 +190,7 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
               value={form.presow_duration_weeks ?? ""}
               onChange={(e) => handleChange("presow_duration_weeks", e.target.value === '' ? '' : Number(e.target.value))}
               className="w-full border rounded-md px-2 py-1"
+              disabled={form.sowing_type === 'direct'}
             />
           </div>
           <div>
@@ -195,6 +218,7 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
           label="Voorzaaien"
           value={(form.presow_months ?? []) as number[]}
           onChange={(val) => handleChange("presow_months", val)}
+          disabled={form.sowing_type === 'direct'}
         />
         <MonthSelector
           label="Direct/Plant"

@@ -2,6 +2,7 @@ interface MonthSelectorProps {
   label: string;
   value: number[]; // array met maanden (1–12)
   onChange: (months: number[]) => void;
+  disabled?: boolean;
 }
 
 const MONTHS = [
@@ -9,8 +10,9 @@ const MONTHS = [
   "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"
 ];
 
-export function MonthSelector({ label, value, onChange }: MonthSelectorProps) {
+export function MonthSelector({ label, value, onChange, disabled = false }: MonthSelectorProps) {
   function toggle(month: number) {
+    if (disabled) return;
     if (value.includes(month)) {
       onChange(value.filter((m) => m !== month));
     } else {
@@ -30,11 +32,12 @@ export function MonthSelector({ label, value, onChange }: MonthSelectorProps) {
               key={monthNum}
               type="button"
               onClick={() => toggle(monthNum)}
+              disabled={disabled}
               className={`px-2 py-1 rounded text-sm border ${
                 active
                   ? "bg-primary text-primary-foreground border-primary"
                   : "bg-secondary text-secondary-foreground border-border"
-              }`}
+              } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
             >
               {m}
             </button>
