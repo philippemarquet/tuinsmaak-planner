@@ -102,6 +102,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
   } | null>(null);
 
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [banner, setBanner] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -247,9 +248,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
     return filtered.map(x => x.p);
   }, [plantings, showAll]);
 
-  /* ---------- acties uitvoeren/heropenen ---------- */
-
-  // helper: ping planner voor conflict + focus
+  /* ---------- planner ping ---------- */
   function pingPlannerConflict(plantingId: string, fromISO?: string | null, toISO?: string | null) {
     try {
       localStorage.setItem("plannerNeedsAttention", "1");
@@ -257,88 +256,82 @@ export function Dashboard({ garden }: { garden: Garden }) {
       if (fromISO) localStorage.setItem("plannerFlashFrom", fromISO);
       if (toISO)   localStorage.setItem("plannerFlashTo", toISO);
       localStorage.setItem("plannerFlashAt", String(Date.now()));
-      localStorage.setItem("plannerResolveMode", "1");
+      localStorage.setItem("plannerResolveMode", "1"); // forceer ‘Conflicten’ tab
     } catch {}
   }
 
-async function runTask(task: Task, performedISO: string) {
-  setBusyId(task.id);
-  try {
-    const pl = plantingsById[task.planting_id];
-    const seed = pl ? seedsById[pl.seed_id] : null;
-    if (!pl || !seed) throw new Error("Planting/seed niet gevonden");
-
-    // 1) schrijf ALLEEN actual_* (altijd toegestaan, ongeacht conflicts)
-    const actuals: any = {};
-    if (task.type === "sow") {
-      if (pl.method === "presow") actuals.actual_presow_date = performedISO;
-      else actuals.actual_ground_date = performedISO;
-    } else if (task.type === "plant_out") {
-      actuals.actual_ground_date = performedISO;
-    } else if (task.type === "harvest_start") {
-      actuals.actual_harvest_start = performedISO;
-    } else if (task.type === "harvest_end") {
-      actuals.actual_harvest_end = performedISO;
-    }
-    await updatePlanting(task.planting_id, actuals as any);
-
-    // 2) herbereken planned_* vanaf dit anker en PROBEER toe te passen
-    const anchorType: "presow" | "ground" | "harvest_start" | "harvest_end" =
-      task.type === "sow" ? (pl.method === "presow" ? "presow" : "ground")
-      : task.type === "plant_out" ? "ground"
-      : task.type === "harvest_start" ? "harvest_start"
-      : "harvest_end";
-
-    const plan = computePlanFromAnchor({
-      method: pl.method as "direct" | "presow",
-      seed,
-      anchorType,
-      anchorISO: performedISO,
-      prev: {
-        planned_date: pl.planned_date,
-        planned_presow_date: pl.planned_presow_date,
-        planned_harvest_start: pl.planned_harvest_start,
-        planned_harvest_end: pl.planned_harvest_end,
-      },
-    });
-
-    let appliedPlan = false;
+  /* ---------- acties ---------- */
+  async function runTask(task: Task, performedISO: string) {
+    setBusyId(task.id);
     try {
-      // Dit kan falen bij overlap → dan laten we planned_* ongemoeid
-      await updatePlanting(task.planting_id, plan as any);
-      appliedPlan = true;
-    } catch (err) {
-      // Niets doen: Planner toont nu vanzelf de "Te verwerken herberekening"
-      // omdat actual_* wél staat en planned_* nog niet meeschuift.
-      console.warn("Planned update botste (bewust genegeerd):", err);
-    }
+      const pl = plantingsById[task.planting_id];
+      const seed = pl ? seedsById[pl.seed_id] : null;
+      if (!pl || !seed) throw new Error("Planting/seed niet gevonden");
 
-    // 3) taak afronden; ignoreer uitsluitend de 'no row could be fetched'-varianten
-    try {
-      await updateTask(task.id, { status: "done" });
+      // 1) actual_* altijd schrijven
+      const actuals: any = {};
+      if (task.type === "sow") {
+        if (pl.method === "presow") actuals.actual_presow_date = performedISO;
+        else actuals.actual_ground_date = performedISO;
+      } else if (task.type === "plant_out") {
+        actuals.actual_ground_date = performedISO;
+      } else if (task.type === "harvest_start") {
+        actuals.actual_harvest_start = performedISO;
+      } else if (task.type === "harvest_end") {
+        actuals.actual_harvest_end = performedISO;
+      }
+      await updatePlanting(task.planting_id, actuals as any);
+
+      // 2) herbereken geplande waarden vanaf deze anker-actie
+      const anchorType: "presow" | "ground" | "harvest_start" | "harvest_end" =
+        task.type === "sow" ? (pl.method === "presow" ? "presow" : "ground")
+        : task.type === "plant_out" ? "ground"
+        : task.type === "harvest_start" ? "harvest_start"
+        : "harvest_end";
+
+      const plan = computePlanFromAnchor({
+        method: pl.method as "direct" | "presow",
+        seed,
+        anchorType,
+        anchorISO: performedISO,
+        prev: {
+          planned_date: pl.planned_date,
+          planned_presow_date: pl.planned_presow_date,
+          planned_harvest_start: pl.planned_harvest_start,
+          planned_harvest_end: pl.planned_harvest_end,
+        },
+      });
+
+      let appliedPlan = false;
+      try {
+        await updatePlanting(task.planting_id, plan as any);
+        appliedPlan = true;
+      } catch (err) {
+        // conflict → badge + highlight in Planner
+        pingPlannerConflict(task.planting_id, pl.planned_date, plan.planned_date);
+        setBanner("Datum toegepast. Dit heeft impact op de planning; los het conflict op in de Planner.");
+        console.warn("Planned update botste (bewust genegeerd):", err);
+      }
+
+      // 3) taak afronden
+      try { await updateTask(task.id, { status: "done" }); } catch {}
+
+      // 4) herladen
+      const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);
+      setPlantings(p);
+      setTasks(t);
+
+      // optioneel: UI feedback als er conflict was (banner al gezet)
+      if (!appliedPlan) {
+        // nothing extra
+      }
     } catch (e: any) {
-      const msg = String(e?.message ?? e);
-      const benign = msg.includes("no row could be fetched") || msg.includes("no row returned");
-      if (!benign) throw e; // alleen echte fouten doorgeven
+      alert("Kon actie niet afronden: " + (e?.message ?? e));
+    } finally {
+      setBusyId(null);
+      setDialog(null);
     }
-
-    // 4) herladen voor consistente UI
-    const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);
-    setPlantings(p);
-    setTasks(t);
-
-    // 5) optionele hint als er een conflict was
-    if (!appliedPlan) {
-      // subtiele heads-up; je kunt dit ook als toast doen i.p.v. alert
-      // alert("Actie opgeslagen. Herberekening veroorzaakt een conflict; los dit op in de Planner.");
-    }
-  } catch (e: any) {
-    alert("Kon actie niet afronden: " + (e?.message ?? e));
-  } finally {
-    setBusyId(null);
-    setDialog(null);
   }
-}
 
   async function reopenTask(task: Task, newPlannedISO: string) {
     setBusyId(task.id);
@@ -378,26 +371,20 @@ async function runTask(task: Task, performedISO: string) {
         },
       });
 
-      // eerste poging: plan + clearActuals samen
       try {
         await updatePlanting(task.planting_id, { ...clearActuals, ...plan } as any);
-
         try {
           localStorage.setItem("plannerFlashFrom", pl.planned_date ?? "");
           localStorage.setItem("plannerFlashTo", plan.planned_date ?? "");
           localStorage.setItem("plannerFlashAt", String(Date.now()));
         } catch {}
       } catch (err: any) {
-        // fallback: sla iig clearActuals, en ping planner voor conflict
+        // fallback: iig actuals resetten en Planner pingen
         try { await updatePlanting(task.planting_id, clearActuals as any); } catch {}
         pingPlannerConflict(task.planting_id, pl.planned_date, plan.planned_date);
-        alert(
-          "Actie is heropend, maar de nieuwe planning kon niet worden gezet (overlap). " +
-          "De Planner markeert dit nu als conflict; los het daar op."
-        );
+        setBanner("Nieuwe geplande datum botst met bestaande planning; los het conflict op in de Planner.");
       }
 
-      // taak terug naar pending
       await updateTask(task.id, { status: "pending" });
 
       const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);
@@ -447,6 +434,13 @@ async function runTask(task: Task, performedISO: string) {
         </button>
       </div>
 
+      {banner && (
+        <div className="px-3 py-2 rounded border text-sm bg-amber-50 border-amber-200 text-amber-900">
+          {banner}
+          <button className="ml-2 underline" onClick={()=>setBanner(null)}>sluiten</button>
+        </div>
+      )}
+
       <section className="space-y-3">
         {plantingsSorted.length === 0 ? (
           <p className="text-sm text-muted-foreground">
@@ -464,7 +458,7 @@ async function runTask(task: Task, performedISO: string) {
             return (
               <div key={p.id} className="border rounded-lg p-3 bg-card">
                 <div className="grid grid-cols-12 gap-3 items-center">
-                  {/* links: label + volgende actie (subtiel) */}
+                  {/* links: label + volgende actie */}
                   <div className="col-span-12 md:col-span-4">
                     <div className="flex items-center gap-2">
                       <span
@@ -490,7 +484,7 @@ async function runTask(task: Task, performedISO: string) {
                     </div>
                   </div>
 
-                    {/* midden: timeline */}
+                  {/* midden: timeline */}
                   <div className="col-span-12 md:col-span-8">
                     <div className="relative h-12">
                       <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[6px] rounded bg-muted" />
