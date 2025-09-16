@@ -94,13 +94,14 @@ function MonthChips({ selected, onToggle }: { selected: number[]; onToggle: (m: 
 /* ========== Plattegrond subview (compact, strakke uitlijning) ========== */
 /* ========== Plattegrond subview (compact, strakke uitlijning + langste zijde) ========== */
 function PlannerMap({
-  beds, seedsById, plantings, currentWeek, showGhosts,
+  beds, seedsById, plantings, currentWeek, showGhosts, conflicts,
 }: {
   beds: GardenBed[];
   seedsById: Record<string, Seed>;
   plantings: Planting[];
   currentWeek: Date;
   showGhosts: boolean;
+  conflicts: Array<{plantingId: string; conflictsWith: string[]}>;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const CANVAS_W = 2400;
@@ -246,17 +247,22 @@ function PlannerMap({
                         return (
                           <div
                             key={p.id}
-                            className={`absolute rounded text-white text-[10px] px-1 flex items-center`}
+                            className={`absolute rounded text-white text-[10px] px-1 flex items-center ${
+                              conflicts.some(c => c.plantingId === p.id) ? 'ring-2 ring-red-500 ring-offset-1' : ''
+                            }`}
                             style={{
                               ...style,
                               backgroundColor: isHex ? (p.color ?? "#22c55e") : undefined,
-                              outline: "1px solid rgba(0,0,0,.06)",
+                              outline: conflicts.some(c => c.plantingId === p.id) 
+                                ? "2px solid rgba(239, 68, 68, 0.8)" 
+                                : "1px solid rgba(0,0,0,.06)",
                             }}
-                            title={seed?.name ?? "Onbekend"}
+                            title={`${seed?.name ?? "Onbekend"}${conflicts.some(c => c.plantingId === p.id) ? " ⚠️ CONFLICT" : ""}`}
                           >
                             {/* fallback kleurklasse als p.color geen hex is */}
                             {!isHex && <div className={`${p.color ?? "bg-primary"} absolute inset-0 rounded -z-10`} />}
                             <span className="truncate">{seed?.name ?? "—"}</span>
+                            {conflicts.some(c => c.plantingId === p.id) && <span className="ml-1">⚠️</span>}
                           </div>
                         );
                       })}
@@ -328,7 +334,7 @@ function MapDroppableSegment({ bed, segmentIndex }: { bed: GardenBed; segmentInd
 
 /* ========== compacte kaart per bak voor LIST-view ========== */
 function BedCard({
-  bed, seedsById, plantings, currentWeek, showGhosts, onDeletePlanting, onClickPlanting,
+  bed, seedsById, plantings, currentWeek, showGhosts, onDeletePlanting, onClickPlanting, conflicts,
 }: {
   bed: GardenBed;
   seedsById: Record<string, Seed>;
@@ -337,6 +343,7 @@ function BedCard({
   showGhosts: boolean;
   onDeletePlanting: (id: string) => void;
   onClickPlanting: (p: Planting, seed: Seed, startSegFallback: number) => void;
+  conflicts: Array<{plantingId: string; conflictsWith: string[]}>;
 }) {
   const isActiveInWeek = (p: Planting) => {
     const start = new Date(p.planned_date ?? "");
@@ -399,11 +406,19 @@ function BedCard({
                   return (
                     <div
                       key={`${p.id}-${i}`}
-                      className="text-white text-[11px] rounded px-2 py-1 flex items-center justify-between gap-2 cursor-pointer"
-                      style={{ background: isHex ? (p.color ?? "#22c55e") : undefined }}
+                      className={`text-white text-[11px] rounded px-2 py-1 flex items-center justify-between gap-2 cursor-pointer ${
+                        conflicts.some(c => c.plantingId === p.id) ? 'ring-2 ring-red-400' : ''
+                      }`}
+                      style={{ 
+                        background: isHex ? (p.color ?? "#22c55e") : undefined,
+                        outline: conflicts.some(c => c.plantingId === p.id) ? "2px solid rgba(239, 68, 68, 0.6)" : undefined
+                      }}
                       onClick={() => seed && onClickPlanting(p, seed, p.start_segment ?? i)}
                     >
-                      <span className="truncate">{seed?.name ?? "Onbekend"}</span>
+                      <span className="truncate">
+                        {seed?.name ?? "Onbekend"}
+                        {conflicts.some(c => c.plantingId === p.id) && " ⚠️"}
+                      </span>
                       {(i === p.start_segment) && (
                         <button
                           onClick={(e) => { e.stopPropagation(); onDeletePlanting(p.id); }}
@@ -614,6 +629,54 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     return arr;
   }, [seeds, q, inStockOnly, greenhouseOnly, inPlanner, fPresow, fDirectPlant, fHarvest, plantings]);
 
+  // Detecteer conflicten tussen plantings
+  const conflicts = useMemo(() => {
+    const conflictList: Array<{plantingId: string; conflictsWith: string[]}> = [];
+    
+    for (let i = 0; i < plantings.length; i++) {
+      const p1 = plantings[i];
+      const conflicts1 = [];
+      
+      for (let j = i + 1; j < plantings.length; j++) {
+        const p2 = plantings[j];
+        
+        // Alleen checken binnen zelfde bed
+        if (p1.garden_bed_id !== p2.garden_bed_id) continue;
+        
+        const p1Start = new Date(p1.planned_date ?? "");
+        const p1End = new Date(p1.planned_harvest_end ?? "");
+        const p2Start = new Date(p2.planned_date ?? "");
+        const p2End = new Date(p2.planned_harvest_end ?? "");
+        
+        if (isNaN(p1Start.getTime()) || isNaN(p1End.getTime()) || 
+            isNaN(p2Start.getTime()) || isNaN(p2End.getTime())) continue;
+        
+        // Check tijd-overlap
+        const timeOverlap = (p1Start <= p2End) && (p2Start <= p1End);
+        if (!timeOverlap) continue;
+        
+        // Check segment-overlap
+        const p1SegStart = p1.start_segment ?? 0;
+        const p1SegEnd = p1SegStart + (p1.segments_used ?? 1) - 1;
+        const p2SegStart = p2.start_segment ?? 0;
+        const p2SegEnd = p2SegStart + (p2.segments_used ?? 1) - 1;
+        const segOverlap = (p1SegStart <= p2SegEnd) && (p2SegStart <= p1SegEnd);
+        
+        if (segOverlap) {
+          conflicts1.push(p2.id);
+        }
+      }
+      
+      if (conflicts1.length > 0) {
+        conflictList.push({ plantingId: p1.id, conflictsWith: conflicts1 });
+      }
+    }
+    
+    return conflictList;
+  }, [plantings]);
+
+  const hasConflicts = conflicts.length > 0;
+
   function openCreatePopup(bed: GardenBed, seed: Seed, segIdx: number) {
     if (bed.is_greenhouse && !seed.greenhouse_compatible) {
       setToast({ message: "Dit zaad is niet geschikt voor de kas.", type: "error" });
@@ -764,6 +827,19 @@ export function PlannerPage({ garden }: { garden: Garden }) {
 
   const HeaderBar = (
     <div className="sticky top-0 z-30 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
+      {/* Conflict waarschuwing */}
+      {hasConflicts && (
+        <div className="px-4 py-2 bg-red-50 border-b border-red-200 text-red-800 text-sm">
+          ⚠️ Let op: Er zijn {conflicts.length} conflicten gevonden in de planning. Plantings overlappen in tijd en segment.
+          <button 
+            onClick={() => setToast({ message: "Tip: Bewerk de plantings om overlaps op te lossen", type: "info" })}
+            className="ml-2 text-red-600 underline hover:no-underline"
+          >
+            Meer info
+          </button>
+        </div>
+      )}
+      
       <div className="py-2.5 flex items-center justify-between">
         <h2 className="text-2xl font-bold">Planner</h2>
         <div className="flex items-center gap-2 text-sm">
@@ -902,6 +978,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                           showGhosts={showGhosts}
                           onDeletePlanting={handleDeletePlanting}
                           onClickPlanting={(p, seed, seg) => setPopup({ mode: "edit", bed, seed, planting: p, segmentIndex: seg })}
+                          conflicts={conflicts}
                         />
                       ))}
                     </div>
@@ -923,6 +1000,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                           showGhosts={showGhosts}
                           onDeletePlanting={handleDeletePlanting}
                           onClickPlanting={(p, seed, seg) => setPopup({ mode: "edit", bed, seed, planting: p, segmentIndex: seg })}
+                          conflicts={conflicts}
                         />
                       ))}
                     </div>
@@ -936,6 +1014,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 plantings={plantings}
                 currentWeek={currentWeek}
                 showGhosts={showGhosts}
+                conflicts={conflicts}
               />
             )}
           </div>
