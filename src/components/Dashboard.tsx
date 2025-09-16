@@ -115,7 +115,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
     return map;
   }, [tasks]);
 
-  /* ---------- helpers voor labels ---------- */
+  /* ---------- labels ---------- */
   function seedNameFor(t: Task) {
     const pl = plantingsById[t.planting_id]; const seed = pl ? seedsById[pl.seed_id] : null;
     return seed?.name ?? "Onbekend gewas";
@@ -192,12 +192,12 @@ export function Dashboard({ garden }: { garden: Garden }) {
     return m;
   }
 
-  function firstOpenMilestone(p: Planting): { ms: Milestone; whenISO: string } | null {
+  function firstOpenMilestone(p: Planting): { ms: Milestone; index: number; whenISO: string } | null {
     const ms = milestonesFor(p);
-    for (const m of ms) {
-      const t = m.task;
-      const due = t?.due_date ?? m.plannedISO ?? null;
-      if (m.status !== "done" && due) return { ms: m, whenISO: due };
+    for (let i = 0; i < ms.length; i++) {
+      const m = ms[i];
+      const due = m.task?.due_date ?? m.plannedISO ?? null;
+      if (m.status !== "done" && due) return { ms: m, index: i, whenISO: due };
     }
     return null;
   }
@@ -226,7 +226,6 @@ export function Dashboard({ garden }: { garden: Garden }) {
 
   /* ---------- acties uitvoeren/heropenen ---------- */
 
-  // Uitvoeren: schrijf actual_* en herbereken planned_* vanaf de gekozen actie (anker), daarna alles herladen
   async function runTask(task: Task, performedISO: string) {
     setBusyId(task.id);
     try {
@@ -270,17 +269,14 @@ export function Dashboard({ garden }: { garden: Garden }) {
       const payload = { ...actuals, ...plan };
       await updatePlanting(task.planting_id, payload as any);
 
-      // optionele mini-feedback voor Planner (flash)
       try {
         localStorage.setItem("plannerFlashFrom", pl.planned_date ?? "");
         localStorage.setItem("plannerFlashTo", plan.planned_date ?? "");
         localStorage.setItem("plannerFlashAt", String(Date.now()));
       } catch {}
 
-      // 3) taak afronden (triggers kunnen velden aanpassen)
       await updateTask(task.id, { status: "done" });
 
-      // 4) herladen plantings én tasks zodat UI gelijkloopt met triggers
       const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);
       setPlantings(p);
       setTasks(t);
@@ -292,7 +288,6 @@ export function Dashboard({ garden }: { garden: Garden }) {
     }
   }
 
-  // Heropenen: status pending, wis relevante actual_*, en plan opnieuw vanaf gekozen actie-datum (anker)
   async function reopenTask(task: Task, newPlannedISO: string) {
     setBusyId(task.id);
     try {
@@ -334,10 +329,8 @@ export function Dashboard({ garden }: { garden: Garden }) {
       const payload = { ...clearActuals, ...plan };
       await updatePlanting(task.planting_id, payload as any);
 
-      // terug naar pending
       await updateTask(task.id, { status: "pending" });
 
-      // herladen
       const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);
       setPlantings(p);
       setTasks(t);
@@ -354,7 +347,6 @@ export function Dashboard({ garden }: { garden: Garden }) {
 
   function rangeForRow(p: Planting) {
     const ms = milestonesFor(p);
-    // range = min(planned/actual van eerste milestone t/m planned/actual harvest_end)
     const dates: Date[] = [];
     for (const m of ms) {
       if (m.plannedISO) dates.push(new Date(m.plannedISO));
@@ -375,7 +367,6 @@ export function Dashboard({ garden }: { garden: Garden }) {
     return clamp01(p) * 100;
   }
 
-  const todayPctCache = useMemo(() => new Map<string, number>(), []);
   const todayDate = new Date();
 
   /* ---------- render ---------- */
@@ -386,13 +377,11 @@ export function Dashboard({ garden }: { garden: Garden }) {
         <button
           onClick={() => setShowAll(s => !s)}
           className="px-3 py-1.5 rounded-md border text-sm"
-          title={showAll ? "Toon alleen plantingen met een actie in de komende 2 weken" : "Toon alle plantingen"}
         >
           {showAll ? "Komende 2 weken" : "Alle plantingen"}
         </button>
       </div>
 
-      {/* Timeline lijst: één rij per planting */}
       <section className="space-y-3">
         {plantingsSorted.length === 0 ? (
           <p className="text-sm text-muted-foreground">
@@ -403,48 +392,49 @@ export function Dashboard({ garden }: { garden: Garden }) {
             const seed = seedsById[p.seed_id];
             const bed = bedsById[p.garden_bed_id];
             const ms = milestonesFor(p);
+            const next = firstOpenMilestone(p); // { ms, index, whenISO } | null
             const { start, end } = rangeForRow(p);
 
-            // today marker cache key
-            const key = `${start.toISOString()}_${end.toISOString()}`;
-            let todayPct = todayPctCache.get(key);
-            if (todayPct == null) {
-              todayPct = pctInRange(todayDate, start, end);
-              todayPctCache.set(key, todayPct);
-            }
-
-            // welke is de eerstvolgende open actie?
-            const nextOpen = ms.find(m => m.status !== "done" && (m.task?.due_date || m.plannedISO));
-            const nextDueISO = nextOpen ? (nextOpen.task?.due_date ?? nextOpen.plannedISO) : null;
+            const nextLabel = next ? `${labelForType(next.ms.taskType, p.method)} • ${next.whenISO}` : null;
 
             return (
               <div key={p.id} className="border rounded-lg p-3 bg-card">
                 <div className="grid grid-cols-12 gap-3 items-center">
-                  {/* links: label */}
-                  <div className="col-span-12 md:col-span-3 flex items-center gap-2">
-                    <span
-                      className="inline-block w-3 h-3 rounded"
-                      style={{ background: p.color && (p.color.startsWith("#") || p.color.startsWith("rgb")) ? p.color : "#22c55e" }}
-                      aria-hidden
-                    />
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">{seed?.name ?? "Onbekend gewas"}</div>
-                      <div className="text-xs text-muted-foreground truncate">{bed?.name ?? "Onbekende bak"}</div>
+                  {/* links: label + volgende actie (subtiel) */}
+                  <div className="col-span-12 md:col-span-4">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-block w-3 h-3 rounded"
+                        style={{ background: p.color && (p.color.startsWith("#") || p.color.startsWith("rgb")) ? p.color : "#22c55e" }}
+                        aria-hidden
+                      />
+                      <div className="min-w-0">
+                        <div className="font-medium truncate">{seed?.name ?? "Onbekend gewas"}</div>
+                        <div className="text-xs text-muted-foreground truncate">{bed?.name ?? "Onbekende bak"}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-1.5 text-xs flex items-center gap-2 text-muted-foreground">
+                      {nextLabel ? (
+                        <>
+                          <span className="inline-block w-2 h-2 rounded-full bg-yellow-400" />
+                          <span className="truncate">Volgende: {nextLabel}</span>
+                        </>
+                      ) : (
+                        <span className="truncate">Alle acties afgerond</span>
+                      )}
                     </div>
                   </div>
 
-                  {/* midden: timeline */}
-                  <div className="col-span-12 md:col-span-7">
+                  {/* midden: timeline (breder nu; geen rechter CTA meer) */}
+                  <div className="col-span-12 md:col-span-8">
                     <div className="relative h-12">
                       {/* baseline */}
                       <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[6px] rounded bg-muted" />
 
                       {/* vandaag marker */}
-                      <div
-                        className="absolute top-0 bottom-0 w-[2px] bg-primary/60"
-                        style={{ left: `${todayPct}%` }}
-                        title="Vandaag"
-                      />
+                      <div className="absolute top-0 bottom-0 w-[2px] bg-primary/60"
+                           style={{ left: `${pctInRange(todayDate, start, end)}%` }} title="Vandaag" />
 
                       {/* milestones */}
                       {ms.map((m, idx) => {
@@ -454,13 +444,16 @@ export function Dashboard({ garden }: { garden: Garden }) {
                         const pct = pctInRange(d, start, end);
 
                         const isDone = m.status === "done";
-                        const isLatePending = m.status !== "done" && m.task?.due_date && new Date(m.task.due_date) < todayDate;
+                        const isNext = next && idx === next.index && !isDone;
+                        const isGrey = !isDone && !isNext;
+                        const isLatePending = isNext && m.task?.due_date && new Date(m.task.due_date) < todayDate;
 
                         const dotClasses = [
-                          "absolute -translate-x-1/2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border shadow",
-                          isDone ? "bg-green-500 border-green-600" : "bg-amber-400 border-amber-500",
+                          "absolute -translate-x-1/2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border shadow cursor-pointer",
+                          isDone ? "bg-green-500 border-green-600"
+                                 : isNext ? "bg-yellow-400 border-yellow-500"
+                                          : "bg-gray-300 border-gray-400",
                           isLatePending ? "ring-2 ring-red-400" : "",
-                          "cursor-pointer",
                         ].join(" ");
 
                         const title =
@@ -493,28 +486,12 @@ export function Dashboard({ garden }: { garden: Garden }) {
                         );
                       })}
 
-                      {/* labels onderaan (optioneel compact) */}
+                      {/* labels onder/bij de as (optioneel) */}
                       <div className="absolute left-0 right-0 -bottom-1.5 flex justify-between text-[10px] text-muted-foreground">
                         <span>{toISO(start)}</span>
                         <span>{toISO(end)}</span>
                       </div>
                     </div>
-                  </div>
-
-                  {/* rechts: CTA */}
-                  <div className="col-span-12 md:col-span-2 text-right">
-                    {nextOpen && nextDueISO ? (
-                      <button
-                        className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-sm"
-                        onClick={() => setDialog({ mode: "run", task: nextOpen.task!, dateISO: toISO(new Date()) })}
-                        disabled={!nextOpen.task}
-                        title={nextOpen.task ? "Volgende actie uitvoeren" : "Geen taak gekoppeld"}
-                      >
-                        {labelForType(nextOpen.taskType, p.method)} • {nextDueISO}
-                      </button>
-                    ) : (
-                      <span className="text-xs px-2 py-1 rounded bg-green-100 text-green-700">Klaar</span>
-                    )}
                   </div>
                 </div>
               </div>
@@ -531,7 +508,10 @@ export function Dashboard({ garden }: { garden: Garden }) {
               {dialog.mode === "run" ? "Actie uitvoeren" : "Actie heropenen / verplaatsen"}
             </h4>
             <p className="text-sm">
-              {labelForType(dialog.task.type, plantingsById[dialog.task.planting_id]?.method)} • {seedNameFor(dialog.task)} • {bedNameFor(dialog.task)}
+              {(() => {
+                const p = plantingsById[dialog.task.planting_id];
+                return `${labelForType(dialog.task.type, p?.method)} • ${seedNameFor(dialog.task)} • ${bedNameFor(dialog.task)}`;
+              })()}
             </p>
             <label className="block text-sm">
               {dialog.mode === "run" ? "Uitgevoerd op" : "Nieuwe geplande datum"}
