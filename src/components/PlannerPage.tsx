@@ -7,6 +7,7 @@ import { createPlanting, listPlantings, deletePlanting, updatePlanting } from ".
 import { DndContext, useDraggable, useDroppable, DragOverlay } from "@dnd-kit/core";
 import { ColorField } from "./ColorField";
 import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
+import { supabase } from "../lib/supabaseClient";
 
 /* ========== helpers ========== */
 function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
@@ -529,6 +530,17 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     setBeds(b); setSeeds(s); setPlantings(p);
   }
   useEffect(() => { reload().catch(console.error); }, [garden.id]);
+
+  // Realtime: herlaad planner wanneer plantings veranderen (zelfde tuin)
+  useEffect(() => {
+    const channel = supabase
+      .channel('realtime-plantings')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'plantings', filter: `garden_id=eq.${garden.id}` }, () => {
+        reload().catch(() => {});
+      })
+      .subscribe();
+    return () => { try { supabase.removeChannel(channel); } catch {} };
+  }, [garden.id]);
 
   // sort bedden per groep
   const outdoorBeds = useMemo(() => beds.filter(b => !b.is_greenhouse)
