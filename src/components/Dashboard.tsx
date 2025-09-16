@@ -251,11 +251,11 @@ export function Dashboard({ garden }: { garden: Garden }) {
   function pingPlannerConflict(plantingId: string, fromISO?: string | null, toISO?: string | null) {
     try {
       localStorage.setItem("plannerNeedsAttention", "1");
+      localStorage.setItem("plannerOpenTab", "conflicts");
       localStorage.setItem("plannerConflictFocusId", plantingId);
       if (fromISO) localStorage.setItem("plannerFlashFrom", fromISO);
       if (toISO)   localStorage.setItem("plannerFlashTo", toISO);
       localStorage.setItem("plannerFlashAt", String(Date.now()));
-      localStorage.setItem("plannerOpenTab", "conflicts");
     } catch {}
   }
 
@@ -267,7 +267,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
       const seed = pl ? seedsById[pl.seed_id] : null;
       if (!pl || !seed) throw new Error("Planting/seed niet gevonden");
 
-      // 1) schrijf ALLE actual_* (nooit blokkeren)
+      // 1) schrijf ALTIJD actual_* (server)
       const actuals: any = {};
       if (task.type === "sow") {
         if (pl.method === "presow") actuals.actual_presow_date = performedISO;
@@ -280,6 +280,11 @@ export function Dashboard({ garden }: { garden: Garden }) {
         actuals.actual_harvest_end = performedISO;
       }
       await updatePlanting(task.planting_id, actuals as any);
+
+      // 1b) OPTIMISTISCHE UI: markeer lokaal meteen done & zet actuals,
+      // zodat het bolletje direct groen wordt (ook als plan-update straks faalt).
+      setPlantings(prev => prev.map(x => x.id === task.planting_id ? { ...x, ...actuals } : x));
+      setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: "done" } : t));
 
       // 2) planned_* herberekenen vanaf deze ankerdatum; proberen toe te passen
       const anchorType: "presow" | "ground" | "harvest_start" | "harvest_end" =
@@ -301,31 +306,23 @@ export function Dashboard({ garden }: { garden: Garden }) {
         },
       });
 
-      let appliedPlan = false;
       try {
         await updatePlanting(task.planting_id, plan as any);
-        appliedPlan = true;
-      } catch (err) {
-        // overlap/constraint → planner laten oplossen
+      } catch {
+        // Overlap → laat planner oplossen, maar actual blijft staan en bolletje blijft groen
         pingPlannerConflict(task.planting_id, pl.planned_date, plan.planned_date);
-        // (optioneel kun je hier een toast tonen)
       }
 
-      // 3) taak afronden
+      // 3) taak afronden (server)
       try { await updateTask(task.id, { status: "done" }); } catch (e: any) {
         const msg = String(e?.message ?? e);
         const benign = msg.includes("no row could be fetched") || msg.includes("no row returned");
         if (!benign) throw e;
       }
 
-      // 4) herladen
+      // 4) herladen om definitief te syncen
       const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);
       setPlantings(p); setTasks(t);
-
-      // 5) optionele hint
-      if (!appliedPlan) {
-        // niets forceren; oplossing gebeurt in Planner
-      }
     } catch (e: any) {
       alert("Kon actie niet afronden: " + (e?.message ?? e));
     } finally {
@@ -372,29 +369,23 @@ export function Dashboard({ garden }: { garden: Garden }) {
         },
       });
 
-      // probeer plan + clear actuals in één keer
       try {
         await updatePlanting(task.planting_id, { ...clearActuals, ...plan } as any);
-
-        // optioneel highlight info voor planner
-        try {
-          localStorage.setItem("plannerFlashFrom", pl.planned_date ?? "");
-          localStorage.setItem("plannerFlashTo", plan.planned_date ?? "");
-          localStorage.setItem("plannerFlashAt", String(Date.now()));
-        } catch {}
-      } catch (err: any) {
-        // overlap → sla iig clear actuals en ping planner
+        // optimistisch de lokale state updaten zodat UI gelijk klopt
+        setPlantings(prev => prev.map(x => x.id === task.planting_id ? { ...x, ...clearActuals, ...plan } : x));
+      } catch {
+        // plan past niet → zet iig clear actuals en ping planner
         try { await updatePlanting(task.planting_id, clearActuals as any); } catch {}
+        setPlantings(prev => prev.map(x => x.id === task.planting_id ? { ...x, ...clearActuals } : x));
         pingPlannerConflict(task.planting_id, pl.planned_date, plan.planned_date);
-        alert(
-          "Actie is heropend, maar de nieuwe planning kon niet worden gezet (overlap). " +
-          "De Planner markeert dit nu als conflict; los het daar op."
-        );
+        alert("Actie is heropend, maar de nieuwe planning past niet. De Planner toont dit nu bij ‘Conflicten’.");
       }
 
-      // taak terug naar pending
+      // taak terug naar pending (server + optimistisch)
       await updateTask(task.id, { status: "pending" });
+      setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: "pending" } : t));
 
+      // resync
       const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);
       setPlantings(p); setTasks(t);
     } catch (e: any) {
@@ -495,7 +486,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
                         if (!baseISO) return null;
                         const d = new Date(baseISO);
                         const pct = pctInRange(d, start, end);
-                        const isDone = m.status === "done";
+                        const isDone = m.status === "done"; // groen zodra er een actual is (of task.status=done)
                         const isNext = next && idx === next.index && !isDone;
                         const isLatePending = isNext && m.task?.due_date && new Date(m.task.due_date) < todayDate;
                         const dotClasses = [
@@ -519,7 +510,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
                             onClick={() => {
                               const t = m.task;
                               if (!t) return;
-                              if (t.status === "done") {
+                              if (t.status === "done" || m.actualISO) {
                                 const def = t.due_date || m.plannedISO || toISO(new Date());
                                 setDialog({ mode: "reopen", task: t, dateISO: def! });
                               } else {
