@@ -483,6 +483,36 @@ export function PlannerPage({ garden }: { garden: Garden }) {
 
   const [showGhosts, setShowGhosts] = useState<boolean>(() => localStorage.getItem("plannerShowGhosts") === "1");
 
+  // Flash state voor Dashboard feedback
+  const [flashInfo, setFlashInfo] = useState<{
+    fromISO: string;
+    toISO: string;
+    timestamp: number;
+  } | null>(null);
+
+  // Check voor flash info bij component mount en elke 1 seconde
+  useEffect(() => {
+    const checkFlash = () => {
+      try {
+        const flashFrom = localStorage.getItem("plannerFlashFrom") || "";
+        const flashTo = localStorage.getItem("plannerFlashTo") || "";
+        const flashAt = Number(localStorage.getItem("plannerFlashAt") || "0");
+        
+        if (flashAt > 0 && Date.now() - flashAt < 5000) { // 5 seconden
+          setFlashInfo({ fromISO: flashFrom, toISO: flashTo, timestamp: flashAt });
+        } else {
+          setFlashInfo(null);
+        }
+      } catch (e) {
+        setFlashInfo(null);
+      }
+    };
+    
+    checkFlash(); // Direct check
+    const interval = setInterval(checkFlash, 1000); // Elke seconde check
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => { localStorage.setItem("plannerQ", q); }, [q]);
   useEffect(() => { localStorage.setItem("plannerInStock", inStockOnly ? "1" : "0"); }, [inStockOnly]);
   useEffect(() => { localStorage.setItem("plannerInPlanner", inPlanner); }, [inPlanner]);
@@ -714,13 +744,26 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   }
 
   /* sticky header */
+  // Bepaal of de huidige week geflasht moet worden
+  const currentWeekISO = toISO(currentWeek);
+  const shouldFlash = flashInfo && 
+    (flashInfo.fromISO === currentWeekISO || flashInfo.toISO === currentWeekISO) &&
+    Date.now() - flashInfo.timestamp < 5000;
+
   const HeaderBar = (
     <div className="sticky top-0 z-30 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
       <div className="py-2.5 flex items-center justify-between">
         <h2 className="text-2xl font-bold">Planner</h2>
         <div className="flex items-center gap-2 text-sm">
           <button onClick={prevWeek} className="px-2 py-1 border rounded">← Vorige week</button>
-          <span className="font-medium whitespace-nowrap">{formatWeek(currentWeek)}</span>
+          <span className={`font-medium whitespace-nowrap px-2 py-1 rounded transition-colors ${
+            shouldFlash 
+              ? "bg-green-200 text-green-800 animate-pulse" 
+              : ""
+          }`}>
+            {formatWeek(currentWeek)}
+            {shouldFlash && " ✨"}
+          </span>
           <button onClick={nextWeek} className="px-2 py-1 border rounded">Volgende week →</button>
           <button onClick={goToToday} className="px-2 py-1 border rounded">Vandaag</button>
         </div>
@@ -755,6 +798,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   );
 
   /* --- render --- */
+
   return (
     <div className="space-y-6">
       {HeaderBar}

@@ -253,7 +253,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
       alert("Kon actie niet afronden: " + (e?.message ?? e));
     } finally {
       setBusyId(null);
-      setRunDialog(null);
+      setDialog(null);
     }
   }
 
