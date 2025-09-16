@@ -87,16 +87,18 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [showAll, setShowAll] = useState(false);
 
-  const [dialog, setDialog] = useState<{ mode: "run" | "reopen"; task: Task; dateISO: string } | null>(null);
+  // 2A: dialog-mode uitgebreid met editActual + ack
+  const [dialog, setDialog] = useState<{
+    mode: "run" | "reopen" | "editActual";
+    task: Task;
+    dateISO: string;
+    ack?: boolean; // bevestiging bij wijzigen uitgevoerde actie
+  } | null>(null);
+
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([
-      listBeds(garden.id),
-      listPlantings(garden.id),
-      listSeeds(garden.id),
-      listTasks(garden.id),
-    ])
+    Promise.all([listBeds(garden.id), listPlantings(garden.id), listSeeds(garden.id), listTasks(garden.id)])
       .then(([b, p, s, t]) => { setBeds(b); setPlantings(p); setSeeds(s); setTasks(t); })
       .catch(console.error);
   }, [garden.id]);
@@ -133,63 +135,74 @@ export function Dashboard({ garden }: { garden: Garden }) {
   }
 
   /* ---------- milestones per planting ---------- */
+  // 2B: status afleiden van actual_* (groen zodra actual is gezet)
   function milestonesFor(p: Planting): Milestone[] {
     const method = p.method as "direct" | "presow" | null;
     const tmap = tasksIndex.get(p.id);
 
-    const m: Milestone[] = [];
+    const resolveStatus = (actualISO: string | null | undefined, task?: Task | null) =>
+      actualISO ? "done" : (task?.status ?? "pending") as "pending" | "done" | "skipped";
+
+    const out: Milestone[] = [];
 
     if (method === "presow") {
-      m.push({
+      const tSow = tmap?.get("sow") ?? null;
+      out.push({
         id: "presow",
         label: "Voorzaaien",
         taskType: "sow",
         plannedISO: p.planned_presow_date,
         actualISO: p.actual_presow_date,
-        task: tmap?.get("sow") ?? null,
-        status: (tmap?.get("sow")?.status ?? (p.actual_presow_date ? "done" : "pending")) as any,
+        task: tSow,
+        status: resolveStatus(p.actual_presow_date, tSow),
       });
-      m.push({
+
+      const tPlant = tmap?.get("plant_out") ?? null;
+      out.push({
         id: "ground",
         label: "Uitplanten",
         taskType: "plant_out",
         plannedISO: p.planned_date,
         actualISO: p.actual_ground_date,
-        task: tmap?.get("plant_out") ?? null,
-        status: (tmap?.get("plant_out")?.status ?? (p.actual_ground_date ? "done" : "pending")) as any,
+        task: tPlant,
+        status: resolveStatus(p.actual_ground_date, tPlant),
       });
     } else {
-      m.push({
+      const tSow = tmap?.get("sow") ?? null;
+      out.push({
         id: "ground",
         label: "Zaaien",
         taskType: "sow",
         plannedISO: p.planned_date,
         actualISO: p.actual_ground_date,
-        task: tmap?.get("sow") ?? null,
-        status: (tmap?.get("sow")?.status ?? (p.actual_ground_date ? "done" : "pending")) as any,
+        task: tSow,
+        status: resolveStatus(p.actual_ground_date, tSow),
       });
     }
 
-    m.push({
+    const tHs = tmap?.get("harvest_start") ?? null;
+    out.push({
       id: "harvest_start",
       label: "Start oogst",
       taskType: "harvest_start",
       plannedISO: p.planned_harvest_start,
       actualISO: p.actual_harvest_start,
-      task: tmap?.get("harvest_start") ?? null,
-      status: (tmap?.get("harvest_start")?.status ?? (p.actual_harvest_start ? "done" : "pending")) as any,
+      task: tHs,
+      status: resolveStatus(p.actual_harvest_start, tHs),
     });
-    m.push({
+
+    const tHe = tmap?.get("harvest_end") ?? null;
+    out.push({
       id: "harvest_end",
       label: "Einde oogst",
       taskType: "harvest_end",
       plannedISO: p.planned_harvest_end,
       actualISO: p.actual_harvest_end,
-      task: tmap?.get("harvest_end") ?? null,
-      status: (tmap?.get("harvest_end")?.status ?? (p.actual_harvest_end ? "done" : "pending")) as any,
+      task: tHe,
+      status: resolveStatus(p.actual_harvest_end, tHe),
     });
 
-    return m;
+    return out;
   }
 
   function firstOpenMilestone(p: Planting): { ms: Milestone; index: number; whenISO: string } | null {
@@ -269,14 +282,10 @@ export function Dashboard({ garden }: { garden: Garden }) {
       const payload = { ...actuals, ...plan };
       await updatePlanting(task.planting_id, payload as any);
 
-      try {
-        localStorage.setItem("plannerFlashFrom", pl.planned_date ?? "");
-        localStorage.setItem("plannerFlashTo", plan.planned_date ?? "");
-        localStorage.setItem("plannerFlashAt", String(Date.now()));
-      } catch {}
-
+      // markeer done (ook bij editActual is dit oké)
       await updateTask(task.id, { status: "done" });
 
+      // herladen om triggers/plan gelijk te trekken
       const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);
       setPlantings(p);
       setTasks(t);
@@ -343,8 +352,6 @@ export function Dashboard({ garden }: { garden: Garden }) {
   }
 
   /* ---------- UI helpers timeline ---------- */
-  function dateOrNull(s?: string | null) { return s ? new Date(s) : null; }
-
   function rangeForRow(p: Planting) {
     const ms = milestonesFor(p);
     const dates: Date[] = [];
@@ -426,15 +433,18 @@ export function Dashboard({ garden }: { garden: Garden }) {
                     </div>
                   </div>
 
-                  {/* midden: timeline (breder nu; geen rechter CTA meer) */}
+                  {/* midden: timeline */}
                   <div className="col-span-12 md:col-span-8">
                     <div className="relative h-12">
                       {/* baseline */}
                       <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[6px] rounded bg-muted" />
 
                       {/* vandaag marker */}
-                      <div className="absolute top-0 bottom-0 w-[2px] bg-primary/60"
-                           style={{ left: `${pctInRange(todayDate, start, end)}%` }} title="Vandaag" />
+                      <div
+                        className="absolute top-0 bottom-0 w-[2px] bg-primary/60"
+                        style={{ left: `${pctInRange(todayDate, start, end)}%` }}
+                        title="Vandaag"
+                      />
 
                       {/* milestones */}
                       {ms.map((m, idx) => {
@@ -443,7 +453,8 @@ export function Dashboard({ garden }: { garden: Garden }) {
                         const d = new Date(baseISO);
                         const pct = pctInRange(d, start, end);
 
-                        const isDone = m.status === "done";
+                        // 2D: kleuren — groen (done via actual_*), geel (eerstvolgende), grijs (rest)
+                        const isDone = !!m.actualISO || m.task?.status === "done";
                         const isNext = next && idx === next.index && !isDone;
                         const isGrey = !isDone && !isNext;
                         const isLatePending = isNext && m.task?.due_date && new Date(m.task.due_date) < todayDate;
@@ -468,12 +479,13 @@ export function Dashboard({ garden }: { garden: Garden }) {
                             className={dotClasses}
                             style={{ left: `${pct}%` }}
                             title={title}
+                            // 2C: klikgedrag — done => editActual (met waarschuwing); anders run
                             onClick={() => {
                               const t = m.task;
                               if (!t) return;
-                              if (t.status === "done") {
-                                const def = t.due_date || m.plannedISO || toISO(new Date());
-                                setDialog({ mode: "reopen", task: t, dateISO: def! });
+                              if (isDone) {
+                                const def = m.actualISO || t.due_date || m.plannedISO || toISO(new Date());
+                                setDialog({ mode: "editActual", task: t, dateISO: def!, ack: false });
                               } else {
                                 setDialog({ mode: "run", task: t, dateISO: toISO(new Date()) });
                               }
@@ -486,7 +498,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
                         );
                       })}
 
-                      {/* labels onder/bij de as (optioneel) */}
+                      {/* labels onderaan (optioneel) */}
                       <div className="absolute left-0 right-0 -bottom-1.5 flex justify-between text-[10px] text-muted-foreground">
                         <span>{toISO(start)}</span>
                         <span>{toISO(end)}</span>
@@ -500,12 +512,14 @@ export function Dashboard({ garden }: { garden: Garden }) {
         )}
       </section>
 
-      {/* Dialog: uitvoeren / heropenen */}
+      {/* Dialog: uitvoeren / heropenen / editActual */}
       {dialog && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setDialog(null)}>
           <div className="bg-card w-full max-w-sm rounded-lg shadow-lg p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
             <h4 className="text-lg font-semibold">
-              {dialog.mode === "run" ? "Actie uitvoeren" : "Actie heropenen / verplaatsen"}
+              {dialog.mode === "run" ? "Actie uitvoeren"
+                : dialog.mode === "reopen" ? "Actie heropenen / verplaatsen"
+                : "Uitgevoerde actie wijzigen"}
             </h4>
             <p className="text-sm">
               {(() => {
@@ -513,8 +527,26 @@ export function Dashboard({ garden }: { garden: Garden }) {
                 return `${labelForType(dialog.task.type, p?.method)} • ${seedNameFor(dialog.task)} • ${bedNameFor(dialog.task)}`;
               })()}
             </p>
+
+            {dialog.mode === "editActual" && (
+              <div className="text-xs p-2 rounded bg-yellow-50 border border-yellow-200 text-yellow-800">
+                ⚠️ Je staat op het punt een <strong>uitgevoerde</strong> actie te wijzigen. Dit past de hele planning aan.
+                <label className="mt-2 block">
+                  <input
+                    type="checkbox"
+                    className="mr-2"
+                    checked={!!dialog.ack}
+                    onChange={(e) => setDialog(d => d ? { ...d, ack: e.target.checked } : d)}
+                  />
+                  Ik begrijp dit en wil doorgaan
+                </label>
+              </div>
+            )}
+
             <label className="block text-sm">
-              {dialog.mode === "run" ? "Uitgevoerd op" : "Nieuwe geplande datum"}
+              {dialog.mode === "run" ? "Uitgevoerd op"
+                : dialog.mode === "reopen" ? "Nieuwe geplande datum"
+                : "Uitgevoerd op (wijzigen)"}
               <input
                 type="date"
                 value={dialog.dateISO}
@@ -522,9 +554,11 @@ export function Dashboard({ garden }: { garden: Garden }) {
                 className="mt-1 w-full border rounded-md px-2 py-1"
               />
             </label>
+
             <div className="flex justify-end gap-2">
               <button className="px-3 py-1.5 rounded-md border" onClick={() => setDialog(null)}>Annuleren</button>
-              {dialog.mode === "run" ? (
+
+              {dialog.mode === "run" && (
                 <button
                   className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
                   onClick={() => runTask(dialog.task, dialog.dateISO)}
@@ -532,13 +566,26 @@ export function Dashboard({ garden }: { garden: Garden }) {
                 >
                   {busyId === dialog.task.id ? "Opslaan…" : "Opslaan"}
                 </button>
-              ) : (
+              )}
+
+              {dialog.mode === "reopen" && (
                 <button
                   className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
                   onClick={() => reopenTask(dialog.task, dialog.dateISO)}
                   disabled={busyId === dialog.task.id}
                 >
                   {busyId === dialog.task.id ? "Heropenen…" : "Heropenen"}
+                </button>
+              )}
+
+              {dialog.mode === "editActual" && (
+                <button
+                  className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
+                  onClick={() => runTask(dialog.task, dialog.dateISO)}
+                  disabled={busyId === dialog.task.id || !dialog.ack}
+                  title={!dialog.ack ? "Bevestig eerst de waarschuwing" : ""}
+                >
+                  {busyId === dialog.task.id ? "Bijwerken…" : "Bijwerken"}
                 </button>
               )}
             </div>
