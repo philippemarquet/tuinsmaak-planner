@@ -261,86 +261,84 @@ export function Dashboard({ garden }: { garden: Garden }) {
     } catch {}
   }
 
-  async function runTask(task: Task, performedISO: string) {
-    setBusyId(task.id);
-    try {
-      const pl = plantingsById[task.planting_id];
-      const seed = pl ? seedsById[pl.seed_id] : null;
-      if (!pl || !seed) throw new Error("Planting/seed niet gevonden");
+async function runTask(task: Task, performedISO: string) {
+  setBusyId(task.id);
+  try {
+    const pl = plantingsById[task.planting_id];
+    const seed = pl ? seedsById[pl.seed_id] : null;
+    if (!pl || !seed) throw new Error("Planting/seed niet gevonden");
 
-      // 1) actuals
-      const actuals: any = {};
-      if (task.type === "sow") {
-        if (pl.method === "presow") actuals.actual_presow_date = performedISO;
-        else actuals.actual_ground_date = performedISO;
-      } else if (task.type === "plant_out") {
-        actuals.actual_ground_date = performedISO;
-      } else if (task.type === "harvest_start") {
-        actuals.actual_harvest_start = performedISO;
-      } else if (task.type === "harvest_end") {
-        actuals.actual_harvest_end = performedISO;
-      }
-
-      // 2) probeer planning te verschuiven vanaf anker
-      const anchorType: "presow" | "ground" | "harvest_start" | "harvest_end" =
-        task.type === "sow" ? (pl.method === "presow" ? "presow" : "ground")
-        : task.type === "plant_out" ? "ground"
-        : task.type === "harvest_start" ? "harvest_start"
-        : "harvest_end";
-
-      const plan = computePlanFromAnchor({
-        method: pl.method as "direct" | "presow",
-        seed,
-        anchorType,
-        anchorISO: performedISO,
-        prev: {
-          planned_date: pl.planned_date,
-          planned_presow_date: pl.planned_presow_date,
-          planned_harvest_start: pl.planned_harvest_start,
-          planned_harvest_end: pl.planned_harvest_end,
-        },
-      });
-
-      // 2a: eerste poging — actuals + plan in één keer
-      try {
-        const payload = { ...actuals, ...plan };
-        await updatePlanting(task.planting_id, payload as any);
-
-        // flash voor planner (mooie highlight)
-        try {
-          localStorage.setItem("plannerFlashFrom", pl.planned_date ?? "");
-          localStorage.setItem("plannerFlashTo", plan.planned_date ?? "");
-          localStorage.setItem("plannerFlashAt", String(Date.now()));
-        } catch {}
-      } catch (err: any) {
-        // 2b: als plan niet opgeslagen kan worden (bijv. door constraint), sla dan iig de actuals op
-        try {
-          await updatePlanting(task.planting_id, actuals as any);
-        } catch { /* als zelfs dit faalt, laten we de fout vallen in outer catch */ }
-
-        // ping planner om conflict op te lossen, focus op deze teelt
-        pingPlannerConflict(task.planting_id, pl.planned_date, plan.planned_date);
-
-        alert(
-          "Actie is opgeslagen, maar de planning kon niet worden verschoven (waarschijnlijk door een overlap). " +
-          "De Planner toont nu een conflict en focust op de betreffende teelt zodat je het daar kunt oplossen."
-        );
-      }
-
-      // 3) taak afronden (altijd)
-      await updateTask(task.id, { status: "done" });
-
-      // 4) herladen data
-      const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);
-      setPlantings(p);
-      setTasks(t);
-    } catch (e: any) {
-      alert("Kon actie niet afronden: " + (e?.message ?? e));
-    } finally {
-      setBusyId(null);
-      setDialog(null);
+    // 1) schrijf ALLEEN actual_* (altijd toegestaan, ongeacht conflicts)
+    const actuals: any = {};
+    if (task.type === "sow") {
+      if (pl.method === "presow") actuals.actual_presow_date = performedISO;
+      else actuals.actual_ground_date = performedISO;
+    } else if (task.type === "plant_out") {
+      actuals.actual_ground_date = performedISO;
+    } else if (task.type === "harvest_start") {
+      actuals.actual_harvest_start = performedISO;
+    } else if (task.type === "harvest_end") {
+      actuals.actual_harvest_end = performedISO;
     }
+    await updatePlanting(task.planting_id, actuals as any);
+
+    // 2) herbereken planned_* vanaf dit anker en PROBEER toe te passen
+    const anchorType: "presow" | "ground" | "harvest_start" | "harvest_end" =
+      task.type === "sow" ? (pl.method === "presow" ? "presow" : "ground")
+      : task.type === "plant_out" ? "ground"
+      : task.type === "harvest_start" ? "harvest_start"
+      : "harvest_end";
+
+    const plan = computePlanFromAnchor({
+      method: pl.method as "direct" | "presow",
+      seed,
+      anchorType,
+      anchorISO: performedISO,
+      prev: {
+        planned_date: pl.planned_date,
+        planned_presow_date: pl.planned_presow_date,
+        planned_harvest_start: pl.planned_harvest_start,
+        planned_harvest_end: pl.planned_harvest_end,
+      },
+    });
+
+    let appliedPlan = false;
+    try {
+      // Dit kan falen bij overlap → dan laten we planned_* ongemoeid
+      await updatePlanting(task.planting_id, plan as any);
+      appliedPlan = true;
+    } catch (err) {
+      // Niets doen: Planner toont nu vanzelf de "Te verwerken herberekening"
+      // omdat actual_* wél staat en planned_* nog niet meeschuift.
+      console.warn("Planned update botste (bewust genegeerd):", err);
+    }
+
+    // 3) taak afronden; ignoreer uitsluitend de 'no row could be fetched'-varianten
+    try {
+      await updateTask(task.id, { status: "done" });
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      const benign = msg.includes("no row could be fetched") || msg.includes("no row returned");
+      if (!benign) throw e; // alleen echte fouten doorgeven
+    }
+
+    // 4) herladen voor consistente UI
+    const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);
+    setPlantings(p);
+    setTasks(t);
+
+    // 5) optionele hint als er een conflict was
+    if (!appliedPlan) {
+      // subtiele heads-up; je kunt dit ook als toast doen i.p.v. alert
+      // alert("Actie opgeslagen. Herberekening veroorzaakt een conflict; los dit op in de Planner.");
+    }
+  } catch (e: any) {
+    alert("Kon actie niet afronden: " + (e?.message ?? e));
+  } finally {
+    setBusyId(null);
+    setDialog(null);
   }
+}
 
   async function reopenTask(task: Task, newPlannedISO: string) {
     setBusyId(task.id);
