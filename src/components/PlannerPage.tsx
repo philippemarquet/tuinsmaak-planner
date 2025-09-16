@@ -6,7 +6,6 @@ import { listSeeds } from "../lib/api/seeds";
 import { createPlanting, listPlantings, deletePlanting, updatePlanting } from "../lib/api/plantings";
 import { DndContext, useDraggable, useDroppable, DragOverlay } from "@dnd-kit/core";
 import { ColorField } from "./ColorField";
-import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 
 /* ========== helpers ========== */
@@ -14,12 +13,28 @@ function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDat
 function addWeeks(d: Date, w: number) { return addDays(d, w * 7); }
 function toISO(d: Date) { return d.toISOString().slice(0, 10); }
 function clamp(n: number, min: number, max: number) { return Math.max(min, Math.min(max, n)); }
+function startOfMondayWeek(date: Date) {
+  const x = new Date(date);
+  const day = x.getDay() || 7; // 1=ma .. 7=zo
+  x.setHours(0,0,0,0);
+  if (day > 1) x.setDate(x.getDate() - (day - 1));
+  return x;
+}
 function isoWeekNumber(date: Date) {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   const dayNum = d.getUTCDay() || 7;
   d.setUTCDate(d.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  // @ts-ignore
   return Math.ceil((((d as any) - (yearStart as any)) / 86400000 + 1) / 7);
+}
+function fmtDMY(iso?: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}-${mm}-${yyyy}`;
 }
 
 /* ========== tiny UI bits ========== */
@@ -72,6 +87,30 @@ function DroppableSegment({
 type InPlannerFilter = 'all' | 'planned' | 'unplanned';
 const MONTHS_SHORT = ["J","F","M","A","M","J","J","A","S","O","N","D"];
 
+/* ========== WeekRuler (ma–zo + “Vandaag”) ========== */
+function WeekRuler({ weekStart }: { weekStart: Date }) {
+  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const today = new Date(); today.setHours(0,0,0,0);
+  return (
+    <div className="px-2 py-1 border rounded-md bg-muted/40 text-[11px] flex items-center gap-2 overflow-x-auto">
+      {days.map((d, i) => {
+        const isToday = d.getTime() === today.getTime();
+        const dd = String(d.getDate()).padStart(2, "0");
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dow = ["Ma","Di","Wo","Do","Vr","Za","Zo"][i];
+        return (
+          <div key={i} className={`px-2 py-0.5 rounded ${isToday ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}>
+            {dow} {dd}-{mm}
+          </div>
+        );
+      })}
+      <div className="ml-auto text-[10px] text-muted-foreground">
+        WK {isoWeekNumber(weekStart)}
+      </div>
+    </div>
+  );
+}
+
 function MonthChips({ selected, onToggle }: { selected: number[]; onToggle: (m: number) => void; }) {
   return (
     <div className="flex flex-wrap gap-1">
@@ -91,10 +130,9 @@ function MonthChips({ selected, onToggle }: { selected: number[]; onToggle: (m: 
   );
 }
 
-/* ========== Plattegrond subview (compact, strakke uitlijning) ========== */
-/* ========== Plattegrond subview (compact, strakke uitlijning + langste zijde) ========== */
+/* ========== Plattegrond subview (strak + langste zijde + slimme ghosts + tooltips + highlight) ========== */
 function PlannerMap({
-  beds, seedsById, plantings, currentWeek, showGhosts, conflicts,
+  beds, seedsById, plantings, currentWeek, showGhosts, conflicts, highlightDates,
 }: {
   beds: GardenBed[];
   seedsById: Record<string, Seed>;
@@ -102,6 +140,7 @@ function PlannerMap({
   currentWeek: Date;
   showGhosts: boolean;
   conflicts: Array<{plantingId: string; conflictsWith: string[]}>;
+  highlightDates: { fromISO?: string; toISO?: string } | null;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const CANVAS_W = 2400;
@@ -132,6 +171,21 @@ function PlannerMap({
     const sunday = addDays(monday, 6);
     return start > sunday;
   };
+
+  // tooltip helper
+  function blockTitle(p: Planting, seed?: Seed | null, bed?: GardenBed) {
+    const segFrom = (p.start_segment ?? 0) + 1;
+    const segTo = segFrom + (p.segments_used ?? 1) - 1;
+    const lines = [
+      seed?.name ?? "Onbekend gewas",
+      bed ? `Bak: ${bed.name} • Segmenten ${segFrom}–${segTo}` : `Segmenten ${segFrom}–${segTo}`,
+      p.method === "presow" ? `Voorzaai: ${fmtDMY(p.planned_presow_date)} ${p.actual_presow_date ? `(uitgevoerd: ${fmtDMY(p.actual_presow_date)})` : ""}` : "",
+      `Plant: ${fmtDMY(p.planned_date)} ${p.actual_ground_date ? `(uitgevoerd: ${fmtDMY(p.actual_ground_date)})` : ""}`,
+      `Start oogst: ${fmtDMY(p.planned_harvest_start)} ${p.actual_harvest_start ? `(uitgevoerd: ${fmtDMY(p.actual_harvest_start)})` : ""}`,
+      `Einde oogst: ${fmtDMY(p.planned_harvest_end)} ${p.actual_harvest_end ? `(uitgevoerd: ${fmtDMY(p.actual_harvest_end)})` : ""}`,
+    ].filter(Boolean);
+    return lines.join("\n");
+  }
 
   return (
     <section className="space-y-3">
@@ -167,8 +221,8 @@ function PlannerMap({
               const y = bed.location_y ?? 20;
 
               // Inner content (onder header)
-              const HEADER_H = 28;                   // moet gelijk zijn aan header-div hoogte
-              const innerW   = w;                    // inner container gebruikt w-full
+              const HEADER_H = 28;
+              const innerW   = w;
               const innerH   = Math.max(1, h - HEADER_H);
 
               // Segment-oriëntatie langs langste zijde
@@ -178,15 +232,7 @@ function PlannerMap({
               const segH = vertical ? innerH : innerH / segCount;
 
               const active = plantings.filter(p => p.garden_bed_id === bed.id && isActiveInWeek(p));
-              const future = showGhosts ? plantings.filter(p => p.garden_bed_id === bed.id && !isActiveInWeek(p) && isFutureRelativeToWeek(p)) : [];
-
-              const segmentFreeNow = (rs: number, len: number) => {
-                const re = rs + len - 1;
-                return !active.some(p => {
-                  const ps = p.start_segment ?? 0, pe = ps + (p.segments_used ?? 1) - 1;
-                  return rs <= pe && ps <= re;
-                });
-              };
+              const future = showGhosts ? plantings.filter(p => p.garden_bed_id === bed.id && isFutureRelativeToWeek(p)) : [];
 
               return (
                 <div
@@ -219,7 +265,7 @@ function PlannerMap({
                       ))}
                     </div>
 
-                    {/* ACTIEVE plantingen — perfect uitgelijnd binnen cellen */}
+                    {/* ACTIEVE plantingen — exact binnen cellen (+ highlight) */}
                     <div className="absolute inset-0">
                       {active.map((p) => {
                         const seed = seedsById[p.seed_id];
@@ -227,39 +273,30 @@ function PlannerMap({
                         const used = Math.max(1, p.segments_used ?? 1);
                         const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
 
-                        // 1px inset zodat randen zichtbaar blijven en niets "lekt"
                         const inset = 1;
-
                         const style = vertical
-                          ? {
-                              top: inset,
-                              height: Math.max(1, innerH - inset * 2),
-                              left: inset + start * segW,
-                              width: Math.max(1, used * segW - inset * 2),
-                            }
-                          : {
-                              left: inset,
-                              width: Math.max(1, innerW - inset * 2),
-                              top: inset + start * segH,
-                              height: Math.max(1, used * segH - inset * 2),
-                            };
+                          ? { top: inset, height: Math.max(1, innerH - inset * 2), left: inset + start * segW, width: Math.max(1, used * segW - inset * 2) }
+                          : { left: inset, width: Math.max(1, innerW - inset * 2), top: inset + start * segH, height: Math.max(1, used * segH - inset * 2) };
+
+                        const shouldFlash =
+                          (highlightDates?.toISO && p.planned_date === highlightDates.toISO) ||
+                          (highlightDates?.fromISO && p.planned_date === highlightDates.fromISO);
 
                         return (
                           <div
                             key={p.id}
-                            className={`absolute rounded text-white text-[10px] px-1 flex items-center ${
-                              conflicts.some(c => c.plantingId === p.id) ? 'ring-2 ring-red-500 ring-offset-1' : ''
-                            }`}
+                            className={`absolute rounded text-white text-[10px] px-1 flex items-center transition
+                              ${shouldFlash ? "ring-4 ring-green-300/70 animate-pulse" : ""}
+                              ${conflicts.some(c => c.plantingId === p.id) ? 'ring-2 ring-red-500 ring-offset-1' : ''}`}
                             style={{
                               ...style,
                               backgroundColor: isHex ? (p.color ?? "#22c55e") : undefined,
-                              outline: conflicts.some(c => c.plantingId === p.id) 
-                                ? "2px solid rgba(239, 68, 68, 0.8)" 
+                              outline: conflicts.some(c => c.plantingId === p.id)
+                                ? "2px solid rgba(239, 68, 68, 0.8)"
                                 : "1px solid rgba(0,0,0,.06)",
                             }}
-                            title={`${seed?.name ?? "Onbekend"}${conflicts.some(c => c.plantingId === p.id) ? " ⚠️ CONFLICT" : ""}`}
+                            title={blockTitle(p, seed, bed)}
                           >
-                            {/* fallback kleurklasse als p.color geen hex is */}
                             {!isHex && <div className={`${p.color ?? "bg-primary"} absolute inset-0 rounded -z-10`} />}
                             <span className="truncate">{seed?.name ?? "—"}</span>
                             {conflicts.some(c => c.plantingId === p.id) && <span className="ml-1">⚠️</span>}
@@ -268,7 +305,7 @@ function PlannerMap({
                       })}
                     </div>
 
-                    {/* TOEKOMSTIGE (ghosts) — zelfde exacte plaatsing */}
+                    {/* TOEKOMSTIGE (ghosts) — altijd tonen + WK label */}
                     {future.length > 0 && (
                       <div className="absolute inset-0 pointer-events-none">
                         {future.map((p) => {
@@ -276,34 +313,25 @@ function PlannerMap({
                           if (!seed) return null;
                           const start = p.start_segment ?? 0;
                           const used = Math.max(1, p.segments_used ?? 1);
-                          if (!segmentFreeNow(start, used)) return null;
 
                           const inset = 1;
                           const style = vertical
-                            ? {
-                                top: inset,
-                                height: Math.max(1, innerH - inset * 2),
-                                left: inset + start * segW,
-                                width: Math.max(1, used * segW - inset * 2),
-                              }
-                            : {
-                                left: inset,
-                                width: Math.max(1, innerW - inset * 2),
-                                top: inset + start * segH,
-                                height: Math.max(1, used * segH - inset * 2),
-                              };
+                            ? { top: inset, height: Math.max(1, innerH - inset * 2), left: inset + start * segW, width: Math.max(1, used * segW - inset * 2) }
+                            : { left: inset, width: Math.max(1, innerW - inset * 2), top: inset + start * segH, height: Math.max(1, used * segH - inset * 2) };
 
                           const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
                           const bg = isHex ? (p.color ?? "rgba(34,197,94,.35)") : "rgba(34,197,94,.35)";
+                          const wk = p.planned_date ? isoWeekNumber(new Date(p.planned_date)) : null;
 
                           return (
                             <div
                               key={`ghost-${p.id}`}
                               className="absolute rounded text-white text-[10px] px-1 flex items-center"
-                              style={{ ...style, backgroundColor: bg, opacity: 0.35, border: "1px dashed rgba(0,0,0,.45)" }}
+                              style={{ ...style, backgroundColor: bg, opacity: 0.25, border: "1px dashed rgba(0,0,0,.45)" }}
                               title={seed.name}
                             >
                               <span className="truncate">{seed.name}</span>
+                              {wk && <span className="ml-1 opacity-90 bg-black/30 rounded px-1 py-0.5">WK {wk}</span>}
                             </div>
                           );
                         })}
@@ -332,9 +360,9 @@ function MapDroppableSegment({ bed, segmentIndex }: { bed: GardenBed; segmentInd
   );
 }
 
-/* ========== compacte kaart per bak voor LIST-view ========== */
+/* ========== compacte kaart per bak voor LIST-view (met tooltips + suggesties) ========== */
 function BedCard({
-  bed, seedsById, plantings, currentWeek, showGhosts, onDeletePlanting, onClickPlanting, conflicts,
+  bed, seedsById, plantings, currentWeek, showGhosts, onDeletePlanting, onClickPlanting, conflicts, highlightDates, resolveMode, onApplySuggestion
 }: {
   bed: GardenBed;
   seedsById: Record<string, Seed>;
@@ -344,6 +372,9 @@ function BedCard({
   onDeletePlanting: (id: string) => void;
   onClickPlanting: (p: Planting, seed: Seed, startSegFallback: number) => void;
   conflicts: Array<{plantingId: string; conflictsWith: string[]}>;
+  highlightDates: { fromISO?: string; toISO?: string } | null;
+  resolveMode: boolean;
+  onApplySuggestion: (p: Planting, newDateISO: string) => void;
 }) {
   const isActiveInWeek = (p: Planting) => {
     const start = new Date(p.planned_date ?? "");
@@ -371,6 +402,23 @@ function BedCard({
       return idx >= s && idx <= e;
     });
 
+  // suggestie UI state
+  const [openSuggestFor, setOpenSuggestFor] = useState<string | null>(null);
+
+  function blockTitle(p: Planting, seed?: Seed) {
+    const segFrom = (p.start_segment ?? 0) + 1;
+    const segTo = segFrom + (p.segments_used ?? 1) - 1;
+    const lines = [
+      seed?.name ?? "Onbekend gewas",
+      `Segmenten ${segFrom}–${segTo}`,
+      p.method === "presow" ? `Voorzaai: ${fmtDMY(p.planned_presow_date)} ${p.actual_presow_date ? `(uitgevoerd: ${fmtDMY(p.actual_presow_date)})` : ""}` : "",
+      `Plant: ${fmtDMY(p.planned_date)} ${p.actual_ground_date ? `(uitgevoerd: ${fmtDMY(p.actual_ground_date)})` : ""}`,
+      `Start oogst: ${fmtDMY(p.planned_harvest_start)} ${p.actual_harvest_start ? `(uitgevoerd: ${fmtDMY(p.actual_harvest_start)})` : ""}`,
+      `Einde oogst: ${fmtDMY(p.planned_harvest_end)} ${p.actual_harvest_end ? `(uitgevoerd: ${fmtDMY(p.actual_harvest_end)})` : ""}`,
+    ].filter(Boolean);
+    return lines.join("\n");
+  }
+
   return (
     <div className="p-2.5 border rounded-xl bg-card shadow-sm hover:shadow-md transition">
       <div className="flex items-center justify-between mb-1.5">
@@ -389,13 +437,11 @@ function BedCard({
             const used = p.segments_used ?? 1;
             return i >= start && i < start + used;
           });
-          const ghosts = segmentIsFreeNow(i)
-            ? futurePlantings.filter((p) => {
-                const start = p.start_segment ?? 0;
-                const used = p.segments_used ?? 1;
-                return i >= start && i < start + used;
-              })
-            : [];
+          const ghosts = futurePlantings.filter((p) => {
+            const start = p.start_segment ?? 0;
+            const used = p.segments_used ?? 1;
+            return i >= start && i < start + used;
+          });
 
           return (
             <DroppableSegment key={i} bed={bed} segmentIndex={i} occupied={covering.length > 0}>
@@ -403,44 +449,75 @@ function BedCard({
                 {covering.map((p) => {
                   const seed = seedsById[p.seed_id];
                   const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
+                  const hasConflict = conflicts.some(c => c.plantingId === p.id);
+                  const shouldFlash =
+                    (highlightDates?.toISO && p.planned_date === highlightDates.toISO) ||
+                    (highlightDates?.fromISO && p.planned_date === highlightDates.fromISO);
+
                   return (
                     <div
                       key={`${p.id}-${i}`}
-                      className={`text-white text-[11px] rounded px-2 py-1 flex items-center justify-between gap-2 cursor-pointer ${
-                        conflicts.some(c => c.plantingId === p.id) ? 'ring-2 ring-red-400' : ''
-                      }`}
-                      style={{ 
-                        background: isHex ? (p.color ?? "#22c55e") : undefined,
-                        outline: conflicts.some(c => c.plantingId === p.id) ? "2px solid rgba(239, 68, 68, 0.6)" : undefined
-                      }}
+                      className={`text-white text-[11px] rounded px-2 py-1 flex items-center justify-between gap-2 cursor-pointer
+                        ${hasConflict ? 'ring-2 ring-red-400' : ''}
+                        ${shouldFlash ? 'ring-4 ring-green-300/70 animate-pulse' : ''}`}
+                      style={{ background: isHex ? (p.color ?? "#22c55e") : undefined }}
                       onClick={() => seed && onClickPlanting(p, seed, p.start_segment ?? i)}
+                      title={blockTitle(p, seed)}
                     >
                       <span className="truncate">
-                        {seed?.name ?? "Onbekend"}
-                        {conflicts.some(c => c.plantingId === p.id) && " ⚠️"}
+                        {seed?.name ?? "Onbekend"} {hasConflict && " ⚠️"}
                       </span>
-                      {(i === p.start_segment) && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); onDeletePlanting(p.id); }}
-                          className="text-white/80 hover:text-white text-xs"
-                          title="Verwijderen"
-                        >✕</button>
-                      )}
+
+                      <div className="flex items-center gap-2">
+                        {resolveMode && hasConflict && (
+                          <>
+                            <button
+                              className="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300"
+                              title="Suggesties voor nieuwe startweek"
+                              onClick={(e) => { e.stopPropagation(); setOpenSuggestFor(s => s === p.id ? null : p.id); }}
+                            >
+                              ⚡ Suggesties
+                            </button>
+                          </>
+                        )}
+                        {(i === p.start_segment) && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onDeletePlanting(p.id); }}
+                            className="text-white/80 hover:text-white text-xs"
+                            title="Verwijderen"
+                          >✕</button>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
+
+                {/* Suggestie popin per rij */}
+                {openSuggestFor && covering.some(c => c.id === openSuggestFor) && (
+                  <SuggestionRow
+                    planting={covering.find(c => c.id === openSuggestFor)!}
+                    bed={bed}
+                    seedsById={seedsById}
+                    allPlantings={plantings}
+                    onClose={() => setOpenSuggestFor(null)}
+                    onApply={(iso) => { onApplySuggestion(covering.find(c => c.id === openSuggestFor)!, iso); setOpenSuggestFor(null); }}
+                  />
+                )}
+
                 {ghosts.map((p) => {
                   const seed = seedsById[p.seed_id];
                   const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
                   const bg = isHex ? (p.color ?? "#22c55e") : "rgba(34,197,94,.35)";
+                  const wk = p.planned_date ? isoWeekNumber(new Date(p.planned_date)) : null;
                   return (
                     <div
                       key={`ghost-${p.id}-${i}`}
                       className="text-white text-[11px] rounded px-2 py-1 flex items-center gap-2"
-                      style={{ background: bg, opacity: 0.35, border: "1px dashed rgba(0,0,0,.45)" }}
+                      style={{ background: bg, opacity: 0.25, border: "1px dashed rgba(0,0,0,.45)" }}
                       title={`${seed?.name ?? "Onbekend"} (toekomstig)`}
                     >
                       <span className="truncate">{seed?.name ?? "Onbekend"}</span>
+                      {wk && <span className="ml-auto text-[10px] bg-black/30 rounded px-1 py-0.5">WK {wk}</span>}
                     </div>
                   );
                 })}
@@ -453,12 +530,227 @@ function BedCard({
   );
 }
 
+/* Suggesties-component (conflictoplossing) */
+function SuggestionRow({
+  planting, bed, seedsById, allPlantings, onApply, onClose
+}: {
+  planting: Planting;
+  bed: GardenBed;
+  seedsById: Record<string, Seed>;
+  allPlantings: Planting[];
+  onApply: (newISO: string) => void;
+  onClose: () => void;
+}) {
+  const seed = seedsById[planting.seed_id];
+  const [loading, setLoading] = useState(false);
+  const [sugs, setSugs] = useState<string[]>([]);
+
+  function wouldOverlap(bed: GardenBed, startSeg: number, segUsed: number, startDate: Date, endDate: Date, ignorePlantingId?: string) {
+    const aStart = startDate, aEnd = endDate;
+    const aSegStart = startSeg, aSegEnd = startSeg + segUsed - 1;
+    for (const p of allPlantings) {
+      if (p.garden_bed_id !== bed.id) continue;
+      if (ignorePlantingId && p.id === ignorePlantingId) continue;
+      const bStart = new Date(p.planned_date ?? "");
+      const bEnd   = new Date(p.planned_harvest_end ?? "");
+      if (isNaN(bStart.getTime()) || isNaN(bEnd.getTime())) continue;
+      const timeOverlap = (aStart <= bEnd) && (bStart <= aEnd);
+      if (!timeOverlap) continue;
+      const ps = p.start_segment ?? 0;
+      const pe = (p.start_segment ?? 0) + (p.segments_used ?? 1) - 1;
+      const segOverlap = (aSegStart <= pe) && (ps <= aSegEnd);
+      if (segOverlap) return true;
+    }
+    return false;
+  }
+
+  async function genSuggestions() {
+    if (!seed || !seed.grow_duration_weeks || !seed.harvest_duration_weeks) return;
+    setLoading(true);
+    const out: string[] = [];
+    const base = new Date(planting.planned_date ?? toISO(new Date()));
+    const maxWeeks = 8;
+    for (let step = 1; step <= maxWeeks && out.length < 6; step++) {
+      for (const dir of [+1, -1]) {
+        const pd = addWeeks(base, dir * step);
+        const hs = addWeeks(pd, seed.grow_duration_weeks!);
+        const he = addWeeks(hs, seed.harvest_duration_weeks!);
+        if (!wouldOverlap(bed, planting.start_segment ?? 0, planting.segments_used ?? 1, pd, he, planting.id)) {
+          out.push(toISO(pd));
+          if (out.length >= 6) break;
+        }
+      }
+    }
+    setSugs(out);
+    setLoading(false);
+  }
+
+  useEffect(() => { genSuggestions(); /* eslint-disable-next-line */ }, []);
+
+  return (
+    <div className="mt-1 rounded border bg-amber-50/70 p-2 text-[11px]">
+      <div className="flex items-center justify-between">
+        <div className="font-medium text-amber-900">Suggesties (dichtstbijzijnde vrije weken)</div>
+        <button onClick={onClose} className="text-amber-800 hover:underline">Sluiten</button>
+      </div>
+      {loading ? (
+        <div className="text-amber-800 mt-1">Zoeken…</div>
+      ) : sugs.length === 0 ? (
+        <div className="text-amber-800 mt-1">Geen vrije weken gevonden in ±8 weken.</div>
+      ) : (
+        <div className="mt-1 flex flex-wrap gap-1">
+          {sugs.map(iso => (
+            <button
+              key={iso}
+              className="px-2 py-0.5 rounded border bg-white hover:bg-amber-100"
+              title={`Verplaats naar ${fmtDMY(iso)}`}
+              onClick={() => onApply(iso)}
+            >
+              WK {isoWeekNumber(new Date(iso))} • {fmtDMY(iso)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ========== Tijdlijn subview (één regel per teelt, gele/groene/grijze bolletjes) ========== */
+type TLItem = {
+  id: "presow" | "ground" | "harvest_start" | "harvest_end";
+  label: string;
+  plannedISO: string | null;
+  actualISO: string | null;
+};
+function PlannerTimeline({
+  plantings, seedsById, bedsById
+}: {
+  plantings: Planting[];
+  seedsById: Record<string, Seed>;
+  bedsById: Record<string, GardenBed>;
+}) {
+  function milestones(p: Planting): TLItem[] {
+    const out: TLItem[] = [];
+    if (p.method === "presow") {
+      out.push({ id: "presow", label: "Voorzaaien", plannedISO: p.planned_presow_date ?? null, actualISO: p.actual_presow_date ?? null });
+      out.push({ id: "ground", label: "Uitplanten", plannedISO: p.planned_date ?? null, actualISO: p.actual_ground_date ?? null });
+    } else {
+      out.push({ id: "ground", label: "Zaaien", plannedISO: p.planned_date ?? null, actualISO: p.actual_ground_date ?? null });
+    }
+    out.push({ id: "harvest_start", label: "Start oogst", plannedISO: p.planned_harvest_start ?? null, actualISO: p.actual_harvest_start ?? null });
+    out.push({ id: "harvest_end", label: "Einde oogst", plannedISO: p.planned_harvest_end ?? null, actualISO: p.actual_harvest_end ?? null });
+    return out;
+  }
+  function firstOpen(p: Planting) {
+    const ms = milestones(p);
+    for (const m of ms) {
+      if (!m.actualISO && (m.plannedISO)) return { m, when: m.plannedISO };
+    }
+    return null;
+  }
+  function range(p: Planting) {
+    const ms = milestones(p);
+    const dates: Date[] = [];
+    for (const m of ms) {
+      if (m.plannedISO) dates.push(new Date(m.plannedISO));
+      if (m.actualISO) dates.push(new Date(m.actualISO));
+    }
+    if (dates.length === 0) {
+      const now = new Date();
+      return { start: now, end: addDays(now, 7) };
+    }
+    const start = new Date(Math.min(...dates.map(d => d.getTime())));
+    const end = new Date(Math.max(...dates.map(d => d.getTime())));
+    if (start.getTime() === end.getTime()) end.setDate(end.getDate() + 7);
+    return { start, end };
+  }
+  function pct(d: Date, start: Date, end: Date) {
+    const p = (d.getTime() - start.getTime()) / (end.getTime() - start.getTime());
+    return Math.max(0, Math.min(1, p)) * 100;
+  }
+  const today = new Date();
+
+  // sorteer: eerstvolgende actie boven
+  const rows = plantings
+    .map(p => ({ p, next: firstOpen(p), keyDate: firstOpen(p)?.when ? new Date(firstOpen(p)!.when) : (p.planned_harvest_end ? new Date(p.planned_harvest_end) : addDays(today, 365)) }))
+    .sort((a,b)=>a.keyDate.getTime()-b.keyDate.getTime())
+    .map(x=>x.p);
+
+  return (
+    <section className="space-y-3">
+      {rows.map(p => {
+        const seed = seedsById[p.seed_id];
+        const bed = bedsById[p.garden_bed_id];
+        const ms = milestones(p);
+        const next = firstOpen(p);
+        const { start, end } = range(p);
+        return (
+          <div key={p.id} className="border rounded-lg p-3 bg-card">
+            <div className="grid grid-cols-12 gap-3 items-center">
+              <div className="col-span-12 md:col-span-4">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="inline-block w-3 h-3 rounded"
+                    style={{ background: p.color && (p.color.startsWith("#") || p.color.startsWith("rgb")) ? p.color : "#22c55e" }}
+                    aria-hidden
+                  />
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{seed?.name ?? "Onbekend gewas"}</div>
+                    <div className="text-xs text-muted-foreground truncate">{bed?.name ?? "Onbekende bak"}</div>
+                  </div>
+                </div>
+                <div className="mt-1.5 text-xs flex items-center gap-2 text-muted-foreground">
+                  {next ? (
+                    <>
+                      <span className="inline-block w-2 h-2 rounded-full bg-yellow-400" />
+                      <span className="truncate">Volgende: {next.m.label} • {fmtDMY(next.when)}</span>
+                    </>
+                  ) : (
+                    <span className="truncate">Alle acties afgerond</span>
+                  )}
+                </div>
+              </div>
+              <div className="col-span-12 md:col-span-8">
+                <div className="relative h-12">
+                  <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[6px] rounded bg-muted" />
+                  <div className="absolute top-0 bottom-0 w-[2px] bg-primary/60"
+                       style={{ left: `${pct(today, start, end)}%` }} title="Vandaag" />
+                  {ms.map((m, idx) => {
+                    const base = m.actualISO ?? m.plannedISO;
+                    if (!base) return null;
+                    const d = new Date(base);
+                    const left = pct(d, start, end);
+                    const done = !!m.actualISO;
+                    const isNext = next && m === next.m;
+                    const classes = [
+                      "absolute -translate-x-1/2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border shadow",
+                      done ? "bg-green-500 border-green-600"
+                           : isNext ? "bg-yellow-400 border-yellow-500"
+                                    : "bg-gray-300 border-gray-400"
+                    ].join(" ");
+                    const title = `${m.label} • ${done ? `uitgevoerd: ${fmtDMY(m.actualISO!)}` : `gepland: ${fmtDMY(m.plannedISO!)}`}`;
+                    return <div key={m.id} className={classes} style={{ left: `${left}%` }} title={title} />;
+                  })}
+                  <div className="absolute left-0 right-0 -bottom-1.5 flex justify-between text-[10px] text-muted-foreground">
+                    <span>{fmtDMY(toISO(start))}</span>
+                    <span>{fmtDMY(toISO(end))}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
 /* ========== hoofdpagina ========== */
 export function PlannerPage({ garden }: { garden: Garden }) {
   const [beds, setBeds] = useState<GardenBed[]>([]);
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [plantings, setPlantings] = useState<Planting[]>([]);
-  const [view, setView] = useState<"list" | "map">(() => (localStorage.getItem("plannerView") as any) || "list");
+  const [view, setView] = useState<"list" | "map" | "timeline">(() => (localStorage.getItem("plannerView") as any) || "list");
 
   const [popup, setPopup] = useState<
     | { mode: "create"; seed: Seed; bed: GardenBed; segmentIndex: number }
@@ -479,8 +771,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     const saved = localStorage.getItem("plannerWeekISO");
     if (saved) return new Date(saved);
     const now = new Date();
-    const d = new Date(now);
-    d.setDate(now.getDate() - ((now.getDay()||7) - 1)); // maandag
+    const d = startOfMondayWeek(now);
     return d;
   });
   useEffect(() => { localStorage.setItem("plannerWeekISO", toISO(currentWeek)); }, [currentWeek]);
@@ -499,6 +790,10 @@ export function PlannerPage({ garden }: { garden: Garden }) {
 
   const [showGhosts, setShowGhosts] = useState<boolean>(() => localStorage.getItem("plannerShowGhosts") === "1");
 
+  // Conflictoplossing-modus
+  const [resolveMode, setResolveMode] = useState<boolean>(() => localStorage.getItem("plannerResolveMode") === "1");
+  useEffect(() => { localStorage.setItem("plannerResolveMode", resolveMode ? "1" : "0"); }, [resolveMode]);
+
   // Flash state voor Dashboard feedback
   const [flashInfo, setFlashInfo] = useState<{
     fromISO: string;
@@ -506,16 +801,23 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     timestamp: number;
   } | null>(null);
 
-  // Check voor flash info bij component mount en elke 1 seconde
+  // Check + auto-jump + 3s highlight
   useEffect(() => {
     const checkFlash = () => {
       try {
         const flashFrom = localStorage.getItem("plannerFlashFrom") || "";
         const flashTo = localStorage.getItem("plannerFlashTo") || "";
         const flashAt = Number(localStorage.getItem("plannerFlashAt") || "0");
-        
-        if (flashAt > 0 && Date.now() - flashAt < 5000) { // 5 seconden
+
+        if (flashAt > 0 && Date.now() - flashAt < 5000) {
           setFlashInfo({ fromISO: flashFrom, toISO: flashTo, timestamp: flashAt });
+
+          // auto-jump naar week van 'to' (of 'from' als 'to' leeg)
+          const targetISO = flashTo || flashFrom;
+          if (targetISO) {
+            const monday = startOfMondayWeek(new Date(targetISO));
+            setCurrentWeek(monday);
+          }
         } else {
           setFlashInfo(null);
         }
@@ -523,10 +825,20 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         setFlashInfo(null);
       }
     };
-    
-    checkFlash(); // Direct check
-    const interval = setInterval(checkFlash, 1000); // Elke seconde check
-    return () => clearInterval(interval);
+    checkFlash();
+    const interval = setInterval(checkFlash, 1000);
+    const cleanup = setInterval(() => {
+      // ruim op na ~6s
+      try {
+        const flashAt = Number(localStorage.getItem("plannerFlashAt") || "0");
+        if (flashAt > 0 && Date.now() - flashAt > 6000) {
+          localStorage.removeItem("plannerFlashFrom");
+          localStorage.removeItem("plannerFlashTo");
+          localStorage.removeItem("plannerFlashAt");
+        }
+      } catch {}
+    }, 1500);
+    return () => { clearInterval(interval); clearInterval(cleanup); };
   }, []);
 
   useEffect(() => { localStorage.setItem("plannerQ", q); }, [q]);
@@ -578,24 +890,10 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     const sunday = addDays(monday, 6);
     return start > sunday;
   }
-  function getPhase(p: Planting, week: Date): string {
-    const start = p.planned_date ? new Date(p.planned_date) : null;
-    const harvestStart = p.planned_harvest_start ? new Date(p.planned_harvest_start) : null;
-    const harvestEnd = p.planned_harvest_end ? new Date(p.planned_harvest_end) : null;
-    if (!start) return "onbekend";
-    if (harvestEnd && harvestEnd < week) return "afgelopen";
-    if (harvestStart && harvestStart <= week && (!harvestEnd || harvestEnd >= week)) return "oogsten";
-    if (start <= week && (!harvestStart || harvestStart > week)) return "groeit";
-    return "gepland";
-  }
 
   function nextWeek() { setCurrentWeek(addDays(currentWeek, 7)); }
   function prevWeek() { setCurrentWeek(addDays(currentWeek, -7)); }
-  function goToToday() {
-    const now = new Date(); const d = new Date(now);
-    d.setDate(now.getDate() - ((now.getDay()||7) - 1));
-    setCurrentWeek(d);
-  }
+  function goToToday() { setCurrentWeek(startOfMondayWeek(new Date())); }
   function formatWeek(d: Date) {
     const end = addDays(d, 6);
     const wk = isoWeekNumber(d);
@@ -632,46 +930,24 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   // Detecteer conflicten tussen plantings
   const conflicts = useMemo(() => {
     const conflictList: Array<{plantingId: string; conflictsWith: string[]}> = [];
-    
     for (let i = 0; i < plantings.length; i++) {
       const p1 = plantings[i];
-      const conflicts1 = [];
-      
+      const conflicts1: string[] = [];
       for (let j = i + 1; j < plantings.length; j++) {
         const p2 = plantings[j];
-        
-        // Alleen checken binnen zelfde bed
         if (p1.garden_bed_id !== p2.garden_bed_id) continue;
-        
-        const p1Start = new Date(p1.planned_date ?? "");
-        const p1End = new Date(p1.planned_harvest_end ?? "");
-        const p2Start = new Date(p2.planned_date ?? "");
-        const p2End = new Date(p2.planned_harvest_end ?? "");
-        
-        if (isNaN(p1Start.getTime()) || isNaN(p1End.getTime()) || 
-            isNaN(p2Start.getTime()) || isNaN(p2End.getTime())) continue;
-        
-        // Check tijd-overlap
+        const p1Start = new Date(p1.planned_date ?? ""); const p1End = new Date(p1.planned_harvest_end ?? "");
+        const p2Start = new Date(p2.planned_date ?? ""); const p2End = new Date(p2.planned_harvest_end ?? "");
+        if (isNaN(p1Start.getTime()) || isNaN(p1End.getTime()) || isNaN(p2Start.getTime()) || isNaN(p2End.getTime())) continue;
         const timeOverlap = (p1Start <= p2End) && (p2Start <= p1End);
         if (!timeOverlap) continue;
-        
-        // Check segment-overlap
-        const p1SegStart = p1.start_segment ?? 0;
-        const p1SegEnd = p1SegStart + (p1.segments_used ?? 1) - 1;
-        const p2SegStart = p2.start_segment ?? 0;
-        const p2SegEnd = p2SegStart + (p2.segments_used ?? 1) - 1;
+        const p1SegStart = p1.start_segment ?? 0; const p1SegEnd = p1SegStart + (p1.segments_used ?? 1) - 1;
+        const p2SegStart = p2.start_segment ?? 0; const p2SegEnd = p2SegStart + (p2.segments_used ?? 1) - 1;
         const segOverlap = (p1SegStart <= p2SegEnd) && (p2SegStart <= p1SegEnd);
-        
-        if (segOverlap) {
-          conflicts1.push(p2.id);
-        }
+        if (segOverlap) conflicts1.push(p2.id);
       }
-      
-      if (conflicts1.length > 0) {
-        conflictList.push({ plantingId: p1.id, conflictsWith: conflicts1 });
-      }
+      if (conflicts1.length > 0) conflictList.push({ plantingId: p1.id, conflictsWith: conflicts1 });
     }
-    
     return conflictList;
   }, [plantings]);
 
@@ -763,9 +1039,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       return;
     }
 
-    // GEKOZEN DATUM = in de grond (plant of direct)
     const plantDate = new Date(dateISO);
-    // sowDate wordt alleen conceptueel gebruikt (triggers/server kunnen dit berekenen uit presow_weeks)
     const harvestStart = addWeeks(plantDate, seed.grow_duration_weeks!);
     const harvestEnd   = addWeeks(harvestStart, seed.harvest_duration_weeks!);
 
@@ -818,10 +1092,31 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     }
   }
 
+  // Suggestie doorvoeren (conflictoplossing)
+  async function applySuggestion(p: Planting, newDateISO: string) {
+    const seed = seedsById[p.seed_id];
+    if (!seed || !seed.grow_duration_weeks || !seed.harvest_duration_weeks) return;
+    try {
+      const plantDate = new Date(newDateISO);
+      const hs = addWeeks(plantDate, seed.grow_duration_weeks!);
+      const he = addWeeks(hs, seed.harvest_duration_weeks!);
+      await updatePlanting(p.id, {
+        planned_date: toISO(plantDate),
+        planned_harvest_start: toISO(hs),
+        planned_harvest_end: toISO(he),
+      } as any);
+      await reloadAll();
+      setToast({ message: `Verplaatst naar ${fmtDMY(newDateISO)}.`, type: "success" });
+      setCurrentWeek(startOfMondayWeek(plantDate));
+    } catch (e: any) {
+      setToast({ message: "Kon suggestie niet toepassen: " + (e?.message ?? e), type: "error" });
+    }
+  }
+
   /* sticky header */
   // Bepaal of de huidige week geflasht moet worden
   const currentWeekISO = toISO(currentWeek);
-  const shouldFlash = flashInfo && 
+  const shouldFlash = flashInfo &&
     (flashInfo.fromISO === currentWeekISO || flashInfo.toISO === currentWeekISO) &&
     Date.now() - flashInfo.timestamp < 5000;
 
@@ -829,25 +1124,21 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     <div className="sticky top-0 z-30 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
       {/* Conflict waarschuwing */}
       {hasConflicts && (
-        <div className="px-4 py-2 bg-red-50 border-b border-red-200 text-red-800 text-sm">
-          ⚠️ Let op: Er zijn {conflicts.length} conflicten gevonden in de planning. Plantings overlappen in tijd en segment.
-          <button 
-            onClick={() => setToast({ message: "Tip: Bewerk de plantings om overlaps op te lossen", type: "info" })}
-            className="ml-2 text-red-600 underline hover:no-underline"
-          >
-            Meer info
-          </button>
+        <div className="px-4 py-2 bg-red-50 border-b border-red-200 text-red-800 text-sm flex items-center gap-3">
+          <span>⚠️ Er zijn {conflicts.length} conflicten in de planning.</span>
+          <label className="ml-2 inline-flex items-center gap-2">
+            <input type="checkbox" checked={resolveMode} onChange={(e)=>setResolveMode(e.target.checked)} />
+            <span>Conflictoplossing-modus</span>
+          </label>
         </div>
       )}
-      
+
       <div className="py-2.5 flex items-center justify-between">
         <h2 className="text-2xl font-bold">Planner</h2>
         <div className="flex items-center gap-2 text-sm">
           <button onClick={prevWeek} className="px-2 py-1 border rounded">← Vorige week</button>
           <span className={`font-medium whitespace-nowrap px-2 py-1 rounded transition-colors ${
-            shouldFlash 
-              ? "bg-green-200 text-green-800 animate-pulse" 
-              : ""
+            shouldFlash ? "bg-green-200 text-green-800 animate-pulse" : ""
           }`}>
             {formatWeek(currentWeek)}
             {shouldFlash && " ✨"}
@@ -862,6 +1153,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         {[
           { k: "list", label: "Lijstweergave" },
           { k: "map",  label: "Plattegrond"   },
+          { k: "timeline", label: "Tijdlijn"  },
         ].map(t => {
           const active = view === (t.k as any);
           return (
@@ -881,6 +1173,11 @@ export function PlannerPage({ garden }: { garden: Garden }) {
           <input type="checkbox" checked={showGhosts} onChange={(e)=>setShowGhosts(e.target.checked)} />
           Toon toekomstige plantingen
         </label>
+      </div>
+
+      {/* WeekRuler */}
+      <div className="px-1 pb-2">
+        <WeekRuler weekStart={currentWeek} />
       </div>
     </div>
   );
@@ -979,6 +1276,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                           onDeletePlanting={handleDeletePlanting}
                           onClickPlanting={(p, seed, seg) => setPopup({ mode: "edit", bed, seed, planting: p, segmentIndex: seg })}
                           conflicts={conflicts}
+                          highlightDates={flashInfo ? { fromISO: flashInfo.fromISO, toISO: flashInfo.toISO } : null}
+                          resolveMode={resolveMode}
+                          onApplySuggestion={applySuggestion}
                         />
                       ))}
                     </div>
@@ -1001,13 +1301,16 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                           onDeletePlanting={handleDeletePlanting}
                           onClickPlanting={(p, seed, seg) => setPopup({ mode: "edit", bed, seed, planting: p, segmentIndex: seg })}
                           conflicts={conflicts}
+                          highlightDates={flashInfo ? { fromISO: flashInfo.fromISO, toISO: flashInfo.toISO } : null}
+                          resolveMode={resolveMode}
+                          onApplySuggestion={applySuggestion}
                         />
                       ))}
                     </div>
                   </section>
                 )}
               </>
-            ) : (
+            ) : view === "map" ? (
               <PlannerMap
                 beds={beds}
                 seedsById={seedsById}
@@ -1015,6 +1318,13 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 currentWeek={currentWeek}
                 showGhosts={showGhosts}
                 conflicts={conflicts}
+                highlightDates={flashInfo ? { fromISO: flashInfo.fromISO, toISO: flashInfo.toISO } : null}
+              />
+            ) : (
+              <PlannerTimeline
+                plantings={plantings}
+                seedsById={seedsById}
+                bedsById={Object.fromEntries(beds.map(b => [b.id, b]))}
               />
             )}
           </div>
