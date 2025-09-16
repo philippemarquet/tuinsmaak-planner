@@ -11,18 +11,11 @@ function toISO(d: Date) { return d.toISOString().slice(0, 10); }
 function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
 function addWeeks(d: Date, w: number) { const x = new Date(d); x.setDate(x.getDate() + w * 7); return x; }
 function clamp01(n: number) { return Math.max(0, Math.min(1, n)); }
-function fmtNL(input?: string | Date | null) {
-  if (!input) return "";
-  if (typeof input === "string") {
-    const m = input.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (m) return `${m[3]}-${m[2]}-${m[1]}`; // YYYY-MM-DD -> DD-MM-YYYY
-    const d = new Date(input);
-    if (!isNaN(d.getTime())) return fmtNL(d);
-    return input;
-  }
-  const d = input;
+function fmtDMY(iso?: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
   const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const mm = String(d.getMonth()+1).padStart(2, "0");
   const yyyy = d.getFullYear();
   return `${dd}-${mm}-${yyyy}`;
 }
@@ -102,18 +95,21 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [showAll, setShowAll] = useState(false);
 
-  // 2A: dialog-mode uitgebreid met editActual + ack
   const [dialog, setDialog] = useState<{
-    mode: "run" | "reopen" | "editActual";
+    mode: "run" | "reopen";
     task: Task;
     dateISO: string;
-    ack?: boolean; // bevestiging bij wijzigen uitgevoerde actie
   } | null>(null);
 
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([listBeds(garden.id), listPlantings(garden.id), listSeeds(garden.id), listTasks(garden.id)])
+    Promise.all([
+      listBeds(garden.id),
+      listPlantings(garden.id),
+      listSeeds(garden.id),
+      listTasks(garden.id),
+    ])
       .then(([b, p, s, t]) => { setBeds(b); setPlantings(p); setSeeds(s); setTasks(t); })
       .catch(console.error);
   }, [garden.id]);
@@ -150,7 +146,6 @@ export function Dashboard({ garden }: { garden: Garden }) {
   }
 
   /* ---------- milestones per planting ---------- */
-  // 2B: status afleiden van actual_* (groen zodra actual is gezet)
   function milestonesFor(p: Planting): Milestone[] {
     const method = p.method as "direct" | "presow" | null;
     const tmap = tasksIndex.get(p.id);
@@ -254,6 +249,18 @@ export function Dashboard({ garden }: { garden: Garden }) {
 
   /* ---------- acties uitvoeren/heropenen ---------- */
 
+  // helper: ping planner voor conflict + focus
+  function pingPlannerConflict(plantingId: string, fromISO?: string | null, toISO?: string | null) {
+    try {
+      localStorage.setItem("plannerNeedsAttention", "1");
+      localStorage.setItem("plannerConflictFocusId", plantingId);
+      if (fromISO) localStorage.setItem("plannerFlashFrom", fromISO);
+      if (toISO)   localStorage.setItem("plannerFlashTo", toISO);
+      localStorage.setItem("plannerFlashAt", String(Date.now()));
+      localStorage.setItem("plannerResolveMode", "1");
+    } catch {}
+  }
+
   async function runTask(task: Task, performedISO: string) {
     setBusyId(task.id);
     try {
@@ -274,7 +281,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
         actuals.actual_harvest_end = performedISO;
       }
 
-      // 2) anchored recompute
+      // 2) probeer planning te verschuiven vanaf anker
       const anchorType: "presow" | "ground" | "harvest_start" | "harvest_end" =
         task.type === "sow" ? (pl.method === "presow" ? "presow" : "ground")
         : task.type === "plant_out" ? "ground"
@@ -294,13 +301,36 @@ export function Dashboard({ garden }: { garden: Garden }) {
         },
       });
 
-      const payload = { ...actuals, ...plan };
-      await updatePlanting(task.planting_id, payload as any);
+      // 2a: eerste poging — actuals + plan in één keer
+      try {
+        const payload = { ...actuals, ...plan };
+        await updatePlanting(task.planting_id, payload as any);
 
-      // markeer done (ook bij editActual is dit oké)
+        // flash voor planner (mooie highlight)
+        try {
+          localStorage.setItem("plannerFlashFrom", pl.planned_date ?? "");
+          localStorage.setItem("plannerFlashTo", plan.planned_date ?? "");
+          localStorage.setItem("plannerFlashAt", String(Date.now()));
+        } catch {}
+      } catch (err: any) {
+        // 2b: als plan niet opgeslagen kan worden (bijv. door constraint), sla dan iig de actuals op
+        try {
+          await updatePlanting(task.planting_id, actuals as any);
+        } catch { /* als zelfs dit faalt, laten we de fout vallen in outer catch */ }
+
+        // ping planner om conflict op te lossen, focus op deze teelt
+        pingPlannerConflict(task.planting_id, pl.planned_date, plan.planned_date);
+
+        alert(
+          "Actie is opgeslagen, maar de planning kon niet worden verschoven (waarschijnlijk door een overlap). " +
+          "De Planner toont nu een conflict en focust op de betreffende teelt zodat je het daar kunt oplossen."
+        );
+      }
+
+      // 3) taak afronden (altijd)
       await updateTask(task.id, { status: "done" });
 
-      // herladen om triggers/plan gelijk te trekken
+      // 4) herladen data
       const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);
       setPlantings(p);
       setTasks(t);
@@ -350,9 +380,26 @@ export function Dashboard({ garden }: { garden: Garden }) {
         },
       });
 
-      const payload = { ...clearActuals, ...plan };
-      await updatePlanting(task.planting_id, payload as any);
+      // eerste poging: plan + clearActuals samen
+      try {
+        await updatePlanting(task.planting_id, { ...clearActuals, ...plan } as any);
 
+        try {
+          localStorage.setItem("plannerFlashFrom", pl.planned_date ?? "");
+          localStorage.setItem("plannerFlashTo", plan.planned_date ?? "");
+          localStorage.setItem("plannerFlashAt", String(Date.now()));
+        } catch {}
+      } catch (err: any) {
+        // fallback: sla iig clearActuals, en ping planner voor conflict
+        try { await updatePlanting(task.planting_id, clearActuals as any); } catch {}
+        pingPlannerConflict(task.planting_id, pl.planned_date, plan.planned_date);
+        alert(
+          "Actie is heropend, maar de nieuwe planning kon niet worden gezet (overlap). " +
+          "De Planner markeert dit nu als conflict; los het daar op."
+        );
+      }
+
+      // taak terug naar pending
       await updateTask(task.id, { status: "pending" });
 
       const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);
@@ -375,20 +422,18 @@ export function Dashboard({ garden }: { garden: Garden }) {
       if (m.actualISO) dates.push(new Date(m.actualISO));
     }
     if (dates.length === 0) {
-      const today = new Date();
-      return { start: today, end: addDays(today, 7) };
+      const now = new Date();
+      return { start: now, end: addDays(now, 7) };
     }
     const start = new Date(Math.min(...dates.map(d => d.getTime())));
     const end = new Date(Math.max(...dates.map(d => d.getTime())));
     if (start.getTime() === end.getTime()) end.setDate(end.getDate() + 7);
     return { start, end };
   }
-
   function pctInRange(d: Date, start: Date, end: Date) {
     const p = (d.getTime() - start.getTime()) / (end.getTime() - start.getTime());
     return clamp01(p) * 100;
   }
-
   const todayDate = new Date();
 
   /* ---------- render ---------- */
@@ -414,10 +459,9 @@ export function Dashboard({ garden }: { garden: Garden }) {
             const seed = seedsById[p.seed_id];
             const bed = bedsById[p.garden_bed_id];
             const ms = milestonesFor(p);
-            const next = firstOpenMilestone(p); // { ms, index, whenISO } | null
+            const next = firstOpenMilestone(p);
             const { start, end } = rangeForRow(p);
-
-            const nextLabel = next ? `${labelForType(next.ms.taskType, p.method)} • ${fmtNL(next.whenISO)}` : null;
+            const nextLabel = next ? `${next.ms.label} • ${fmtDMY(next.whenISO)}` : null;
 
             return (
               <div key={p.id} className="border rounded-lg p-3 bg-card">
@@ -448,32 +492,20 @@ export function Dashboard({ garden }: { garden: Garden }) {
                     </div>
                   </div>
 
-                  {/* midden: timeline */}
+                    {/* midden: timeline */}
                   <div className="col-span-12 md:col-span-8">
                     <div className="relative h-12">
-                      {/* baseline */}
                       <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[6px] rounded bg-muted" />
-
-                      {/* vandaag marker */}
-                      <div
-                        className="absolute top-0 bottom-0 w-[2px] bg-primary/60"
-                        style={{ left: `${pctInRange(todayDate, start, end)}%` }}
-                        title="Vandaag"
-                      />
-
-                      {/* milestones */}
+                      <div className="absolute top-0 bottom-0 w-[2px] bg-primary/60"
+                           style={{ left: `${pctInRange(todayDate, start, end)}%` }} title="Vandaag" />
                       {ms.map((m, idx) => {
                         const baseISO = m.actualISO ?? m.task?.due_date ?? m.plannedISO;
                         if (!baseISO) return null;
                         const d = new Date(baseISO);
                         const pct = pctInRange(d, start, end);
-
-                        // 2D: kleuren — groen (done via actual_*), geel (eerstvolgende), grijs (rest)
-                        const isDone = !!m.actualISO || m.task?.status === "done";
+                        const isDone = m.status === "done";
                         const isNext = next && idx === next.index && !isDone;
-                        const isGrey = !isDone && !isNext;
                         const isLatePending = isNext && m.task?.due_date && new Date(m.task.due_date) < todayDate;
-
                         const dotClasses = [
                           "absolute -translate-x-1/2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border shadow cursor-pointer",
                           isDone ? "bg-green-500 border-green-600"
@@ -481,43 +513,36 @@ export function Dashboard({ garden }: { garden: Garden }) {
                                           : "bg-gray-300 border-gray-400",
                           isLatePending ? "ring-2 ring-red-400" : "",
                         ].join(" ");
-
-const title =
-  `${m.label}` +
-  (m.actualISO ? ` • uitgevoerd: ${fmtNL(m.actualISO)}` :
-   m.task?.due_date ? ` • gepland: ${fmtNL(m.task.due_date)}` :
-   m.plannedISO ? ` • gepland: ${fmtNL(m.plannedISO)}` : "");
-
+                        const title =
+                          `${m.label}` +
+                          (m.actualISO ? ` • uitgevoerd: ${fmtDMY(m.actualISO)}` :
+                           m.task?.due_date ? ` • gepland: ${fmtDMY(m.task.due_date)}` :
+                           m.plannedISO ? ` • gepland: ${fmtDMY(m.plannedISO)}` : "");
                         return (
                           <div
                             key={m.id}
                             className={dotClasses}
                             style={{ left: `${pct}%` }}
                             title={title}
-                            // 2C: klikgedrag — done => editActual (met waarschuwing); anders run
                             onClick={() => {
                               const t = m.task;
                               if (!t) return;
-                              if (isDone) {
-                                const def = m.actualISO || t.due_date || m.plannedISO || toISO(new Date());
-                                setDialog({ mode: "editActual", task: t, dateISO: def!, ack: false });
+                              if (t.status === "done") {
+                                const def = t.due_date || m.plannedISO || toISO(new Date());
+                                setDialog({ mode: "reopen", task: t, dateISO: def! });
                               } else {
                                 setDialog({ mode: "run", task: t, dateISO: toISO(new Date()) });
                               }
                             }}
                           >
-                            {isDone && (
-                              <span className="text-[10px] text-white leading-none grid place-items-center w-full h-full">✓</span>
-                            )}
+                            {isDone && <span className="text-[10px] text-white grid place-items-center w-full h-full">✓</span>}
                           </div>
                         );
                       })}
-
-                      {/* labels onderaan (optioneel) */}
-<div className="absolute left-0 right-0 -bottom-1.5 flex justify-between text-[10px] text-muted-foreground">
-  <span>{fmtNL(start)}</span>
-  <span>{fmtNL(end)}</span>
-</div>
+                      <div className="absolute left-0 right-0 -bottom-1.5 flex justify-between text-[10px] text-muted-foreground">
+                        <span>{fmtDMY(toISO(start))}</span>
+                        <span>{fmtDMY(toISO(end))}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -527,14 +552,12 @@ const title =
         )}
       </section>
 
-      {/* Dialog: uitvoeren / heropenen / editActual */}
+      {/* Dialog: uitvoeren / heropenen */}
       {dialog && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setDialog(null)}>
           <div className="bg-card w-full max-w-sm rounded-lg shadow-lg p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
             <h4 className="text-lg font-semibold">
-              {dialog.mode === "run" ? "Actie uitvoeren"
-                : dialog.mode === "reopen" ? "Actie heropenen / verplaatsen"
-                : "Uitgevoerde actie wijzigen"}
+              {dialog.mode === "run" ? "Actie uitvoeren" : "Actie heropenen / verplaatsen"}
             </h4>
             <p className="text-sm">
               {(() => {
@@ -542,26 +565,8 @@ const title =
                 return `${labelForType(dialog.task.type, p?.method)} • ${seedNameFor(dialog.task)} • ${bedNameFor(dialog.task)}`;
               })()}
             </p>
-
-            {dialog.mode === "editActual" && (
-              <div className="text-xs p-2 rounded bg-yellow-50 border border-yellow-200 text-yellow-800">
-                ⚠️ Je staat op het punt een <strong>uitgevoerde</strong> actie te wijzigen. Dit past de hele planning aan.
-                <label className="mt-2 block">
-                  <input
-                    type="checkbox"
-                    className="mr-2"
-                    checked={!!dialog.ack}
-                    onChange={(e) => setDialog(d => d ? { ...d, ack: e.target.checked } : d)}
-                  />
-                  Ik begrijp dit en wil doorgaan
-                </label>
-              </div>
-            )}
-
             <label className="block text-sm">
-              {dialog.mode === "run" ? "Uitgevoerd op"
-                : dialog.mode === "reopen" ? "Nieuwe geplande datum"
-                : "Uitgevoerd op (wijzigen)"}
+              {dialog.mode === "run" ? "Uitgevoerd op" : "Nieuwe geplande datum"}
               <input
                 type="date"
                 value={dialog.dateISO}
@@ -569,11 +574,9 @@ const title =
                 className="mt-1 w-full border rounded-md px-2 py-1"
               />
             </label>
-
             <div className="flex justify-end gap-2">
               <button className="px-3 py-1.5 rounded-md border" onClick={() => setDialog(null)}>Annuleren</button>
-
-              {dialog.mode === "run" && (
+              {dialog.mode === "run" ? (
                 <button
                   className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
                   onClick={() => runTask(dialog.task, dialog.dateISO)}
@@ -581,26 +584,13 @@ const title =
                 >
                   {busyId === dialog.task.id ? "Opslaan…" : "Opslaan"}
                 </button>
-              )}
-
-              {dialog.mode === "reopen" && (
+              ) : (
                 <button
                   className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
                   onClick={() => reopenTask(dialog.task, dialog.dateISO)}
                   disabled={busyId === dialog.task.id}
                 >
                   {busyId === dialog.task.id ? "Heropenen…" : "Heropenen"}
-                </button>
-              )}
-
-              {dialog.mode === "editActual" && (
-                <button
-                  className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
-                  onClick={() => runTask(dialog.task, dialog.dateISO)}
-                  disabled={busyId === dialog.task.id || !dialog.ack}
-                  title={!dialog.ack ? "Bevestig eerst de waarschuwing" : ""}
-                >
-                  {busyId === dialog.task.id ? "Bijwerken…" : "Bijwerken"}
                 </button>
               )}
             </div>
