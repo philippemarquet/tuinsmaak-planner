@@ -11,6 +11,21 @@ function toISO(d: Date) { return d.toISOString().slice(0, 10); }
 function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
 function addWeeks(d: Date, w: number) { const x = new Date(d); x.setDate(x.getDate() + w * 7); return x; }
 function clamp01(n: number) { return Math.max(0, Math.min(1, n)); }
+function fmtNL(input?: string | Date | null) {
+  if (!input) return "";
+  if (typeof input === "string") {
+    const m = input.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[3]}-${m[2]}-${m[1]}`; // YYYY-MM-DD -> DD-MM-YYYY
+    const d = new Date(input);
+    if (!isNaN(d.getTime())) return fmtNL(d);
+    return input;
+  }
+  const d = input;
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}-${mm}-${yyyy}`;
+}
 
 /** Recompute planned_* fields given an anchor (presow/ground/harvest_start/harvest_end). */
 function computePlanFromAnchor(params: {
@@ -402,7 +417,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
             const next = firstOpenMilestone(p); // { ms, index, whenISO } | null
             const { start, end } = rangeForRow(p);
 
-            const nextLabel = next ? `${labelForType(next.ms.taskType, p.method)} • ${next.whenISO}` : null;
+            const nextLabel = next ? `${labelForType(next.ms.taskType, p.method)} • ${fmtNL(next.whenISO)}` : null;
 
             return (
               <div key={p.id} className="border rounded-lg p-3 bg-card">
@@ -467,11 +482,11 @@ export function Dashboard({ garden }: { garden: Garden }) {
                           isLatePending ? "ring-2 ring-red-400" : "",
                         ].join(" ");
 
-                        const title =
-                          `${m.label}` +
-                          (m.actualISO ? ` • uitgevoerd: ${m.actualISO}` :
-                           m.task?.due_date ? ` • gepland: ${m.task.due_date}` :
-                           m.plannedISO ? ` • gepland: ${m.plannedISO}` : "");
+const title =
+  `${m.label}` +
+  (m.actualISO ? ` • uitgevoerd: ${fmtNL(m.actualISO)}` :
+   m.task?.due_date ? ` • gepland: ${fmtNL(m.task.due_date)}` :
+   m.plannedISO ? ` • gepland: ${fmtNL(m.plannedISO)}` : "");
 
                         return (
                           <div
@@ -499,10 +514,10 @@ export function Dashboard({ garden }: { garden: Garden }) {
                       })}
 
                       {/* labels onderaan (optioneel) */}
-                      <div className="absolute left-0 right-0 -bottom-1.5 flex justify-between text-[10px] text-muted-foreground">
-                        <span>{toISO(start)}</span>
-                        <span>{toISO(end)}</span>
-                      </div>
+<div className="absolute left-0 right-0 -bottom-1.5 flex justify-between text-[10px] text-muted-foreground">
+  <span>{fmtNL(start)}</span>
+  <span>{fmtNL(end)}</span>
+</div>
                     </div>
                   </div>
                 </div>
