@@ -6,31 +6,11 @@ import { listPlantings, updatePlanting } from "../lib/api/plantings";
 import { listSeeds } from "../lib/api/seeds";
 import { listTasks, updateTask } from "../lib/api/tasks";
 
-/* Helpers */
+/* ---------- helpers ---------- */
 function toISO(d: Date) { return d.toISOString().slice(0, 10); }
 function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
 function addWeeks(d: Date, w: number) { const x = new Date(d); x.setDate(x.getDate() + w * 7); return x; }
-function startOfMondayWeek(d: Date) {
-  const x = new Date(d); const day = x.getDay() || 7; // 1=ma .. 7=zo
-  x.setHours(0,0,0,0);
-  if (day > 1) x.setDate(x.getDate() - (day - 1));
-  return x;
-}
-function endOfSundayWeek(d: Date) { const x = startOfMondayWeek(d); x.setDate(x.getDate()+6); x.setHours(23,59,59,999); return x; }
-function isoWeekNumber(date: Date) {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  // @ts-ignore
-  return Math.ceil((((d as any) - (yearStart as any)) / 86400000 + 1) / 7);
-}
-function formatWeekRange(d: Date) {
-  const mon = startOfMondayWeek(d);
-  const sun = endOfSundayWeek(d);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `WK ${isoWeekNumber(mon)} • ${pad(mon.getDate())}/${pad(mon.getMonth()+1)} – ${pad(sun.getDate())}/${pad(sun.getMonth()+1)}`;
-}
+function clamp01(n: number) { return Math.max(0, Math.min(1, n)); }
 
 /** Recompute planned_* fields given an anchor (presow/ground/harvest_start/harvest_end). */
 function computePlanFromAnchor(params: {
@@ -67,7 +47,6 @@ function computePlanFromAnchor(params: {
     planned_harvest_start = anchorISO;
     if (harvestW != null) planned_harvest_end = toISO(addWeeks(A, harvestW));
     if (growW != null) {
-      // back-calculate ground date
       planned_date = toISO(addWeeks(A, -growW));
       if (method === "presow" && presowW != null) planned_presow_date = toISO(addWeeks(new Date(planned_date), -presowW));
       if (method === "direct") planned_presow_date = null;
@@ -78,7 +57,6 @@ function computePlanFromAnchor(params: {
       const hs = addWeeks(A, -harvestW);
       planned_harvest_start = toISO(hs);
       if (growW != null) {
-        // back-calc ground from harvest_start
         planned_date = toISO(addWeeks(hs, -growW));
         if (method === "presow" && presowW != null) planned_presow_date = toISO(addWeeks(new Date(planned_date), -presowW));
         if (method === "direct") planned_presow_date = null;
@@ -86,15 +64,22 @@ function computePlanFromAnchor(params: {
     }
   }
 
-  return {
-    planned_date,
-    planned_presow_date,
-    planned_harvest_start,
-    planned_harvest_end,
-  };
+  return { planned_date, planned_presow_date, planned_harvest_start, planned_harvest_end };
 }
 
-/* UI component */
+/* ---------- types voor timeline ---------- */
+type MilestoneId = "presow" | "ground" | "harvest_start" | "harvest_end";
+type Milestone = {
+  id: MilestoneId;
+  label: string;
+  taskType: Task["type"];
+  plannedISO: string | null;
+  actualISO: string | null;
+  task: Task | null;
+  status: "pending" | "done" | "skipped";
+};
+
+/* ---------- hoofdcomponent ---------- */
 export function Dashboard({ garden }: { garden: Garden }) {
   const [beds, setBeds] = useState<GardenBed[]>([]);
   const [plantings, setPlantings] = useState<Planting[]>([]);
@@ -102,13 +87,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [showAll, setShowAll] = useState(false);
 
-  // Dialoog state
-  const [dialog, setDialog] = useState<{
-    mode: "run" | "reopen";
-    task: Task;
-    dateISO: string;
-  } | null>(null);
-
+  const [dialog, setDialog] = useState<{ mode: "run" | "reopen"; task: Task; dateISO: string } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -118,12 +97,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
       listSeeds(garden.id),
       listTasks(garden.id),
     ])
-      .then(([b, p, s, t]) => {
-        setBeds(b);
-        setPlantings(p);
-        setSeeds(s);
-        setTasks(t);
-      })
+      .then(([b, p, s, t]) => { setBeds(b); setPlantings(p); setSeeds(s); setTasks(t); })
       .catch(console.error);
   }, [garden.id]);
 
@@ -131,63 +105,128 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const seedsById = useMemo(() => Object.fromEntries(seeds.map(s => [s.id, s])), [seeds]);
   const plantingsById = useMemo(() => Object.fromEntries(plantings.map(p => [p.id, p])), [plantings]);
 
-  /* filtering/groeperen */
-  const today = new Date(); today.setHours(0,0,0,0);
-  const horizon = addDays(today, 14); horizon.setHours(23,59,59,999);
-
-  function withinNext2Weeks(due: string) {
-    const d = new Date(due);
-    return d >= today && d <= horizon;
-  }
-
-  const tasksSorted = useMemo(
-    () => tasks.slice().sort((a, b) => (a.due_date || "").localeCompare(b.due_date || "")),
-    [tasks]
-  );
-
-  const tasksUpcoming = useMemo(
-    () => tasksSorted.filter(t => withinNext2Weeks(t.due_date)),
-    [tasksSorted]
-  );
-
-  // groepeer per week (ma-zo)
-  function groupByWeek(ts: Task[]) {
-    const map = new Map<string, Task[]>();
-    for (const t of ts) {
-      const d = new Date(t.due_date);
-      const wkStart = toISO(startOfMondayWeek(d));
-      if (!map.has(wkStart)) map.set(wkStart, []);
-      map.get(wkStart)!.push(t);
+  /* ---------- indexeer tasks per planting & type ---------- */
+  const tasksIndex = useMemo(() => {
+    const map = new Map<string, Map<Task["type"], Task>>();
+    for (const t of tasks) {
+      if (!map.has(t.planting_id)) map.set(t.planting_id, new Map());
+      map.get(t.planting_id)!.set(t.type, t);
     }
-    const keys = Array.from(map.keys()).sort();
-    return keys.map(k => ({ weekStartISO: k, tasks: map.get(k)!.sort((a,b)=>a.due_date.localeCompare(b.due_date)) }));
-  }
+    return map;
+  }, [tasks]);
 
-  const sections = groupByWeek(showAll ? tasksSorted : tasksUpcoming);
-
-  function seedName(task: Task) {
-    const pl = plantingsById[task.planting_id];
-    const seed = pl ? seedsById[pl.seed_id] : null;
+  /* ---------- helpers voor labels ---------- */
+  function seedNameFor(t: Task) {
+    const pl = plantingsById[t.planting_id]; const seed = pl ? seedsById[pl.seed_id] : null;
     return seed?.name ?? "Onbekend gewas";
   }
-  function bedName(task: Task) {
-    const pl = plantingsById[task.planting_id];
-    const bed = pl ? bedsById[pl.garden_bed_id] : null;
+  function bedNameFor(t: Task) {
+    const pl = plantingsById[t.planting_id]; const bed = pl ? bedsById[pl.garden_bed_id] : null;
     return bed?.name ?? "Onbekende bak";
   }
-  function labelForTask(task: Task) {
-    switch (task.type) {
-      case "sow": return "Zaaien";
-      case "plant_out": return "Uitplanten";
-      case "harvest_start": return "Start oogst";
-      case "harvest_end": return "Einde oogst";
-      default: return task.type;
-    }
+  function labelForType(type: Task["type"], method?: Planting["method"]) {
+    if (type === "sow") return method === "presow" ? "Voorzaaien" : "Zaaien";
+    if (type === "plant_out") return "Uitplanten";
+    if (type === "harvest_start") return "Start oogst";
+    if (type === "harvest_end") return "Einde oogst";
+    return type;
   }
 
-  /* ========= Kernlogica voor ankeren & schuiven ========= */
+  /* ---------- milestones per planting ---------- */
+  function milestonesFor(p: Planting): Milestone[] {
+    const method = p.method as "direct" | "presow" | null;
+    const tmap = tasksIndex.get(p.id);
 
-  // Uitvoeren: schrijf actual_* en herbereken planned_* vanaf de gekozen actie (anker)
+    const m: Milestone[] = [];
+
+    if (method === "presow") {
+      m.push({
+        id: "presow",
+        label: "Voorzaaien",
+        taskType: "sow",
+        plannedISO: p.planned_presow_date,
+        actualISO: p.actual_presow_date,
+        task: tmap?.get("sow") ?? null,
+        status: (tmap?.get("sow")?.status ?? (p.actual_presow_date ? "done" : "pending")) as any,
+      });
+      m.push({
+        id: "ground",
+        label: "Uitplanten",
+        taskType: "plant_out",
+        plannedISO: p.planned_date,
+        actualISO: p.actual_ground_date,
+        task: tmap?.get("plant_out") ?? null,
+        status: (tmap?.get("plant_out")?.status ?? (p.actual_ground_date ? "done" : "pending")) as any,
+      });
+    } else {
+      m.push({
+        id: "ground",
+        label: "Zaaien",
+        taskType: "sow",
+        plannedISO: p.planned_date,
+        actualISO: p.actual_ground_date,
+        task: tmap?.get("sow") ?? null,
+        status: (tmap?.get("sow")?.status ?? (p.actual_ground_date ? "done" : "pending")) as any,
+      });
+    }
+
+    m.push({
+      id: "harvest_start",
+      label: "Start oogst",
+      taskType: "harvest_start",
+      plannedISO: p.planned_harvest_start,
+      actualISO: p.actual_harvest_start,
+      task: tmap?.get("harvest_start") ?? null,
+      status: (tmap?.get("harvest_start")?.status ?? (p.actual_harvest_start ? "done" : "pending")) as any,
+    });
+    m.push({
+      id: "harvest_end",
+      label: "Einde oogst",
+      taskType: "harvest_end",
+      plannedISO: p.planned_harvest_end,
+      actualISO: p.actual_harvest_end,
+      task: tmap?.get("harvest_end") ?? null,
+      status: (tmap?.get("harvest_end")?.status ?? (p.actual_harvest_end ? "done" : "pending")) as any,
+    });
+
+    return m;
+  }
+
+  function firstOpenMilestone(p: Planting): { ms: Milestone; whenISO: string } | null {
+    const ms = milestonesFor(p);
+    for (const m of ms) {
+      const t = m.task;
+      const due = t?.due_date ?? m.plannedISO ?? null;
+      if (m.status !== "done" && due) return { ms: m, whenISO: due };
+    }
+    return null;
+  }
+
+  /* ---------- filter/sort: komende 2 weken of alles ---------- */
+  const today = new Date(); today.setHours(0,0,0,0);
+  const horizon = addDays(today, 14);
+
+  const plantingsSorted = useMemo(() => {
+    const withKeys = plantings.map(p => {
+      const nxt = firstOpenMilestone(p);
+      const keyDate = nxt?.whenISO ? new Date(nxt.whenISO) : (p.planned_harvest_end ? new Date(p.planned_harvest_end) : addDays(today, 365));
+      return { p, nxt, keyDate };
+    });
+
+    const filtered = showAll
+      ? withKeys
+      : withKeys.filter(x => x.nxt && (() => {
+          const d = new Date(x.nxt!.whenISO);
+          return d >= today && d <= horizon;
+        })());
+
+    filtered.sort((a,b) => a.keyDate.getTime() - b.keyDate.getTime());
+    return filtered.map(x => x.p);
+  }, [plantings, showAll]);
+
+  /* ---------- acties uitvoeren/heropenen ---------- */
+
+  // Uitvoeren: schrijf actual_* en herbereken planned_* vanaf de gekozen actie (anker), daarna alles herladen
   async function runTask(task: Task, performedISO: string) {
     setBusyId(task.id);
     try {
@@ -230,9 +269,8 @@ export function Dashboard({ garden }: { garden: Garden }) {
 
       const payload = { ...actuals, ...plan };
       await updatePlanting(task.planting_id, payload as any);
-      setPlantings(prev => prev.map(p => p.id === task.planting_id ? { ...p, ...payload } : p));
 
-      // info voor Planner: highlight de verschoven periode
+      // optionele mini-feedback voor Planner (flash)
       try {
         localStorage.setItem("plannerFlashFrom", pl.planned_date ?? "");
         localStorage.setItem("plannerFlashTo", plan.planned_date ?? "");
@@ -243,10 +281,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
       await updateTask(task.id, { status: "done" });
 
       // 4) herladen plantings én tasks zodat UI gelijkloopt met triggers
-      const [p, t] = await Promise.all([
-        listPlantings(garden.id),
-        listTasks(garden.id),
-      ]);
+      const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);
       setPlantings(p);
       setTasks(t);
     } catch (e: any) {
@@ -298,22 +333,14 @@ export function Dashboard({ garden }: { garden: Garden }) {
 
       const payload = { ...clearActuals, ...plan };
       await updatePlanting(task.planting_id, payload as any);
-      setPlantings(prev => prev.map(p => p.id === task.planting_id ? { ...p, ...payload } : p));
 
-      try {
-        localStorage.setItem("plannerFlashFrom", pl.planned_date ?? "");
-        localStorage.setItem("plannerFlashTo", plan.planned_date ?? "");
-        localStorage.setItem("plannerFlashAt", String(Date.now()));
-      } catch {}
+      // terug naar pending
+      await updateTask(task.id, { status: "pending" });
 
-      // taak terug naar pending
-      const updatedTask = await updateTask(task.id, { status: "pending" });
-      setTasks(prev => prev.map(t => t.id === task.id ? updatedTask : t));
-
-      try {
-        const fresh = await listTasks(garden.id);
-        setTasks(fresh);
-      } catch {}
+      // herladen
+      const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);
+      setPlantings(p);
+      setTasks(t);
     } catch (e: any) {
       alert("Kon actie niet heropenen: " + (e?.message ?? e));
     } finally {
@@ -322,6 +349,36 @@ export function Dashboard({ garden }: { garden: Garden }) {
     }
   }
 
+  /* ---------- UI helpers timeline ---------- */
+  function dateOrNull(s?: string | null) { return s ? new Date(s) : null; }
+
+  function rangeForRow(p: Planting) {
+    const ms = milestonesFor(p);
+    // range = min(planned/actual van eerste milestone t/m planned/actual harvest_end)
+    const dates: Date[] = [];
+    for (const m of ms) {
+      if (m.plannedISO) dates.push(new Date(m.plannedISO));
+      if (m.actualISO) dates.push(new Date(m.actualISO));
+    }
+    if (dates.length === 0) {
+      const today = new Date();
+      return { start: today, end: addDays(today, 7) };
+    }
+    const start = new Date(Math.min(...dates.map(d => d.getTime())));
+    const end = new Date(Math.max(...dates.map(d => d.getTime())));
+    if (start.getTime() === end.getTime()) end.setDate(end.getDate() + 7);
+    return { start, end };
+  }
+
+  function pctInRange(d: Date, start: Date, end: Date) {
+    const p = (d.getTime() - start.getTime()) / (end.getTime() - start.getTime());
+    return clamp01(p) * 100;
+  }
+
+  const todayPctCache = useMemo(() => new Map<string, number>(), []);
+  const todayDate = new Date();
+
+  /* ---------- render ---------- */
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
@@ -329,75 +386,144 @@ export function Dashboard({ garden }: { garden: Garden }) {
         <button
           onClick={() => setShowAll(s => !s)}
           className="px-3 py-1.5 rounded-md border text-sm"
-          title={showAll ? "Toon alleen komende 2 weken" : "Toon alle weken"}
+          title={showAll ? "Toon alleen plantingen met een actie in de komende 2 weken" : "Toon alle plantingen"}
         >
-          {showAll ? "Alleen komende 2 weken" : "Toon alle weken"}
+          {showAll ? "Komende 2 weken" : "Alle plantingen"}
         </button>
       </div>
 
-      {/* Actielijst */}
-      <section>
-        <h3 className="text-xl font-semibold mb-3">
-          Acties {showAll ? "(alle weken)" : "(komende 2 weken)"}
-        </h3>
-
-        {sections.length === 0 ? (
+      {/* Timeline lijst: één rij per planting */}
+      <section className="space-y-3">
+        {plantingsSorted.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            {showAll ? "Geen acties gevonden." : "Geen acties in de komende 2 weken."}
+            {showAll ? "Geen plantingen gevonden." : "Geen acties in de komende 2 weken."}
           </p>
         ) : (
-          <div className="space-y-4">
-            {sections.map(({ weekStartISO, tasks }) => {
-              const wkStart = new Date(weekStartISO);
-              return (
-                <div key={weekStartISO} className="border rounded-lg overflow-hidden">
-                  <div className="px-4 py-2 bg-muted/60 border-b text-sm font-medium">
-                    {formatWeekRange(wkStart)}
+          plantingsSorted.map((p) => {
+            const seed = seedsById[p.seed_id];
+            const bed = bedsById[p.garden_bed_id];
+            const ms = milestonesFor(p);
+            const { start, end } = rangeForRow(p);
+
+            // today marker cache key
+            const key = `${start.toISOString()}_${end.toISOString()}`;
+            let todayPct = todayPctCache.get(key);
+            if (todayPct == null) {
+              todayPct = pctInRange(todayDate, start, end);
+              todayPctCache.set(key, todayPct);
+            }
+
+            // welke is de eerstvolgende open actie?
+            const nextOpen = ms.find(m => m.status !== "done" && (m.task?.due_date || m.plannedISO));
+            const nextDueISO = nextOpen ? (nextOpen.task?.due_date ?? nextOpen.plannedISO) : null;
+
+            return (
+              <div key={p.id} className="border rounded-lg p-3 bg-card">
+                <div className="grid grid-cols-12 gap-3 items-center">
+                  {/* links: label */}
+                  <div className="col-span-12 md:col-span-3 flex items-center gap-2">
+                    <span
+                      className="inline-block w-3 h-3 rounded"
+                      style={{ background: p.color && (p.color.startsWith("#") || p.color.startsWith("rgb")) ? p.color : "#22c55e" }}
+                      aria-hidden
+                    />
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{seed?.name ?? "Onbekend gewas"}</div>
+                      <div className="text-xs text-muted-foreground truncate">{bed?.name ?? "Onbekende bak"}</div>
+                    </div>
                   </div>
-                  <div className="divide-y">
-                    {tasks.map((t) => {
-                      const isDone = t.status === "done";
-                      return (
-                        <button
-                          key={t.id}
-                          onClick={() => {
-                            const defaultDate = isDone ? (t.due_date || toISO(new Date())) : toISO(new Date());
-                            setDialog({ mode: isDone ? "reopen" : "run", task: t, dateISO: defaultDate });
-                          }}
-                          className="w-full text-left p-4 hover:bg-muted/40 transition flex items-center justify-between gap-3"
-                          title={isDone ? "Klik om te heropenen/verplaatsen" : "Klik om uit te voeren"}
-                        >
-                          <div className="flex items-center gap-3">
-                            <span
-                              className={`inline-block w-2 h-2 rounded-full ${isDone ? "bg-green-500" : "bg-yellow-500"}`}
-                              aria-hidden
-                            />
-                            <div className="flex flex-col">
-                              <span className={`text-sm ${isDone ? "line-through text-muted-foreground" : ""}`}>
-                                {labelForTask(t)} • {seedName(t)} • {bedName(t)}
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                gepland: {t.due_date}
-                              </span>
-                            </div>
-                          </div>
-                          <span
-                            className={`text-xs px-2 py-0.5 rounded ${isDone ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}`}
+
+                  {/* midden: timeline */}
+                  <div className="col-span-12 md:col-span-7">
+                    <div className="relative h-12">
+                      {/* baseline */}
+                      <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[6px] rounded bg-muted" />
+
+                      {/* vandaag marker */}
+                      <div
+                        className="absolute top-0 bottom-0 w-[2px] bg-primary/60"
+                        style={{ left: `${todayPct}%` }}
+                        title="Vandaag"
+                      />
+
+                      {/* milestones */}
+                      {ms.map((m, idx) => {
+                        const baseISO = m.actualISO ?? m.task?.due_date ?? m.plannedISO;
+                        if (!baseISO) return null;
+                        const d = new Date(baseISO);
+                        const pct = pctInRange(d, start, end);
+
+                        const isDone = m.status === "done";
+                        const isLatePending = m.status !== "done" && m.task?.due_date && new Date(m.task.due_date) < todayDate;
+
+                        const dotClasses = [
+                          "absolute -translate-x-1/2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border shadow",
+                          isDone ? "bg-green-500 border-green-600" : "bg-amber-400 border-amber-500",
+                          isLatePending ? "ring-2 ring-red-400" : "",
+                          "cursor-pointer",
+                        ].join(" ");
+
+                        const title =
+                          `${m.label}` +
+                          (m.actualISO ? ` • uitgevoerd: ${m.actualISO}` :
+                           m.task?.due_date ? ` • gepland: ${m.task.due_date}` :
+                           m.plannedISO ? ` • gepland: ${m.plannedISO}` : "");
+
+                        return (
+                          <div
+                            key={m.id}
+                            className={dotClasses}
+                            style={{ left: `${pct}%` }}
+                            title={title}
+                            onClick={() => {
+                              const t = m.task;
+                              if (!t) return;
+                              if (t.status === "done") {
+                                const def = t.due_date || m.plannedISO || toISO(new Date());
+                                setDialog({ mode: "reopen", task: t, dateISO: def! });
+                              } else {
+                                setDialog({ mode: "run", task: t, dateISO: toISO(new Date()) });
+                              }
+                            }}
                           >
-                            {isDone ? "Afgerond" : "Open"}
-                          </span>
-                        </button>
-                      );
-                    })}
+                            {isDone && (
+                              <span className="text-[10px] text-white leading-none grid place-items-center w-full h-full">✓</span>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      {/* labels onderaan (optioneel compact) */}
+                      <div className="absolute left-0 right-0 -bottom-1.5 flex justify-between text-[10px] text-muted-foreground">
+                        <span>{toISO(start)}</span>
+                        <span>{toISO(end)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* rechts: CTA */}
+                  <div className="col-span-12 md:col-span-2 text-right">
+                    {nextOpen && nextDueISO ? (
+                      <button
+                        className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-sm"
+                        onClick={() => setDialog({ mode: "run", task: nextOpen.task!, dateISO: toISO(new Date()) })}
+                        disabled={!nextOpen.task}
+                        title={nextOpen.task ? "Volgende actie uitvoeren" : "Geen taak gekoppeld"}
+                      >
+                        {labelForType(nextOpen.taskType, p.method)} • {nextDueISO}
+                      </button>
+                    ) : (
+                      <span className="text-xs px-2 py-1 rounded bg-green-100 text-green-700">Klaar</span>
+                    )}
                   </div>
                 </div>
-              );
-            })}
-          </div>
+              </div>
+            );
+          })
         )}
       </section>
 
-      {/* Dialog */}
+      {/* Dialog: uitvoeren / heropenen */}
       {dialog && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setDialog(null)}>
           <div className="bg-card w-full max-w-sm rounded-lg shadow-lg p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
@@ -405,7 +531,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
               {dialog.mode === "run" ? "Actie uitvoeren" : "Actie heropenen / verplaatsen"}
             </h4>
             <p className="text-sm">
-              {labelForTask(dialog.task)} • {seedName(dialog.task)} • {bedName(dialog.task)}
+              {labelForType(dialog.task.type, plantingsById[dialog.task.planting_id]?.method)} • {seedNameFor(dialog.task)} • {bedNameFor(dialog.task)}
             </p>
             <label className="block text-sm">
               {dialog.mode === "run" ? "Uitgevoerd op" : "Nieuwe geplande datum"}
