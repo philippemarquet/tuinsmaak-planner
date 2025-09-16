@@ -239,20 +239,21 @@ export function Dashboard({ garden }: { garden: Garden }) {
         localStorage.setItem("plannerFlashAt", String(Date.now()));
       } catch {}
 
-      // 3) taak afronden
-      const updatedTask = await updateTask(task.id, { status: "done" });
-      setTasks(prev => prev.map(t => t.id === task.id ? updatedTask : t));
+      // 3) taak afronden (triggers kunnen velden aanpassen)
+      await updateTask(task.id, { status: "done" });
 
-      // 4) taken verversen (mochten triggers due_date hebben aangepast)
-      try {
-        const fresh = await listTasks(garden.id);
-        setTasks(fresh);
-      } catch {}
+      // 4) herladen plantings én tasks zodat UI gelijkloopt met triggers
+      const [p, t] = await Promise.all([
+        listPlantings(garden.id),
+        listTasks(garden.id),
+      ]);
+      setPlantings(p);
+      setTasks(t);
     } catch (e: any) {
       alert("Kon actie niet afronden: " + (e?.message ?? e));
     } finally {
       setBusyId(null);
-      setDialog(null);
+      setRunDialog(null);
     }
   }
 
