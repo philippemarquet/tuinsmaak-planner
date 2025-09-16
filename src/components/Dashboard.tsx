@@ -112,6 +112,23 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
+  const at = localStorage.getItem("plannerFlashAt");
+  const from = localStorage.getItem("plannerFlashFrom");
+  const to = localStorage.getItem("plannerFlashTo");
+  if (!at || !to) return;
+
+  // alleen als het vers is (< 15s)
+  const fresh = Date.now() - Number(at) < 15000;
+  if (fresh && from && to && from !== to) {
+    setToast({ type: "info", message: `Planning verschoven naar ${to}.` });
+  }
+  // consume
+  localStorage.removeItem("plannerFlashAt");
+  localStorage.removeItem("plannerFlashFrom");
+  localStorage.removeItem("plannerFlashTo");
+}, []);
+  
+  useEffect(() => {
     Promise.all([
       listBeds(garden.id),
       listPlantings(garden.id),
