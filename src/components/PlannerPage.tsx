@@ -147,8 +147,13 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [plantings, setPlantings] = useState<Planting[]>([]);
 
-  const [view, setView] = useState<"list" | "map" | "timeline" | "conflicts">(
-    () => (localStorage.getItem("plannerView") as any) || "list"
+  // Tijdlijn-tab is verwijderd; alleen list | map | conflicts
+  const [view, setView] = useState<"list" | "map" | "conflicts">(
+    () => {
+      const saved = (localStorage.getItem("plannerView") as "list" | "map" | "timeline" | "conflicts" | null);
+      // als iemand nog "timeline" in localStorage had staan → terug naar "list"
+      return saved === "map" || saved === "conflicts" ? saved : "list";
+    }
   );
 
   // UI/filters
@@ -726,12 +731,11 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         </div>
       </div>
 
-      {/* tabs */}
+      {/* tabs — tijdlijn is verwijderd */}
       <div className="flex items-center gap-3 pb-2">
         {[
           { k: "list", label: "Lijstweergave" },
           { k: "map",  label: "Plattegrond"   },
-          { k: "timeline", label: "Tijdlijn"  },
           { k: "conflicts", label: "Conflicten" },
         ].map(t => {
           const active = view === (t.k as any);
@@ -922,8 +926,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     conflicts: Array<{plantingId: string; conflictsWith: string[]}>;
     pendingsById: Set<string>;
   }) {
-    const activePlantings = plantings.filter((p) => p.garden_bed_id === bed.id && isActiveInWeek(p));
-    const futurePlantings = showGhosts ? plantings.filter((p) => p.garden_bed_id === bed.id && !isActiveInWeek(p) && isFutureRelativeToWeek(p)) : [];
+    // ✅ FIX: geef currentWeek mee aan isActiveInWeek
+    const activePlantings = plantings.filter((p) => p.garden_bed_id === bed.id && isActiveInWeek(p, currentWeek));
+    const futurePlantings = showGhosts ? plantings.filter((p) => p.garden_bed_id === bed.id && !isActiveInWeek(p, currentWeek) && isFutureRelativeToWeek(p, currentWeek)) : [];
 
     const segmentIsFreeNow = (idx: number) =>
       !activePlantings.some(p => {
@@ -1036,7 +1041,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     };
     useEffect(() => { fitToViewport(); }, []);
 
-    const isActiveInWeek = (p: Planting) => {
+    const isActiveInWeekLocal = (p: Planting) => {
       const start = new Date(p.planned_date ?? "");
       const end = new Date(p.planned_harvest_end ?? "");
       if (isNaN(start.getTime()) || isNaN(end.getTime())) return false;
@@ -1044,7 +1049,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       const sunday = addDays(monday, 6);
       return start <= sunday && end >= monday;
     };
-    const isFutureRelativeToWeek = (p: Planting) => {
+    const isFutureRelativeToWeekLocal = (p: Planting) => {
       const start = new Date(p.planned_date ?? "");
       if (isNaN(start.getTime())) return false;
       const monday = new Date(currentWeek);
@@ -1096,8 +1101,8 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 const segW = vertical ? innerW / segCount : innerW;
                 const segH = vertical ? innerH : innerH / segCount;
 
-                const active = plantings.filter(p => p.garden_bed_id === bed.id && isActiveInWeek(p));
-                const future = showGhosts ? plantings.filter(p => p.garden_bed_id === bed.id && !isActiveInWeek(p) && isFutureRelativeToWeek(p)) : [];
+                const active = plantings.filter(p => p.garden_bed_id === bed.id && isActiveInWeekLocal(p));
+                const future = showGhosts ? plantings.filter(p => p.garden_bed_id === bed.id && !isActiveInWeekLocal(p) && isFutureRelativeToWeekLocal(p)) : [];
 
                 const segmentFreeNow = (rs: number, len: number) => {
                   const re = rs + len - 1;
@@ -1148,8 +1153,8 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                             ? { top: inset, height: Math.max(1, innerH - inset * 2), left: inset + start * segW, width: Math.max(1, used * segW - inset * 2) }
                             : { left: inset, width: Math.max(1, innerW - inset * 2), top: inset + start * segH, height: Math.max(1, used * segH - inset * 2) };
 
-                          const hasConflict = conflictsSet.has(p.id);
-                          const hasPending = pendingSet.has(p.id);
+                          const hasConflict = conflictsExisting.some(c => c.plantingId === p.id);
+                          const hasPending = pendingRecalcs.some(x => x.planting.id === p.id);
                           const isFlash = flash && flash.id === p.id;
 
                           return (
@@ -1164,7 +1169,8 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                               title={`${seed?.name ?? "Onbekend"}${hasConflict ? " ⚠️ CONFLICT" : ""}`}
                               data-planting-id={p.id}
                             >
-                              {!isHex && <div className={`${p.color ?? "bg-primary"} absolute inset-0 rounded -z-10`} />}
+                              {!isHex && <div className={`${p.color ?? "bg-primary"} absolute inset-0 rounded -z-10`} />
+                              }
                               <span className="truncate">{seed?.name ?? "—"}</span>
                               {hasConflict && <span className="ml-1">⚠️</span>}
                               {hasPending && <span className="ml-1">⟳</span>}
@@ -1203,107 +1209,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                           })}
                         </div>
                       )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </section>
-    );
-  }
-
-  /* ====== Tijdlijn subview ====== */
-  function TimelineView() {
-    // bepaal globale range om te tekenen (±6 maanden rondom currentWeek)
-    const start = addWeeks(currentWeek, -12);
-    const end   = addWeeks(currentWeek,  16);
-    const dayWidth = 14; // px per dag
-    const totalDays = Math.ceil((+end - +start) / 86400000);
-    const totalW = totalDays * dayWidth;
-
-    const scrollerRef = useRef<HTMLDivElement | null>(null);
-    // Scroll naar currentWeek marker bij mount/ wijziging
-    useEffect(() => {
-      const el = scrollerRef.current;
-      if (!el) return;
-      const x = Math.max(0, Math.min(totalW - el.clientWidth, Math.floor((+currentWeek - +start)/86400000) * dayWidth - el.clientWidth/2));
-      el.scrollTo({ left: x, behavior: "smooth" });
-    }, [currentWeek]); // eslint-disable-line
-
-    const rows = plantings
-      .slice()
-      .sort((a,b) => (a.planned_date ?? "").localeCompare(b.planned_date ?? ""));
-
-    function xFor(iso?: string | null) {
-      if (!iso) return null;
-      const d = new Date(iso);
-      const days = Math.floor((+d - +start)/86400000);
-      return days * dayWidth;
-    }
-
-    return (
-      <section className="space-y-2">
-        <div className="text-sm text-muted-foreground">Tijdlijn (horizontaal scrollbaar) — verticale lijn volgt je weeknavigatie.</div>
-        <div ref={scrollerRef} className="relative border rounded-lg overflow-auto bg-card" style={{ height: 320 }}>
-          <div className="relative" style={{ width: totalW, minHeight: "100%" }}>
-            {/* verticale weeklijn */}
-            <div
-              className="absolute top-0 bottom-0 w-[2px] bg-primary/70"
-              style={{ left: `${xFor(toISO(currentWeek)) ?? 0}px` }}
-              title="Geselecteerde week"
-            />
-            {/* maand raster elke ~4 weken */}
-            {Array.from({ length: totalDays/28|0 }, (_, i) => {
-              const x = i*28*dayWidth;
-              return <div key={i} className="absolute top-0 bottom-0 w-px bg-border/60" style={{ left: x }} />;
-            })}
-
-            {/* rijen */}
-            <div className="absolute inset-0">
-              {rows.map((p, idx) => {
-                const seed = seedsById[p.seed_id];
-                const bed = beds.find(b => b.id === p.garden_bed_id);
-                const x1 = xFor(p.planned_date);
-                const x2 = xFor(p.planned_harvest_end ?? p.planned_date);
-                const y  = 16 + idx * 36;
-                const width = x1!=null && x2!=null ? Math.max(6, x2 - x1) : 0;
-                const pending = pendingRecalcs.some(x => x.planting.id === p.id);
-                const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
-                const isFlash = flash && flash.id === p.id;
-
-                return (
-                  <div key={p.id} className="absolute left-0" style={{ top: y, height: 28, right: 0 }}>
-                    {/* bar */}
-                    {x1!=null && x2!=null && (
-                      <div
-                        className={`absolute h-3 rounded ${isHex ? "" : p.color ?? "bg-primary"} ${isFlash ? "ring-2 ring-amber-400 animate-pulse" : ""}`}
-                        style={{
-                          left: x1, width,
-                          background: isHex ? (p.color ?? "#22c55e") : undefined,
-                          opacity: 0.95,
-                        }}
-                        title={`${seed?.name ?? "—"} • ${fmtDMY(p.planned_date)}–${fmtDMY(p.planned_harvest_end)}`}
-                        data-planting-id={p.id}
-                      />
-                    )}
-                    {/* milestones als dots */}
-                    {[
-                      { iso: p.method === "presow" ? p.planned_presow_date : p.planned_date, label: p.method === "presow" ? "Voorzaai" : "Zaai/plant" },
-                      { iso: p.planned_harvest_start, label: "Start oogst" },
-                      { iso: p.planned_harvest_end, label: "Einde oogst" },
-                    ].map((m, i) => {
-                      const x = xFor(m.iso);
-                      if (x == null) return null;
-                      return <div key={i} className="absolute -translate-x-1/2 w-3 h-3 rounded-full bg-muted border border-border" style={{ left: x, top: 4 }} title={`${m.label}: ${fmtDMY(m.iso!)}`} />;
-                    })}
-
-                    {/* label */}
-                    <div className="absolute left-0 -translate-y-1 text-[11px] text-foreground/90 whitespace-nowrap"
-                         style={{ top: -2, transform: "translateX(4px)" }}>
-                      <span className="font-medium">{seed?.name ?? "—"}</span>
-                      <span className="text-muted-foreground"> • {bed?.name ?? "—"} {pending ? " • ⟳" : ""}</span>
                     </div>
                   </div>
                 );
@@ -1453,8 +1358,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 currentWeek={currentWeek}
                 showGhosts={showGhosts}
               />
-            ) : view === "timeline" ? (
-              <TimelineView />
             ) : (
               <ConflictsView />
             )}
@@ -1573,7 +1476,7 @@ function MonthChips({ selected, onToggle }: { selected: number[]; onToggle: (m: 
           <button key={m}
             type="button"
             onClick={() => onToggle(m)}
-            className={`px-1.5 py-0.5 rounded text:[11px] text-[11px] border ${on ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+            className={`px-1.5 py-0.5 rounded text-[11px] border ${on ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
             {lbl}
           </button>
         );
