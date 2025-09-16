@@ -268,7 +268,7 @@ async function runTask(task: Task, performedISO: string) {
     const seed = pl ? seedsById[pl.seed_id] : null;
     if (!pl || !seed) throw new Error("Planting/seed niet gevonden");
 
-    // 1) schrijf ALTIJD de actual_* weg
+    // 1) schrijf ALLEEN actual_* (altijd toegestaan, ongeacht conflicts)
     const actuals: any = {};
     if (task.type === "sow") {
       if (pl.method === "presow") actuals.actual_presow_date = performedISO;
@@ -282,7 +282,7 @@ async function runTask(task: Task, performedISO: string) {
     }
     await updatePlanting(task.planting_id, actuals as any);
 
-    // 2) PROBEER planned_* te verschuiven o.b.v. deze actual
+    // 2) herbereken planned_* vanaf dit anker en PROBEER toe te passen
     const anchorType: "presow" | "ground" | "harvest_start" | "harvest_end" =
       task.type === "sow" ? (pl.method === "presow" ? "presow" : "ground")
       : task.type === "plant_out" ? "ground"
@@ -302,32 +302,35 @@ async function runTask(task: Task, performedISO: string) {
       },
     });
 
-    let slideOk = true;
+    let appliedPlan = false;
     try {
+      // Dit kan falen bij overlap → dan laten we planned_* ongemoeid
       await updatePlanting(task.planting_id, plan as any);
-      // subtiele flash in Planner (optioneel)
-      try {
-        localStorage.setItem("plannerFlashFrom", pl.planned_date ?? "");
-        localStorage.setItem("plannerFlashTo", plan.planned_date ?? "");
-        localStorage.setItem("plannerFlashAt", String(Date.now()));
-      } catch {}
-    } catch {
-      // schuiven blokkeerde (overlap/constraint) → laat planner het oplossen
-      slideOk = false;
-      try { localStorage.setItem("plannerNeedsAttention", "1"); } catch {}
+      appliedPlan = true;
+    } catch (err) {
+      // Niets doen: Planner toont nu vanzelf de "Te verwerken herberekening"
+      // omdat actual_* wél staat en planned_* nog niet meeschuift.
+      console.warn("Planned update botste (bewust genegeerd):", err);
     }
 
-    // 3) Taak → done (ongeacht of schuiven gelukt is)
-    await updateTask(task.id, { status: "done" });
+    // 3) taak afronden; ignoreer uitsluitend de 'no row could be fetched'-varianten
+    try {
+      await updateTask(task.id, { status: "done" });
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      const benign = msg.includes("no row could be fetched") || msg.includes("no row returned");
+      if (!benign) throw e; // alleen echte fouten doorgeven
+    }
 
-    // 4) Herlaad data (plantings + tasks) zodat UI gelijkloopt
+    // 4) herladen voor consistente UI
     const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);
     setPlantings(p);
     setTasks(t);
 
-    if (!slideOk) {
-      // geen blocking alert; Planner toont pending-panel
-      console.warn("Plannen schuiven blokkeerde; los op in Planner.");
+    // 5) optionele hint als er een conflict was
+    if (!appliedPlan) {
+      // subtiele heads-up; je kunt dit ook als toast doen i.p.v. alert
+      // alert("Actie opgeslagen. Herberekening veroorzaakt een conflict; los dit op in de Planner.");
     }
   } catch (e: any) {
     alert("Kon actie niet afronden: " + (e?.message ?? e));
@@ -336,7 +339,7 @@ async function runTask(task: Task, performedISO: string) {
     setDialog(null);
   }
 }
-  
+
   async function reopenTask(task: Task, newPlannedISO: string) {
     setBusyId(task.id);
     try {
