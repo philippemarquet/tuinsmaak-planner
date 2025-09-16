@@ -147,7 +147,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [plantings, setPlantings] = useState<Planting[]>([]);
 
-  const [view, setView] = useState<"list" | "map" | "timeline">(() => (localStorage.getItem("plannerView") as any) || "list");
+  const [view, setView] = useState<"list" | "map" | "timeline" | "conflicts">(
+    () => (localStorage.getItem("plannerView") as any) || "list"
+  );
 
   // UI/filters
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
@@ -159,6 +161,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   const [fDirectPlant, setFDirectPlant] = useState<number[]>(() => JSON.parse(localStorage.getItem("plannerM_directplant") ?? "[]"));
   const [fHarvest, setFHarvest] = useState<number[]>(() => JSON.parse(localStorage.getItem("plannerM_harvest") ?? "[]"));
   const [showGhosts, setShowGhosts] = useState<boolean>(() => localStorage.getItem("plannerShowGhosts") === "1");
+
+  // highlight van een specifieke planting (flash na dashboard-actie)
+  const [flash, setFlash] = useState<null | { id: string; from?: string | null; to?: string | null; until: number }>(null);
 
   // weeknavigatie
   const [currentWeek, setCurrentWeek] = useState<Date>(() => {
@@ -220,6 +225,37 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       .subscribe();
     return () => { try { supabase.removeChannel(channel); } catch {} };
   }, [garden.id]);
+
+  // lees storage events om highlight / attention direct op te pikken
+  useEffect(() => {
+    const readFlash = () => {
+      const at = Number(localStorage.getItem("plannerFlashAt") || 0);
+      const id = localStorage.getItem("plannerConflictFocusId") || null;
+      if (id && at && Date.now() - at < 15000) {
+        setFlash({
+          id,
+          from: localStorage.getItem("plannerFlashFrom"),
+          to: localStorage.getItem("plannerFlashTo"),
+          until: at + 15000,
+        });
+      }
+      const resolveMode = localStorage.getItem("plannerResolveMode") === "1";
+      if (resolveMode) setView("conflicts");
+    };
+
+    readFlash();
+    const onStorage = (e: StorageEvent) => {
+      if (!e.key) return;
+      if (e.key.startsWith("plannerFlash") || e.key === "plannerConflictFocusId" || e.key === "plannerResolveMode") {
+        readFlash();
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    const t = setInterval(() => { // TTL opruimen
+      setFlash(f => (f && Date.now() > f.until ? null : f));
+    }, 1000);
+    return () => { window.removeEventListener("storage", onStorage); clearInterval(t); };
+  }, []);
 
   // sort bedden
   const outdoorBeds = useMemo(() => beds.filter(b => !b.is_greenhouse)
@@ -354,6 +390,43 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   const pendingCount = pendingRecalcs.length;
   const hasConflictsPending = pendingRecalcs.some(x => x.conflicts.length > 0);
 
+  /* ====== conflictdetectie bestaande planning (visueel) ====== */
+  const conflictsExisting = useMemo(() => {
+    const conflictList: Array<{plantingId: string; withIds: string[]}> = [];
+    for (let i = 0; i < plantings.length; i++) {
+      const p1 = plantings[i];
+      const withIds: string[] = [];
+      for (let j = i + 1; j < plantings.length; j++) {
+        const p2 = plantings[j];
+        if (p1.garden_bed_id !== p2.garden_bed_id) continue;
+        const p1Start = new Date(p1.planned_date ?? "");
+        const p1End   = new Date(p1.planned_harvest_end ?? "");
+        const p2Start = new Date(p2.planned_date ?? "");
+        const p2End   = new Date(p2.planned_harvest_end ?? "");
+        if ([p1Start,p1End,p2Start,p2End].some(d=>isNaN(d.getTime()))) continue;
+        const timeOverlap = (p1Start <= p2End) && (p2Start <= p1End);
+        if (!timeOverlap) continue;
+        const p1s = p1.start_segment ?? 0, p1e = p1s + (p1.segments_used ?? 1) - 1;
+        const p2s = p2.start_segment ?? 0, p2e = p2s + (p2.segments_used ?? 1) - 1;
+        const segOverlap = (p1s <= p2e) && (p2s <= p1e);
+        if (segOverlap) withIds.push(p2.id);
+      }
+      if (withIds.length) conflictList.push({ plantingId: p1.id, withIds });
+    }
+    return conflictList;
+  }, [plantings]);
+
+  const hasConflicts = conflictsExisting.length > 0;
+
+  // schakel main-nav badge aan/uit via localStorage (andere component kan dit lezen)
+  useEffect(() => {
+    try {
+      const needs = (pendingCount > 0) || hasConflicts;
+      localStorage.setItem("plannerNeedsAttention", needs ? "1" : "0");
+      window.dispatchEvent(new StorageEvent("storage", { key: "plannerNeedsAttention", newValue: needs ? "1" : "0" }));
+    } catch {}
+  }, [pendingCount, hasConflicts]);
+
   /* ====== oplossers ====== */
 
   // zoek eerstvolgende vrije startdatum (per 1 week opschuiven) die niet botst
@@ -369,9 +442,10 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   }
 
   // probeer zelfde datum te houden, maar andere segmentband te vinden
-  function findAlternateSegment(bed: GardenBed, segUsed: number, startDate: Date, endDate: Date) {
+  function findAlternateSegment(bed: GardenBed, segUsed: number, startDate: Date, endDate: Date, skipStart?: number) {
     const maxStart = Math.max(0, (bed.segments ?? 1) - segUsed);
     for (let startSeg = 0; startSeg <= maxStart; startSeg++) {
+      if (skipStart != null && startSeg === skipStart) continue;
       if (!wouldOverlap(bed, startSeg, segUsed, startDate, endDate)) return startSeg;
     }
     return null;
@@ -459,33 +533,50 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     }
   }
 
-  /* ====== conflictdetectie bestaande planning (visueel) ====== */
-  const conflictsExisting = useMemo(() => {
-    const conflictList: Array<{plantingId: string; withIds: string[]}> = [];
-    for (let i = 0; i < plantings.length; i++) {
-      const p1 = plantings[i];
-      const withIds: string[] = [];
-      for (let j = i + 1; j < plantings.length; j++) {
-        const p2 = plantings[j];
-        if (p1.garden_bed_id !== p2.garden_bed_id) continue;
-        const p1Start = new Date(p1.planned_date ?? "");
-        const p1End   = new Date(p1.planned_harvest_end ?? "");
-        const p2Start = new Date(p2.planned_date ?? "");
-        const p2End   = new Date(p2.planned_harvest_end ?? "");
-        if ([p1Start,p1End,p2Start,p2End].some(d=>isNaN(d.getTime()))) continue;
-        const timeOverlap = (p1Start <= p2End) && (p2Start <= p1End);
-        if (!timeOverlap) continue;
-        const p1s = p1.start_segment ?? 0, p1e = p1s + (p1.segments_used ?? 1) - 1;
-        const p2s = p2.start_segment ?? 0, p2e = p2s + (p2.segments_used ?? 1) - 1;
-        const segOverlap = (p1s <= p2e) && (p2s <= p1e);
-        if (segOverlap) withIds.push(p2.id);
-      }
-      if (withIds.length) conflictList.push({ plantingId: p1.id, withIds });
+  // snelle oplossers voor *bestaande* conflicten
+  async function quickResolveExistingBySegments(plantingId: string) {
+    const p = plantings.find(x => x.id === plantingId); if (!p) return;
+    const bed = beds.find(b => b.id === p.garden_bed_id); if (!bed) return;
+    const segUsed = p.segments_used ?? 1;
+    const start = new Date(p.planned_date ?? "");
+    const end = new Date(p.planned_harvest_end ?? p.planned_date ?? "");
+    const alt = findAlternateSegment(bed, segUsed, start, end, p.start_segment ?? undefined);
+    if (alt == null) { setToast({ type: "error", message: "Geen andere segmenten vrij in deze periode." }); return; }
+    try {
+      await updatePlanting(p.id, { start_segment: alt } as any);
+      await reload();
+      setToast({ type: "success", message: "Verplaatst naar andere segmenten." });
+    } catch (e: any) {
+      setToast({ type: "error", message: "Kon niet verplaatsen: " + (e?.message ?? e) });
     }
-    return conflictList;
-  }, [plantings]);
+  }
 
-  const hasConflicts = conflictsExisting.length > 0;
+  async function quickResolveExistingByWeek(plantingId: string) {
+    const p = plantings.find(x => x.id === plantingId); if (!p) return;
+    const bed = beds.find(b => b.id === p.garden_bed_id); if (!bed) return;
+    const segUsed = p.segments_used ?? 1;
+    const startSeg = p.start_segment ?? 0;
+
+    const start = new Date(p.planned_date ?? "");
+    const end   = new Date(p.planned_harvest_end ?? p.planned_date ?? "");
+    const slot = findNextFreeStartDate(bed, startSeg, segUsed, start, end);
+    if (!slot) { setToast({ type: "error", message: "Geen vrije week gevonden binnen 52 weken." }); return; }
+
+    try {
+      // behoud duur en bereken milestones
+      const seed = seedsById[p.seed_id];
+      const growW = seed?.grow_duration_weeks ?? 0;
+      await updatePlanting(p.id, {
+        planned_date: toISO(slot.start),
+        planned_harvest_start: growW ? toISO(addWeeks(slot.start, growW)) : p.planned_harvest_start,
+        planned_harvest_end: toISO(slot.end),
+      } as any);
+      await reload();
+      setToast({ type: "success", message: "Verplaatst naar eerstvolgende vrije week." });
+    } catch (e: any) {
+      setToast({ type: "error", message: "Kon niet verplaatsen: " + (e?.message ?? e) });
+    }
+  }
 
   /* ====== DND ====== */
   function handleDragStart(event: any) {
@@ -621,9 +712,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       <div className="py-2.5 flex items-center justify-between">
         <h2 className="text-2xl font-bold flex items-center gap-2">
           Planner
-          {pendingCount > 0 && (
+          {(pendingCount > 0 || hasConflicts) && (
             <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
-              {!hasConflictsPending ? "Te verwerken" : "Actie vereist"} • {pendingCount}
+              {hasConflicts ? "Conflicten" : "Te verwerken"} • {hasConflicts ? conflictsExisting.length : pendingCount}
             </span>
           )}
         </h2>
@@ -641,17 +732,20 @@ export function PlannerPage({ garden }: { garden: Garden }) {
           { k: "list", label: "Lijstweergave" },
           { k: "map",  label: "Plattegrond"   },
           { k: "timeline", label: "Tijdlijn"  },
+          { k: "conflicts", label: "Conflicten" },
         ].map(t => {
           const active = view === (t.k as any);
+          const showDot = t.k === "conflicts" && (hasConflicts || hasConflictsPending);
           return (
             <button key={t.k}
               onClick={() => setView(t.k as any)}
               className={[
-                "px-3 py-1.5 text-sm rounded-md border transition",
+                "relative px-3 py-1.5 text-sm rounded-md border transition",
                 active ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:text-foreground"
               ].join(" ")}
             >
               {t.label}
+              {showDot && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-red-500" />}
             </button>
           );
         })}
@@ -672,8 +766,13 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         {pendingRecalcs.map((pr) => {
           const p = pr.planting;
           const bed = beds.find(b => b.id === p.garden_bed_id);
+          const isFlash = flash && flash.id === p.id;
           return (
-            <div key={p.id} className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 border rounded-md bg-white p-2">
+            <div
+              key={p.id}
+              className={`flex flex-col md:flex-row md:items-center md:justify-between gap-2 border rounded-md bg-white p-2 ${isFlash ? "ring-2 ring-amber-400 animate-pulse" : ""}`}
+              data-planting-id={p.id}
+            >
               <div className="min-w-0">
                 <div className="text-sm font-medium truncate">{seedsById[p.seed_id]?.name ?? "Onbekend"} <span className="text-muted-foreground">• {bed?.name ?? "—"}</span></div>
                 <div className="text-xs text-muted-foreground">
@@ -699,6 +798,97 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       </div>
     </section>
   );
+
+  /* ====== Conflicts tab ====== */
+  function ConflictsView() {
+    const pendingWithConflicts = pendingRecalcs.filter(x => x.conflicts.length > 0);
+    const existingList = conflictsExisting;
+
+    return (
+      <section className="space-y-6">
+        {pendingWithConflicts.length > 0 && (
+          <div>
+            <h3 className="text-lg font-semibold mb-2">Herberekeningen met conflict</h3>
+            <div className="space-y-2">
+              {pendingWithConflicts.map(pr => {
+                const p = pr.planting;
+                const bed = beds.find(b => b.id === p.garden_bed_id);
+                const isFlash = flash && flash.id === p.id;
+                return (
+                  <div
+                    key={`conf-pr-${p.id}`}
+                    className={`border rounded-md bg-white p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2 ${isFlash ? "ring-2 ring-amber-400 animate-pulse" : ""}`}
+                    data-planting-id={p.id}
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">{seedsById[p.seed_id]?.name ?? "—"} <span className="text-muted-foreground">• {bed?.name ?? "—"}</span></div>
+                      <div className="text-xs text-muted-foreground">
+                        Plant: {fmtDMY(p.planned_date)} → <span className="font-medium text-amber-900">{fmtDMY(pr.proposed.planned_date)}</span> •
+                        Oogst: {fmtDMY(p.planned_harvest_start)}–{fmtDMY(p.planned_harvest_end)} → <span className="font-medium text-amber-900">{fmtDMY(pr.proposed.planned_harvest_start)}–{fmtDMY(pr.proposed.planned_harvest_end)}</span>
+                      </div>
+                      <div className="text-xs text-red-700 mt-0.5">⚠️ Botst met {pr.conflicts.length} teelt(en).</div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button className="px-2.5 py-1 rounded-md bg-primary text-primary-foreground text-sm" onClick={()=>{
+                        setResolver({ planting: p, seed: seedsById[p.seed_id]!, proposed: pr.proposed });
+                      }}>Los op…</button>
+                      <button className="px-2.5 py-1 rounded-md border text-sm" onClick={()=>{
+                        const bed = beds.find(b => b.id === p.garden_bed_id)!;
+                        setPopup({ mode: "edit", bed, seed: seedsById[p.seed_id]!, planting: p, segmentIndex: p.start_segment ?? 0 });
+                      }}>Bewerken…</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div>
+          <h3 className="text-lg font-semibold mb-2">Bestaande overlappen</h3>
+          {existingList.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Geen directe overlappen gevonden.</p>
+          ) : (
+            <div className="space-y-2">
+              {existingList.map(c => {
+                const p = plantings.find(x => x.id === c.plantingId)!;
+                const seed = seedsById[p.seed_id];
+                const bed = beds.find(b => b.id === p.garden_bed_id);
+                const isFlash = flash && flash.id === p.id;
+                return (
+                  <div
+                    key={`ex-${p.id}`}
+                    className={`border rounded-md bg-white p-3 ${isFlash ? "ring-2 ring-amber-400 animate-pulse" : ""}`}
+                    data-planting-id={p.id}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium truncate">
+                          {seed?.name ?? "—"} <span className="text-muted-foreground">• {bed?.name ?? "—"}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {fmtDMY(p.planned_date)} – {fmtDMY(p.planned_harvest_end)} • segmenten {((p.start_segment ?? 0)+1)}–{((p.start_segment ?? 0)+(p.segments_used ?? 1))}
+                        </div>
+                        <div className="text-xs text-red-700 mt-0.5">⚠️ Overlap met {c.withIds.length} teelt(en).</div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button className="px-2.5 py-1 rounded-md border text-sm" onClick={()=>{
+                          const bed = beds.find(b => b.id === p.garden_bed_id)!;
+                          setPopup({ mode: "edit", bed, seed: seedsById[p.seed_id]!, planting: p, segmentIndex: p.start_segment ?? 0 });
+                        }}>Bewerken…</button>
+                        <button className="px-2.5 py-1 rounded-md bg-secondary text-sm" onClick={()=>quickResolveExistingBySegments(p.id)}>Andere segmenten</button>
+                        <button className="px-2.5 py-1 rounded-md bg-secondary text-sm" onClick={()=>quickResolveExistingByWeek(p.id)}>Volgende vrije week</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
+    );
+  }
 
   /* ====== subcomponenten: LIST + MAP ====== */
   function isActiveInWeek(p: Planting, week: Date) {
@@ -777,13 +967,15 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                     const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
                     const hasPending = pendingsById.has(p.id);
                     const isConflict = conflicts.some(c => c.plantingId === p.id);
+                    const isFlash = flash && flash.id === p.id;
                     return (
                       <div
                         key={`${p.id}-${i}`}
-                        className={`text-white text-[11px] rounded px-2 py-1 flex items-center justify-between gap-2 cursor-pointer ${isConflict ? 'ring-2 ring-red-400' : ''}`}
+                        className={`text-white text-[11px] rounded px-2 py-1 flex items-center justify-between gap-2 cursor-pointer ${isConflict ? 'ring-2 ring-red-400' : ''} ${isFlash ? "ring-2 ring-amber-400 animate-pulse" : ""}`}
                         style={{ background: isHex ? (p.color ?? "#22c55e") : undefined }}
                         onClick={() => seed && onClickPlanting(p, seed, p.start_segment ?? i)}
                         title={hasPending ? "Herberekening beschikbaar" : undefined}
+                        data-planting-id={p.id}
                       >
                         <span className="truncate">
                           {seed?.name ?? "Onbekend"}
@@ -824,12 +1016,12 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     );
   }
 
-  // MAP subview (uit je vorige versie, iets ingekort; uitlijning behouden)
+  // MAP subview
   function PlannerMap({
-    beds, seedsById, plantings, currentWeek, showGhosts, conflicts, pendingsById,
+    beds, seedsById, plantings, currentWeek, showGhosts,
   }: {
     beds: GardenBed[]; seedsById: Record<string, Seed>; plantings: Planting[]; currentWeek: Date;
-    showGhosts: boolean; conflicts: Array<{plantingId: string; conflictsWith: string[]}>; pendingsById: Set<string>;
+    showGhosts: boolean;
   }) {
     const viewportRef = useRef<HTMLDivElement | null>(null);
     const CANVAS_W = 2400, CANVAS_H = 1400;
@@ -859,6 +1051,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       const sunday = addDays(monday, 6);
       return start > sunday;
     };
+
+    const conflictsSet = new Set(conflictsExisting.map(c => c.plantingId));
+    const pendingSet = new Set(pendingRecalcs.map(x => x.planting.id));
 
     return (
       <section className="space-y-3">
@@ -953,22 +1148,25 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                             ? { top: inset, height: Math.max(1, innerH - inset * 2), left: inset + start * segW, width: Math.max(1, used * segW - inset * 2) }
                             : { left: inset, width: Math.max(1, innerW - inset * 2), top: inset + start * segH, height: Math.max(1, used * segH - inset * 2) };
 
-                          const hasPending = pendingRecalcs.some(x => x.planting.id === p.id);
+                          const hasConflict = conflictsSet.has(p.id);
+                          const hasPending = pendingSet.has(p.id);
+                          const isFlash = flash && flash.id === p.id;
 
                           return (
                             <div
                               key={p.id}
-                              className={`absolute rounded text-white text-[10px] px-1 flex items-center ${conflictsExisting.some(c => c.plantingId === p.id) ? 'ring-2 ring-red-500 ring-offset-1' : ''}`}
+                              className={`absolute rounded text-white text-[10px] px-1 flex items-center ${hasConflict ? 'ring-2 ring-red-500 ring-offset-1' : ''} ${isFlash ? "ring-2 ring-amber-400 animate-pulse" : ""}`}
                               style={{
                                 ...style,
                                 backgroundColor: isHex ? (p.color ?? "#22c55e") : undefined,
-                                outline: conflictsExisting.some(c => c.plantingId === p.id) ? "2px solid rgba(239, 68, 68, 0.8)" : "1px solid rgba(0,0,0,.06)",
+                                outline: hasConflict ? "2px solid rgba(239, 68, 68, 0.8)" : "1px solid rgba(0,0,0,.06)",
                               }}
-                              title={`${seed?.name ?? "Onbekend"}${conflictsExisting.some(c => c.plantingId === p.id) ? " ⚠️ CONFLICT" : ""}`}
+                              title={`${seed?.name ?? "Onbekend"}${hasConflict ? " ⚠️ CONFLICT" : ""}`}
+                              data-planting-id={p.id}
                             >
                               {!isHex && <div className={`${p.color ?? "bg-primary"} absolute inset-0 rounded -z-10`} />}
                               <span className="truncate">{seed?.name ?? "—"}</span>
-                              {conflictsExisting.some(c => c.plantingId === p.id) && <span className="ml-1">⚠️</span>}
+                              {hasConflict && <span className="ml-1">⚠️</span>}
                               {hasPending && <span className="ml-1">⟳</span>}
                             </div>
                           );
@@ -1073,19 +1271,21 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 const width = x1!=null && x2!=null ? Math.max(6, x2 - x1) : 0;
                 const pending = pendingRecalcs.some(x => x.planting.id === p.id);
                 const isHex = p.color?.startsWith("#") || p.color?.startsWith("rgb");
+                const isFlash = flash && flash.id === p.id;
 
                 return (
                   <div key={p.id} className="absolute left-0" style={{ top: y, height: 28, right: 0 }}>
                     {/* bar */}
                     {x1!=null && x2!=null && (
                       <div
-                        className={`absolute h-3 rounded ${isHex ? "" : p.color ?? "bg-primary"}`}
+                        className={`absolute h-3 rounded ${isHex ? "" : p.color ?? "bg-primary"} ${isFlash ? "ring-2 ring-amber-400 animate-pulse" : ""}`}
                         style={{
                           left: x1, width,
                           background: isHex ? (p.color ?? "#22c55e") : undefined,
                           opacity: 0.95,
                         }}
                         title={`${seed?.name ?? "—"} • ${fmtDMY(p.planned_date)}–${fmtDMY(p.planned_harvest_end)}`}
+                        data-planting-id={p.id}
                       />
                     )}
                     {/* milestones als dots */}
@@ -1124,8 +1324,8 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     <div className="space-y-6">
       {HeaderBar}
 
-      {/* Pending panel */}
-      {pendingPanel}
+      {/* Pending panel altijd boven content */}
+      {view !== "conflicts" && pendingPanel}
 
       <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
@@ -1252,11 +1452,11 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 plantings={plantings}
                 currentWeek={currentWeek}
                 showGhosts={showGhosts}
-                conflicts={conflictsExisting.map(c=>({plantingId: c.plantingId, conflictsWith: c.withIds}))}
-                pendingsById={pendingIds}
               />
-            ) : (
+            ) : view === "timeline" ? (
               <TimelineView />
+            ) : (
+              <ConflictsView />
             )}
           </div>
         </div>
@@ -1318,7 +1518,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 <div className="font-medium mb-1">Optie 1 — Verplaats week</div>
                 <p className="text-sm text-muted-foreground mb-2">Zoekt de eerstvolgende vrije week met dezelfde segmenten.</p>
                 <button className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground" onClick={()=>{
-                  // maak pseudo PendingRecalc object om bestaande oplosser te hergebruiken
                   const pr: PendingRecalc = {
                     planting: resolver.planting,
                     seed: resolver.seed,
@@ -1374,7 +1573,7 @@ function MonthChips({ selected, onToggle }: { selected: number[]; onToggle: (m: 
           <button key={m}
             type="button"
             onClick={() => onToggle(m)}
-            className={`px-1.5 py-0.5 rounded text-[11px] border ${on ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+            className={`px-1.5 py-0.5 rounded text:[11px] text-[11px] border ${on ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
             {lbl}
           </button>
         );
