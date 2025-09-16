@@ -32,6 +32,68 @@ function formatWeekRange(d: Date) {
   return `WK ${isoWeekNumber(mon)} • ${pad(mon.getDate())}/${pad(mon.getMonth()+1)} – ${pad(sun.getDate())}/${pad(sun.getMonth()+1)}`;
 }
 
+/** Recompute planned_* fields given an anchor (presow/ground/harvest_start/harvest_end). */
+function computePlanFromAnchor(params: {
+  method: "direct" | "presow";
+  seed: Seed;
+  anchorType: "presow" | "ground" | "harvest_start" | "harvest_end";
+  anchorISO: string;
+  prev: Pick<Planting, "planned_date" | "planned_presow_date" | "planned_harvest_start" | "planned_harvest_end">;
+}) {
+  const { method, seed, anchorType, anchorISO, prev } = params;
+  const presowW = seed.presow_duration_weeks ?? null;
+  const growW = seed.grow_duration_weeks ?? null;
+  const harvestW = seed.harvest_duration_weeks ?? null;
+
+  let planned_date = prev.planned_date || anchorISO;
+  let planned_presow_date = prev.planned_presow_date || null;
+  let planned_harvest_start = prev.planned_harvest_start || null;
+  let planned_harvest_end = prev.planned_harvest_end || null;
+
+  const A = new Date(anchorISO);
+
+  if (anchorType === "presow") {
+    planned_presow_date = anchorISO;
+    if (presowW != null) planned_date = toISO(addWeeks(A, presowW));
+    if (growW != null) planned_harvest_start = toISO(addWeeks(new Date(planned_date), growW));
+    if (harvestW != null && planned_harvest_start) planned_harvest_end = toISO(addWeeks(new Date(planned_harvest_start), harvestW));
+  } else if (anchorType === "ground") {
+    planned_date = anchorISO;
+    if (method === "direct") planned_presow_date = null;
+    else if (method === "presow" && presowW != null) planned_presow_date = toISO(addWeeks(new Date(planned_date), -presowW));
+    if (growW != null) planned_harvest_start = toISO(addWeeks(new Date(planned_date), growW));
+    if (harvestW != null && planned_harvest_start) planned_harvest_end = toISO(addWeeks(new Date(planned_harvest_start), harvestW));
+  } else if (anchorType === "harvest_start") {
+    planned_harvest_start = anchorISO;
+    if (harvestW != null) planned_harvest_end = toISO(addWeeks(A, harvestW));
+    if (growW != null) {
+      // back-calculate ground date
+      planned_date = toISO(addWeeks(A, -growW));
+      if (method === "presow" && presowW != null) planned_presow_date = toISO(addWeeks(new Date(planned_date), -presowW));
+      if (method === "direct") planned_presow_date = null;
+    }
+  } else if (anchorType === "harvest_end") {
+    planned_harvest_end = anchorISO;
+    if (harvestW != null) {
+      const hs = addWeeks(A, -harvestW);
+      planned_harvest_start = toISO(hs);
+      if (growW != null) {
+        // back-calc ground from harvest_start
+        planned_date = toISO(addWeeks(hs, -growW));
+        if (method === "presow" && presowW != null) planned_presow_date = toISO(addWeeks(new Date(planned_date), -presowW));
+        if (method === "direct") planned_presow_date = null;
+      }
+    }
+  }
+
+  return {
+    planned_date,
+    planned_presow_date,
+    planned_harvest_start,
+    planned_harvest_end,
+  };
+}
+
 /* UI component */
 export function Dashboard({ garden }: { garden: Garden }) {
   const [beds, setBeds] = useState<GardenBed[]>([]);
@@ -40,7 +102,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [showAll, setShowAll] = useState(false);
 
-  // Dialoog state: run (uitvoeren) of reopen (heropenen/verplaatsen)
+  // Dialoog state
   const [dialog, setDialog] = useState<{
     mode: "run" | "reopen";
     task: Task;
@@ -123,19 +185,20 @@ export function Dashboard({ garden }: { garden: Garden }) {
     }
   }
 
-  /* ========= Kernlogica voor plannen schuiven ========= */
+  /* ========= Kernlogica voor ankeren & schuiven ========= */
 
-  // Uitvoeren: sla actual_* op en verschuif planned_* vanaf uitgevoerde datum
+  // Uitvoeren: schrijf actual_* en herbereken planned_* vanaf de gekozen actie (anker)
   async function runTask(task: Task, performedISO: string) {
     setBusyId(task.id);
     try {
       const pl = plantingsById[task.planting_id];
       const seed = pl ? seedsById[pl.seed_id] : null;
+      if (!pl || !seed) throw new Error("Planting/seed niet gevonden");
 
+      // 1) actuals
       const actuals: any = {};
       if (task.type === "sow") {
-        // bij direct zaaien → actual_ground_date; bij presow → actual_presow_date
-        if (pl?.method === "presow") actuals.actual_presow_date = performedISO;
+        if (pl.method === "presow") actuals.actual_presow_date = performedISO;
         else actuals.actual_ground_date = performedISO;
       } else if (task.type === "plant_out") {
         actuals.actual_ground_date = performedISO;
@@ -145,56 +208,42 @@ export function Dashboard({ garden }: { garden: Garden }) {
         actuals.actual_harvest_end = performedISO;
       }
 
-      const planUpdates: any = {};
-      if (pl && seed) {
-        const presowW = seed.presow_duration_weeks ?? null;
-        const growW = seed.grow_duration_weeks ?? null;
-        const harvestW = seed.harvest_duration_weeks ?? null;
+      // 2) anchored recompute
+      const anchorType: "presow" | "ground" | "harvest_start" | "harvest_end" =
+        task.type === "sow" ? (pl.method === "presow" ? "presow" : "ground")
+        : task.type === "plant_out" ? "ground"
+        : task.type === "harvest_start" ? "harvest_start"
+        : "harvest_end";
 
-        let planned_date = pl.planned_date || performedISO;
-        let planned_presow_date = pl.planned_presow_date || null;
-        let planned_harvest_start = pl.planned_harvest_start || null;
-        let planned_harvest_end = pl.planned_harvest_end || null;
+      const plan = computePlanFromAnchor({
+        method: pl.method as "direct" | "presow",
+        seed,
+        anchorType,
+        anchorISO: performedISO,
+        prev: {
+          planned_date: pl.planned_date,
+          planned_presow_date: pl.planned_presow_date,
+          planned_harvest_start: pl.planned_harvest_start,
+          planned_harvest_end: pl.planned_harvest_end,
+        },
+      });
 
-        if (task.type === "sow") {
-          if (pl.method === "presow") {
-            planned_presow_date = performedISO;
-            if (presowW != null) planned_date = toISO(addWeeks(new Date(performedISO), presowW));
-            if (growW != null) planned_harvest_start = toISO(addWeeks(new Date(planned_date), growW));
-            if (harvestW != null && planned_harvest_start) planned_harvest_end = toISO(addWeeks(new Date(planned_harvest_start), harvestW));
-          } else {
-            planned_presow_date = null;
-            planned_date = performedISO;
-            if (growW != null) planned_harvest_start = toISO(addWeeks(new Date(planned_date), growW));
-            if (harvestW != null && planned_harvest_start) planned_harvest_end = toISO(addWeeks(new Date(planned_harvest_start), harvestW));
-          }
-        } else if (task.type === "plant_out") {
-          planned_date = performedISO;
-          if (growW != null) planned_harvest_start = toISO(addWeeks(new Date(planned_date), growW));
-          if (harvestW != null && planned_harvest_start) planned_harvest_end = toISO(addWeeks(new Date(planned_harvest_start), harvestW));
-        } else if (task.type === "harvest_start") {
-          planned_harvest_start = performedISO;
-          if (harvestW != null) planned_harvest_end = toISO(addWeeks(new Date(performedISO), harvestW));
-        } else if (task.type === "harvest_end") {
-          planned_harvest_end = performedISO;
-        }
-
-        planUpdates.planned_date = planned_date;
-        planUpdates.planned_presow_date = planned_presow_date;
-        planUpdates.planned_harvest_start = planned_harvest_start;
-        planUpdates.planned_harvest_end = planned_harvest_end;
-      }
-
-      // Planting bijwerken
-      const payload = { ...actuals, ...planUpdates };
+      const payload = { ...actuals, ...plan };
       await updatePlanting(task.planting_id, payload as any);
       setPlantings(prev => prev.map(p => p.id === task.planting_id ? { ...p, ...payload } : p));
 
-      // Taak afronden
+      // info voor Planner: highlight de verschoven periode
+      try {
+        localStorage.setItem("plannerFlashFrom", pl.planned_date ?? "");
+        localStorage.setItem("plannerFlashTo", plan.planned_date ?? "");
+        localStorage.setItem("plannerFlashAt", String(Date.now()));
+      } catch {}
+
+      // 3) taak afronden
       const updatedTask = await updateTask(task.id, { status: "done" });
       setTasks(prev => prev.map(t => t.id === task.id ? updatedTask : t));
 
-      // Taken opnieuw laden (zodat due_dates meeschuiven indien triggers)
+      // 4) taken verversen (mochten triggers due_date hebben aangepast)
       try {
         const fresh = await listTasks(garden.id);
         setTasks(fresh);
@@ -207,16 +256,17 @@ export function Dashboard({ garden }: { garden: Garden }) {
     }
   }
 
-  // Heropenen/verplaatsen: zet status terug naar pending, wis relevante actual_* en zet nieuwe planned_* vanaf gekozen datum
+  // Heropenen: status pending, wis relevante actual_*, en plan opnieuw vanaf gekozen actie-datum (anker)
   async function reopenTask(task: Task, newPlannedISO: string) {
     setBusyId(task.id);
     try {
       const pl = plantingsById[task.planting_id];
       const seed = pl ? seedsById[pl.seed_id] : null;
+      if (!pl || !seed) throw new Error("Planting/seed niet gevonden");
 
       const clearActuals: any = {};
       if (task.type === "sow") {
-        if (pl?.method === "presow") clearActuals.actual_presow_date = null;
+        if (pl.method === "presow") clearActuals.actual_presow_date = null;
         else clearActuals.actual_ground_date = null;
       } else if (task.type === "plant_out") {
         clearActuals.actual_ground_date = null;
@@ -226,55 +276,39 @@ export function Dashboard({ garden }: { garden: Garden }) {
         clearActuals.actual_harvest_end = null;
       }
 
-      const planUpdates: any = {};
-      if (pl && seed) {
-        const presowW = seed.presow_duration_weeks ?? null;
-        const growW = seed.grow_duration_weeks ?? null;
-        const harvestW = seed.harvest_duration_weeks ?? null;
+      const anchorType: "presow" | "ground" | "harvest_start" | "harvest_end" =
+        task.type === "sow" ? (pl.method === "presow" ? "presow" : "ground")
+        : task.type === "plant_out" ? "ground"
+        : task.type === "harvest_start" ? "harvest_start"
+        : "harvest_end";
 
-        let planned_date = pl.planned_date || newPlannedISO;
-        let planned_presow_date = pl.planned_presow_date || null;
-        let planned_harvest_start = pl.planned_harvest_start || null;
-        let planned_harvest_end = pl.planned_harvest_end || null;
+      const plan = computePlanFromAnchor({
+        method: pl.method as "direct" | "presow",
+        seed,
+        anchorType,
+        anchorISO: newPlannedISO,
+        prev: {
+          planned_date: pl.planned_date,
+          planned_presow_date: pl.planned_presow_date,
+          planned_harvest_start: pl.planned_harvest_start,
+          planned_harvest_end: pl.planned_harvest_end,
+        },
+      });
 
-        if (task.type === "sow") {
-          if (pl.method === "presow") {
-            // nieuwe zaaidatum (presow) → bereken uitplant & oogst
-            planned_presow_date = newPlannedISO;
-            if (presowW != null) planned_date = toISO(addWeeks(new Date(newPlannedISO), presowW));
-          } else {
-            // direct zaaien → grond-datum = nieuwe geplande datum
-            planned_presow_date = null;
-            planned_date = newPlannedISO;
-          }
-          if (growW != null) planned_harvest_start = toISO(addWeeks(new Date(planned_date), growW));
-          if (harvestW != null && planned_harvest_start) planned_harvest_end = toISO(addWeeks(new Date(planned_harvest_start), harvestW));
-        } else if (task.type === "plant_out") {
-          planned_date = newPlannedISO;
-          if (growW != null) planned_harvest_start = toISO(addWeeks(new Date(planned_date), growW));
-          if (harvestW != null && planned_harvest_start) planned_harvest_end = toISO(addWeeks(new Date(planned_harvest_start), harvestW));
-        } else if (task.type === "harvest_start") {
-          planned_harvest_start = newPlannedISO;
-          if (harvestW != null) planned_harvest_end = toISO(addWeeks(new Date(newPlannedISO), harvestW));
-        } else if (task.type === "harvest_end") {
-          planned_harvest_end = newPlannedISO;
-        }
-
-        planUpdates.planned_date = planned_date;
-        planUpdates.planned_presow_date = planned_presow_date;
-        planUpdates.planned_harvest_start = planned_harvest_start;
-        planUpdates.planned_harvest_end = planned_harvest_end;
-      }
-
-      const payload = { ...clearActuals, ...planUpdates };
+      const payload = { ...clearActuals, ...plan };
       await updatePlanting(task.planting_id, payload as any);
       setPlantings(prev => prev.map(p => p.id === task.planting_id ? { ...p, ...payload } : p));
+
+      try {
+        localStorage.setItem("plannerFlashFrom", pl.planned_date ?? "");
+        localStorage.setItem("plannerFlashTo", plan.planned_date ?? "");
+        localStorage.setItem("plannerFlashAt", String(Date.now()));
+      } catch {}
 
       // taak terug naar pending
       const updatedTask = await updateTask(task.id, { status: "pending" });
       setTasks(prev => prev.map(t => t.id === task.id ? updatedTask : t));
 
-      // taken verversen
       try {
         const fresh = await listTasks(garden.id);
         setTasks(fresh);
@@ -329,7 +363,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
                             const defaultDate = isDone ? (t.due_date || toISO(new Date())) : toISO(new Date());
                             setDialog({ mode: isDone ? "reopen" : "run", task: t, dateISO: defaultDate });
                           }}
-                          className={`w-full text-left p-4 hover:bg-muted/40 transition flex items-center justify-between gap-3`}
+                          className="w-full text-left p-4 hover:bg-muted/40 transition flex items-center justify-between gap-3"
                           title={isDone ? "Klik om te heropenen/verplaatsen" : "Klik om uit te voeren"}
                         >
                           <div className="flex items-center gap-3">
