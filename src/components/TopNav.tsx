@@ -64,23 +64,16 @@ export function TopNav() {
         <span className="font-semibold text-lg">Bosgoedt Planner</span>
       </div>
 
-      {/* Center: Navigation with conflict warnings */}
+      {/* Center: Conflict warning only when there are conflicts */}
       <div className="flex items-center gap-4">
-        <button
-          onClick={handlePlannerClick}
-          className={`inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-md border transition-colors ${
-            hasConflicts 
-              ? "bg-red-50 text-red-700 border-red-200 hover:bg-red-100" 
-              : "bg-card text-muted-foreground hover:text-foreground hover:bg-muted"
-          }`}
-        >
-          <span>Planner</span>
-          {hasConflicts && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs bg-red-100 text-red-800 border border-red-200">
-              ⚠️ {conflictCount}
-            </span>
-          )}
-        </button>
+        {hasConflicts && (
+          <button
+            onClick={handlePlannerClick}
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-md border bg-red-50 text-red-700 border-red-200 hover:bg-red-100 transition-colors"
+          >
+            <span>⚠️ {conflictCount} conflict{conflictCount !== 1 ? 'en' : ''} - Ga naar planner</span>
+          </button>
+        )}
       </div>
 
       {/* Right side: user info + logout */}

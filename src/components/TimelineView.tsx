@@ -9,6 +9,7 @@ interface TimelineViewProps {
   plantings: Planting[];
   seeds: Seed[];
   conflictsMap: Map<string, Planting[]>;
+  currentWeek: Date;
   onReload: () => Promise<void>;
 }
 
@@ -57,9 +58,8 @@ function getWeekNumber(date: Date): number {
   return 1 + Math.ceil((firstThursday - target.valueOf()) / 604800000);
 }
 
-export function TimelineView({ beds = [], plantings = [], seeds = [], conflictsMap = new Map(), onReload }: TimelineViewProps) {
+export function TimelineView({ beds = [], plantings = [], seeds = [], conflictsMap = new Map(), currentWeek, onReload }: TimelineViewProps) {
   const [editPlanting, setEditPlanting] = useState<Planting | null>(null);
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   
   // Early return if no data
   if (!beds.length) {
@@ -153,33 +153,34 @@ export function TimelineView({ beds = [], plantings = [], seeds = [], conflictsM
     }
   }, [plantings, seeds, conflictsMap]);
 
-  // Filter events by selected year
-  const yearEvents = useMemo(() => {
-    return timelineEvents.filter(event => 
-      event.startDate.getFullYear() === selectedYear || 
-      event.endDate.getFullYear() === selectedYear
-    );
-  }, [timelineEvents, selectedYear]);
+  // Calculate week bounds (Monday to Sunday)
+  const weekBounds = useMemo(() => {
+    const weekStart = new Date(currentWeek);
+    const weekEnd = new Date(currentWeek);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    return { start: weekStart, end: weekEnd };
+  }, [currentWeek]);
 
-  // Calculate timeline bounds for the selected year
-  const timelineBounds = useMemo(() => {
-    const yearStart = new Date(selectedYear, 0, 1);
-    const yearEnd = new Date(selectedYear, 11, 31);
-    return { start: yearStart, end: yearEnd };
-  }, [selectedYear]);
+  // Filter events that are active or overlap with current week
+  const weekEvents = useMemo(() => {
+    return timelineEvents.filter(event => {
+      // Show events that overlap with the current week
+      return event.startDate <= weekBounds.end && event.endDate >= weekBounds.start;
+    });
+  }, [timelineEvents, weekBounds]);
 
-  // Calculate position and width for events
+  // Calculate position and width for events within the week
   const calculateEventStyle = (event: TimelineEvent) => {
-    const totalDays = (timelineBounds.end.getTime() - timelineBounds.start.getTime()) / (1000 * 60 * 60 * 24);
+    const totalDays = 7; // Always 7 days in a week
     
-    const eventStart = Math.max(event.startDate.getTime(), timelineBounds.start.getTime());
-    const eventEnd = Math.min(event.endDate.getTime(), timelineBounds.end.getTime());
+    const eventStart = Math.max(event.startDate.getTime(), weekBounds.start.getTime());
+    const eventEnd = Math.min(event.endDate.getTime(), weekBounds.end.getTime());
     
-    const startOffset = (eventStart - timelineBounds.start.getTime()) / (1000 * 60 * 60 * 24);
+    const startOffset = (eventStart - weekBounds.start.getTime()) / (1000 * 60 * 60 * 24);
     const duration = (eventEnd - eventStart) / (1000 * 60 * 60 * 24);
     
-    const left = (startOffset / totalDays) * 100;
-    const width = Math.max(0.5, (duration / totalDays) * 100);
+    const left = Math.max(0, (startOffset / totalDays) * 100);
+    const width = Math.max(2, Math.min(100 - left, (duration / totalDays) * 100));
     
     return { left: `${left}%`, width: `${width}%` };
   };
@@ -257,40 +258,31 @@ export function TimelineView({ beds = [], plantings = [], seeds = [], conflictsM
       {/* Header */}
       <div className="flex items-center justify-between">
         <h3 className="text-xl font-semibold">Timeline Weergave</h3>
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 text-sm">
-            Jaar:
-            <select 
-              value={selectedYear} 
-              onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-              className="border rounded px-2 py-1"
-            >
-              {Array.from({length: 5}, (_, i) => {
-                const year = new Date().getFullYear() + i - 2;
-                return (
-                  <option key={year} value={year}>{year}</option>
-                );
-              })}
-            </select>
-          </label>
+        <div className="flex items-center gap-3 text-sm">
+          <span className="text-muted-foreground">
+            Week {getWeekNumber(currentWeek)} - {formatDate(weekBounds.start)} t/m {formatDate(weekBounds.end)}
+          </span>
         </div>
       </div>
 
       {/* Timeline Grid */}
       <div className="border rounded-lg overflow-hidden bg-white">
-        {/* Month Headers */}
+        {/* Day Headers */}
         <div className="bg-muted border-b">
           <div className="flex">
             <div className="w-48 p-3 border-r bg-muted-foreground/5 font-medium text-sm">
               Bak / Segment
             </div>
             <div className="flex-1 flex">
-              {Array.from({length: 12}, (_, i) => {
-                const monthDate = new Date(selectedYear, i, 1);
-                const monthName = monthDate.toLocaleDateString("nl-NL", { month: "short" });
+              {Array.from({length: 7}, (_, i) => {
+                const dayDate = new Date(weekBounds.start);
+                dayDate.setDate(dayDate.getDate() + i);
+                const dayName = dayDate.toLocaleDateString("nl-NL", { weekday: "short" });
+                const dayNumber = dayDate.getDate();
                 return (
                   <div key={i} className="flex-1 p-2 border-r text-center text-sm font-medium">
-                    {monthName}
+                    <div>{dayName}</div>
+                    <div className="text-xs text-muted-foreground">{dayNumber}</div>
                   </div>
                 );
               })}
@@ -323,7 +315,7 @@ export function TimelineView({ beds = [], plantings = [], seeds = [], conflictsM
                 {/* Segment Rows */}
                 {segments.map((segment) => {
                   const segmentKey = `${segment.bedId}-${segment.segmentIndex}`;
-                  const segmentEvents = yearEvents.filter(e => e.segmentKey === segmentKey);
+                  const segmentEvents = weekEvents.filter(e => e.segmentKey === segmentKey);
                   
                   return (
                     <div key={`${segment.bedId}-${segment.segmentIndex}`} className="relative">
@@ -334,12 +326,12 @@ export function TimelineView({ beds = [], plantings = [], seeds = [], conflictsM
                         
                         {/* Timeline Area */}
                         <div className="flex-1 relative h-12 bg-muted/10">
-                          {/* Month Dividers */}
-                          {Array.from({length: 12}, (_, i) => (
+                          {/* Day Dividers */}
+                          {Array.from({length: 7}, (_, i) => (
                             <div 
                               key={i}
                               className="absolute top-0 bottom-0 border-r border-muted-foreground/20"
-                              style={{ left: `${(i / 12) * 100}%` }}
+                              style={{ left: `${(i / 7) * 100}%` }}
                             />
                           ))}
                           

@@ -752,6 +752,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
               plantings={plantings || []} 
               seeds={seeds || []} 
               conflictsMap={conflictsMap || new Map()}
+              currentWeek={currentWeek}
               onReload={reload}
             />
           </div>
