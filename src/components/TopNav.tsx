@@ -1,14 +1,11 @@
 import { signOut } from "../lib/auth";
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { useLocation, useNavigate } from "react-router-dom";
 
 export function TopNav() {
   const [email, setEmail] = useState<string | null>(null);
   const [hasConflicts, setHasConflicts] = useState(false);
   const [conflictCount, setConflictCount] = useState(0);
-  const location = useLocation();
-  const navigate = useNavigate();
 
   useEffect(() => {
     const sync = async () => {
@@ -49,10 +46,10 @@ export function TopNav() {
       if (hasConflicts && typeof window !== 'undefined' && window.localStorage) {
         localStorage.setItem("plannerOpenTab", "conflicts");
       }
-      navigate("/planner");
+      window.location.href = "/planner";
     } catch (error) {
       console.error("Error navigating to planner:", error);
-      navigate("/planner");
+      window.location.href = "/planner";
     }
   };
 
