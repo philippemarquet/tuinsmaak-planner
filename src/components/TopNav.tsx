@@ -26,23 +26,34 @@ export function TopNav() {
   useEffect(() => {
     const checkConflicts = () => {
       try {
-        const conflicts = localStorage.getItem("plannerHasConflicts") === "1";
-        const count = parseInt(localStorage.getItem("plannerConflictCount") || "0");
-        setHasConflicts(conflicts);
-        setConflictCount(count);
-      } catch {}
+        if (typeof window !== 'undefined' && window.localStorage) {
+          const conflicts = localStorage.getItem("plannerHasConflicts") === "1";
+          const count = parseInt(localStorage.getItem("plannerConflictCount") || "0", 10) || 0;
+          setHasConflicts(conflicts);
+          setConflictCount(count);
+        }
+      } catch (error) {
+        console.error("Error checking conflicts:", error);
+        setHasConflicts(false);
+        setConflictCount(0);
+      }
     };
     
     checkConflicts();
-    const interval = setInterval(checkConflicts, 1000); // Check every second
+    const interval = setInterval(checkConflicts, 2000); // Check every 2 seconds
     return () => clearInterval(interval);
   }, []);
 
   const handlePlannerClick = () => {
-    if (hasConflicts) {
-      localStorage.setItem("plannerOpenTab", "conflicts");
+    try {
+      if (hasConflicts && typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem("plannerOpenTab", "conflicts");
+      }
+      navigate("/planner");
+    } catch (error) {
+      console.error("Error navigating to planner:", error);
+      navigate("/planner");
     }
-    navigate("/planner");
   };
 
   return (

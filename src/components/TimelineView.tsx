@@ -57,71 +57,100 @@ function getWeekNumber(date: Date): number {
   return 1 + Math.ceil((firstThursday - target.valueOf()) / 604800000);
 }
 
-export function TimelineView({ beds, plantings, seeds, conflictsMap, onReload }: TimelineViewProps) {
+export function TimelineView({ beds = [], plantings = [], seeds = [], conflictsMap = new Map(), onReload }: TimelineViewProps) {
   const [editPlanting, setEditPlanting] = useState<Planting | null>(null);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   
+  // Early return if no data
+  if (!beds.length) {
+    return (
+      <div className="text-center py-8 text-muted-foreground">
+        Geen bedden gevonden. Voeg eerst bedden toe in de instellingen.
+      </div>
+    );
+  }
+  
   // Create timeline segments (one per bed segment)
   const timelineSegments = useMemo((): TimelineSegment[] => {
-    const segments: TimelineSegment[] = [];
-    
-    for (const bed of beds.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))) {
-      for (let i = 0; i < bed.segments; i++) {
-        segments.push({
-          bedId: bed.id,
-          bedName: bed.name,
-          segmentIndex: i,
-          isGreenhouse: bed.is_greenhouse || false,
-        });
+    try {
+      const segments: TimelineSegment[] = [];
+      
+      if (!beds || beds.length === 0) return segments;
+      
+      for (const bed of beds.sort((a, b) => (a?.sort_order || 0) - (b?.sort_order || 0))) {
+        if (!bed?.id || !bed?.name || typeof bed.segments !== 'number') continue;
+        
+        const segmentCount = Math.max(1, bed.segments);
+        for (let i = 0; i < segmentCount; i++) {
+          segments.push({
+            bedId: bed.id,
+            bedName: bed.name,
+            segmentIndex: i,
+            isGreenhouse: Boolean(bed.is_greenhouse),
+          });
+        }
       }
+      
+      return segments;
+    } catch (error) {
+      console.error("Error creating timeline segments:", error);
+      return [];
     }
-    
-    return segments;
   }, [beds]);
 
   // Create timeline events from plantings
   const timelineEvents = useMemo((): TimelineEvent[] => {
-    const events: TimelineEvent[] = [];
-    const seedsById = Object.fromEntries(seeds.map(s => [s.id, s]));
-    
-    for (const planting of plantings) {
-      const startISO = planting.planned_date;
-      const endISO = planting.planned_harvest_end;
+    try {
+      const events: TimelineEvent[] = [];
       
-      if (!startISO || !endISO) continue;
+      if (!seeds || !plantings || !conflictsMap) return events;
       
-      const startDate = parseISO(startISO);
-      const endDate = parseISO(endISO);
+      const seedsById = Object.fromEntries((seeds || []).map(s => s?.id ? [s.id, s] : []).filter(Boolean));
       
-      if (!startDate || !endDate) continue;
-      
-      const seed = seedsById[planting.seed_id];
-      const startSeg = planting.start_segment || 0;
-      const usedSegs = planting.segments_used || 1;
-      
-      // Create events for each segment this planting occupies
-      for (let i = 0; i < usedSegs; i++) {
-        const segmentIndex = startSeg + i;
-        const segmentKey = `${planting.garden_bed_id}-${segmentIndex}`;
+      for (const planting of plantings || []) {
+        if (!planting?.id || !planting?.garden_bed_id || !planting?.seed_id) continue;
         
-        const conflicts = conflictsMap.get(planting.id) || [];
+        const startISO = planting.planned_date;
+        const endISO = planting.planned_harvest_end;
         
-        events.push({
-          id: `${planting.id}-${segmentIndex}`,
-          plantingId: planting.id,
-          segmentKey,
-          seedName: seed?.name || "Onbekend",
-          color: planting.color?.startsWith("#") ? planting.color : "#22c55e",
-          startDate,
-          endDate,
-          hasConflict: conflicts.length > 0,
-          conflictCount: conflicts.length,
-          planting,
-        });
+        if (!startISO || !endISO) continue;
+        
+        const startDate = parseISO(startISO);
+        const endDate = parseISO(endISO);
+        
+        if (!startDate || !endDate || isNaN(startDate.getTime()) || isNaN(endDate.getTime())) continue;
+        
+        const seed = seedsById[planting.seed_id];
+        const startSeg = Math.max(0, planting.start_segment || 0);
+        const usedSegs = Math.max(1, planting.segments_used || 1);
+        
+        // Create events for each segment this planting occupies
+        for (let i = 0; i < usedSegs; i++) {
+          const segmentIndex = startSeg + i;
+          const segmentKey = `${planting.garden_bed_id}-${segmentIndex}`;
+          
+          const conflicts = conflictsMap.get(planting.id) || [];
+          
+          events.push({
+            id: `${planting.id}-${segmentIndex}`,
+            plantingId: planting.id,
+            segmentKey,
+            seedName: seed?.name || "Onbekend",
+            color: planting.color?.startsWith("#") ? planting.color : "#22c55e",
+            startDate,
+            endDate,
+            hasConflict: conflicts.length > 0,
+            conflictCount: conflicts.length,
+            planting,
+          });
+        }
       }
+      
+      return events;
+    } catch (error) {
+      console.error("Error creating timeline events:", error);
+      return [];
     }
-    
-    return events;
   }, [plantings, seeds, conflictsMap]);
 
   // Filter events by selected year
@@ -157,16 +186,23 @@ export function TimelineView({ beds, plantings, seeds, conflictsMap, onReload }:
 
   // Group segments by bed
   const segmentsByBed = useMemo(() => {
-    const grouped = new Map<string, TimelineSegment[]>();
-    
-    for (const segment of timelineSegments) {
-      if (!grouped.has(segment.bedId)) {
-        grouped.set(segment.bedId, []);
+    try {
+      const grouped = new Map<string, TimelineSegment[]>();
+      
+      for (const segment of timelineSegments || []) {
+        if (!segment?.bedId) continue;
+        
+        if (!grouped.has(segment.bedId)) {
+          grouped.set(segment.bedId, []);
+        }
+        grouped.get(segment.bedId)?.push(segment);
       }
-      grouped.get(segment.bedId)!.push(segment);
+      
+      return grouped;
+    } catch (error) {
+      console.error("Error grouping segments:", error);
+      return new Map();
     }
-    
-    return grouped;
   }, [timelineSegments]);
 
   // Handle edit planting

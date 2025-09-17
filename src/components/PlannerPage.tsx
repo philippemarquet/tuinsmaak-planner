@@ -287,9 +287,13 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   // Store conflicts in localStorage for TopNav access
   useEffect(() => {
     try {
-      localStorage.setItem("plannerHasConflicts", hasConflicts ? "1" : "0");
-      localStorage.setItem("plannerConflictCount", String(conflictCount));
-    } catch {}
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem("plannerHasConflicts", hasConflicts ? "1" : "0");
+        localStorage.setItem("plannerConflictCount", String(conflictCount || 0));
+      }
+    } catch (error) {
+      console.error("Error storing conflict state:", error);
+    }
   }, [hasConflicts, conflictCount]);
 
   const pendingBadge = hasConflicts ? (
@@ -742,13 +746,15 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         {view==="list" && listView}
         {view==="map" && <div className="grid grid-cols-1 md:grid-cols-4 gap-5"><div>{seedsList}</div><div className="md:col-span-3"><PlannerMap /></div></div>}
         {view==="timeline" && (
-          <TimelineView 
-            beds={beds} 
-            plantings={plantings} 
-            seeds={seeds} 
-            conflictsMap={conflictsMap}
-            onReload={reload}
-          />
+          <div className="space-y-4">
+            <TimelineView 
+              beds={beds || []} 
+              plantings={plantings || []} 
+              seeds={seeds || []} 
+              conflictsMap={conflictsMap || new Map()}
+              onReload={reload}
+            />
+          </div>
         )}
         {view==="conflicts" && conflictsView}
 
