@@ -6,6 +6,8 @@ import { listSeeds } from "../lib/api/seeds";
 import { createPlanting, listPlantings, deletePlanting, updatePlanting } from "../lib/api/plantings";
 import { DndContext, useDraggable, useDroppable, DragOverlay } from "@dnd-kit/core";
 import { supabase } from "../lib/supabaseClient";
+import { TimelineView } from "./TimelineView";
+import { ConflictWarning } from "./ConflictWarning";
 
 /* ===== helpers ===== */
 const toISO = (d: Date) => d.toISOString().slice(0, 10);
@@ -113,7 +115,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   const [beds, setBeds] = useState<GardenBed[]>([]);
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [plantings, setPlantings] = useState<Planting[]>([]);
-  const [view, setView] = useState<"list"|"map"|"conflicts">(() => (localStorage.getItem("plannerOpenTab") as any) || (localStorage.getItem("plannerView") as any) || "list");
+  const [view, setView] = useState<"list"|"map"|"conflicts"|"timeline">(() => (localStorage.getItem("plannerOpenTab") as any) || (localStorage.getItem("plannerView") as any) || "list");
   const [q, setQ] = useState(localStorage.getItem("plannerQ") ?? "");
   const [inStockOnly, setInStockOnly] = useState(localStorage.getItem("plannerInStock")==="1");
   const [inPlanner, setInPlanner] = useState<InPlanner>((localStorage.getItem("plannerInPlanner") as InPlanner) ?? "all");
@@ -163,7 +165,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   const outdoorBeds = useMemo(()=>beds.filter(b=>!b.is_greenhouse).sort((a,b)=>(a.sort_order??0)-(b.sort_order??0)),[beds]);
   const greenhouseBeds = useMemo(()=>beds.filter(b=>b.is_greenhouse).sort((a,b)=>(a.sort_order??0)-(b.sort_order??0)),[beds]);
 
-  /* ===== conflict detection ===== */
+  /* ===== enhanced conflict detection with warnings ===== */
   function conflictsFor(p: Planting) {
     const res: Planting[] = [];
     if (!p.planned_date || !p.planned_harvest_end) return res;
@@ -278,9 +280,25 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     return arr;
   }, [seeds, q, inStockOnly, inPlanner, greenhouseOnly, plantings]);
 
-  /* ===== UI: header & tabs ===== */
+  /* ===== UI: header & tabs with enhanced warnings ===== */
   const conflictCount = Array.from(conflictsMap.values()).reduce((acc, v)=>acc+v.length, 0);
-  const pendingBadge = conflictCount>0 ? <Chip tone="danger">Conflicten: {conflictCount}</Chip> : null;
+  const hasConflicts = conflictCount > 0;
+  
+  // Store conflicts in localStorage for TopNav access
+  useEffect(() => {
+    try {
+      localStorage.setItem("plannerHasConflicts", hasConflicts ? "1" : "0");
+      localStorage.setItem("plannerConflictCount", String(conflictCount));
+    } catch {}
+  }, [hasConflicts, conflictCount]);
+
+  const pendingBadge = hasConflicts ? (
+    <div className="flex items-center gap-2">
+      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800 border border-red-200">
+        ⚠️ {conflictCount} conflict{conflictCount !== 1 ? 'en' : ''}
+      </span>
+    </div>
+  ) : null;
 
   const gotoPrevWeek = () => setCurrentWeek(addDays(currentWeek, -7));
   const gotoNextWeek = () => setCurrentWeek(addDays(currentWeek, 7));
@@ -342,7 +360,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   }
 
   /* ===== LIST view: conflicts inline + actions ===== */
-  function BedListCard({ bed }:{bed:GartenBed}) { return null } // placeholder TS type guard (we'll inline cards below)
+  function BedListCard({ bed }:{bed:GardenBed}) { return null } // placeholder TS type guard (we'll inline cards below)
 
   /* ===== RENDER ===== */
   const seedsList = (
@@ -664,11 +682,12 @@ export function PlannerPage({ garden }: { garden: Garden }) {
           </div>
         </div>
         <div className="flex items-center gap-3 pb-2">
-          {(["list","map","conflicts"] as const).map(k=>{
+          {(["list","map","timeline","conflicts"] as const).map(k=>{
             const active = view===k; const danger = k==="conflicts" && conflictCount>0;
             return (
               <button key={k} onClick={()=>setView(k)} className={`px-3 py-1.5 text-sm rounded-md border ${active?(danger?"bg-red-600 text-white border-red-600":"bg-primary text-primary-foreground"):(danger?"bg-red-50 text-red-700 border-red-200 hover:bg-red-100":"bg-card text-muted-foreground hover:text-foreground")}`}>
-                {k==="list"?"Lijstweergave":k==="map"?"Plattegrond":"Conflicten"}
+                {k==="list"?"Lijstweergave":k==="map"?"Plattegrond":k==="timeline"?"Timeline":"Conflicten"}
+                {k==="conflicts" && conflictCount>0 && <span className="ml-1.5 px-1 py-0.5 text-xs rounded-full bg-white/20">{conflictCount}</span>}
               </button>
             );
           })}
@@ -679,9 +698,58 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         </div>
       </div>
 
+      {/* Enhanced Conflict Warning */}
+      {hasConflicts && (
+        <ConflictWarning 
+          conflictCount={conflictCount}
+          onResolveAll={async () => {
+            // Auto-resolve conflicts with priority logic
+            for (const [sourceId, impacted] of conflictsMap.entries()) {
+              const source = plantings.find(p => p.id === sourceId);
+              if (!source) continue;
+              
+              const laterConflicts = impacted.filter(x => (x.planned_date ?? "") >= (source.planned_date ?? ""));
+              
+              for (const target of laterConflicts) {
+                try {
+                  // Try priority 1: same bed, other segment
+                  await resolveSameDatesOtherSegment(source, target);
+                  break;
+                } catch {
+                  try {
+                    // Try priority 2: other bed, same dates
+                    await resolveSameDatesOtherBed(source, target);
+                    break;
+                  } catch {
+                    try {
+                      // Try priority 3: earliest available slot
+                      await resolveEarliestSlotMinWeeks(source, target);
+                      break;
+                    } catch {
+                      // Skip if all methods fail
+                      console.warn(`Could not auto-resolve conflict for ${target.id}`);
+                    }
+                  }
+                }
+              }
+            }
+            await reload();
+          }}
+        />
+      )}
+
       <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         {view==="list" && listView}
         {view==="map" && <div className="grid grid-cols-1 md:grid-cols-4 gap-5"><div>{seedsList}</div><div className="md:col-span-3"><PlannerMap /></div></div>}
+        {view==="timeline" && (
+          <TimelineView 
+            beds={beds} 
+            plantings={plantings} 
+            seeds={seeds} 
+            conflictsMap={conflictsMap}
+            onReload={reload}
+          />
+        )}
         {view==="conflicts" && conflictsView}
 
         <DragOverlay dropAnimation={null}>
