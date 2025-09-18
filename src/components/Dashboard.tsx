@@ -5,6 +5,7 @@ import { listBeds } from "../lib/api/beds";
 import { listPlantings, updatePlanting } from "../lib/api/plantings";
 import { listSeeds } from "../lib/api/seeds";
 import { listTasks, updateTask } from "../lib/api/tasks";
+import { buildConflictsMap } from "../lib/conflicts";
 
 /* ---------- helpers ---------- */
 function toISO(d: Date) { return d.toISOString().slice(0, 10); }
@@ -44,34 +45,25 @@ function computePlanFromAnchor(params: {
     planned_presow_date = anchorISO;
     if (presowW != null) planned_date = toISO(addWeeks(A, presowW));
     if (growW != null) planned_harvest_start = toISO(addWeeks(new Date(planned_date), growW));
-    if (harvestW != null && planned_harvest_start) {
-      // inclusive end
-      planned_harvest_end = toISO(addDays(addWeeks(new Date(planned_harvest_start), harvestW), -1));
-    }
+    if (harvestW != null && planned_harvest_start) planned_harvest_end = toISO(addWeeks(new Date(planned_harvest_start), harvestW));
   } else if (anchorType === "ground") {
     planned_date = anchorISO;
     if (method === "direct") planned_presow_date = null;
     else if (method === "presow" && presowW != null) planned_presow_date = toISO(addWeeks(new Date(planned_date), -presowW));
     if (growW != null) planned_harvest_start = toISO(addWeeks(new Date(planned_date), growW));
-    if (harvestW != null && planned_harvest_start) {
-      planned_harvest_end = toISO(addDays(addWeeks(new Date(planned_harvest_start), harvestW), -1));
-    }
+    if (harvestW != null && planned_harvest_start) planned_harvest_end = toISO(addWeeks(new Date(planned_harvest_start), harvestW));
   } else if (anchorType === "harvest_start") {
     planned_harvest_start = anchorISO;
-    if (harvestW != null) {
-      planned_harvest_end = toISO(addDays(addWeeks(A, harvestW), -1)); // inclusive end
-    }
+    if (harvestW != null) planned_harvest_end = toISO(addWeeks(A, harvestW));
     if (growW != null) {
       planned_date = toISO(addWeeks(A, -growW));
       if (method === "presow" && presowW != null) planned_presow_date = toISO(addWeeks(new Date(planned_date), -presowW));
       if (method === "direct") planned_presow_date = null;
     }
   } else if (anchorType === "harvest_end") {
-    // harvest_end wordt als inclusieve einddag geïnterpreteerd
     planned_harvest_end = anchorISO;
     if (harvestW != null) {
-      // start = eind - (harvestW*7 - 1) dagen
-      const hs = addDays(A, -(harvestW * 7 - 1));
+      const hs = addWeeks(A, -harvestW);
       planned_harvest_start = toISO(hs);
       if (growW != null) {
         planned_date = toISO(addWeeks(hs, -growW));
@@ -113,7 +105,6 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!garden?.id) return;
     Promise.all([
       listBeds(garden.id),
       listPlantings(garden.id),
@@ -122,11 +113,14 @@ export function Dashboard({ garden }: { garden: Garden }) {
     ])
       .then(([b, p, s, t]) => { setBeds(b); setPlantings(p); setSeeds(s); setTasks(t); })
       .catch(console.error);
-  }, [garden?.id]);
+  }, [garden.id]);
 
   const bedsById = useMemo(() => Object.fromEntries(beds.map(b => [b.id, b])), [beds]);
   const seedsById = useMemo(() => Object.fromEntries(seeds.map(s => [s.id, s])), [seeds]);
   const plantingsById = useMemo(() => Object.fromEntries(plantings.map(p => [p.id, p])), [plantings]);
+
+  /* ---------- conflicts (precompute once per list) ---------- */
+  const conflictsMap = useMemo(() => buildConflictsMap(plantings), [plantings]);
 
   /* ---------- indexeer tasks per planting & type ---------- */
   const tasksIndex = useMemo(() => {
@@ -267,33 +261,6 @@ export function Dashboard({ garden }: { garden: Garden }) {
     } catch {}
   }
 
-  /* ---------- conflicts (dag-niveau + segmenten) ---------- */
-  function intervalsOverlap(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
-    return aStart <= bEnd && bStart <= aEnd; // dag-inclusief
-  }
-  function segmentsOverlap(aStartSeg: number, aUsed: number, bStartSeg: number, bUsed: number) {
-    const aEnd = aStartSeg + aUsed - 1, bEnd = bStartSeg + bUsed - 1;
-    return aStartSeg <= bEnd && bStartSeg <= aEnd;
-  }
-  function detectConflictsFor(planting: Planting) {
-    if (!planting.planned_date || !planting.planned_harvest_end) return { later: [] as Planting[] };
-    const s1 = new Date(planting.planned_date);
-    const e1 = new Date(planting.planned_harvest_end);
-    const seg1 = planting.start_segment ?? 0, used1 = planting.segments_used ?? 1;
-    const later: Planting[] = [];
-    for (const q of plantings) {
-      if (q.id === planting.id) continue;
-      if (q.garden_bed_id !== planting.garden_bed_id) continue;
-      if (!q.planned_date || !q.planned_harvest_end) continue;
-      const s2 = new Date(q.planned_date), e2 = new Date(q.planned_harvest_end);
-      if (!intervalsOverlap(s1, e1, s2, e2)) continue;
-      const seg2 = q.start_segment ?? 0, used2 = q.segments_used ?? 1;
-      if (!segmentsOverlap(seg1, used1, seg2, used2)) continue;
-      if ((q.planned_date ?? "") >= (planting.planned_date ?? "")) later.push(q);
-    }
-    return { later };
-  }
-
   async function reloadAll() {
     const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);
     setPlantings(p); setTasks(t);
@@ -326,14 +293,14 @@ export function Dashboard({ garden }: { garden: Garden }) {
 
       const field = actualFieldFor(task, pl);
 
-      // 1) schrijf actual_* (server)
+      // 1) schrijf actual_* (server) → ALWAYS succeed and make the dot green
       await updatePlanting(task.planting_id, { [field]: performedISO } as any);
 
       // 1b) Optimistisch groen + task done
       setPlantings(prev => prev.map(x => x.id === task.planting_id ? { ...x, [field]: performedISO } as any : x));
       setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: "done" } : t));
 
-      // 2) planned_* herberekenen vanaf deze actual (anker)
+      // 2) planned_* herberekenen vanaf deze actual (anker) — kan overlap veroorzaken (is oké)
       const anchorType = anchorTypeFor(task, pl);
       const plan = computePlanFromAnchor({
         method: (pl.method as "direct"|"presow"),
@@ -347,23 +314,19 @@ export function Dashboard({ garden }: { garden: Garden }) {
           planned_harvest_end: pl.planned_harvest_end,
         },
       });
-   try {
-  await updatePlanting(task.planting_id, plan as any);
-} catch {
-  // Planning past niet → actual blijft staan, bolletje is groen,
-  // en we sturen je naar Conflicten om het opvolgende gewas aan te pakken.
-  pingPlannerConflict(task.planting_id);
-}
+      await updatePlanting(task.planting_id, plan as any);
 
-      // 3) taak afronden
+      // 3) taak afronden (server best-effort)
       try { await updateTask(task.id, { status: "done" }); } catch {}
 
-      // 4) resync + conflicts op dag-niveau checken
+      // 4) herladen en dag-inclusief conflicts checken; ping Planner & toon badge in Dashboard
       const { p } = await reloadAll();
       const updated = p.find(x => x.id === task.planting_id);
       if (updated) {
-        const { later } = detectConflictsFor(updated);
-        if (later.length > 0) pingPlannerConflict(updated.id);
+        const cmap = buildConflictsMap(p);
+        if ((cmap.get(updated.id)?.length ?? 0) > 0) {
+          pingPlannerConflict(updated.id);
+        }
       }
     } catch (e: any) {
       alert("Kon actie niet opslaan: " + (e?.message ?? e));
@@ -449,6 +412,10 @@ export function Dashboard({ garden }: { garden: Garden }) {
             const { start, end } = rangeForRow(p);
             const nextLabel = next ? `${next.ms.label} • ${fmtDMY(next.whenISO)}` : null;
 
+            // ⇩ conflict-indicator per planting
+            const conflictCount = conflictsMap.get(p.id)?.length ?? 0;
+            const hasConflict = conflictCount > 0;
+
             return (
               <div key={p.id} className="border rounded-lg p-3 bg-card">
                 <div className="grid grid-cols-12 gap-3 items-center">
@@ -461,7 +428,14 @@ export function Dashboard({ garden }: { garden: Garden }) {
                         aria-hidden
                       />
                       <div className="min-w-0">
-                        <div className="font-medium truncate">{seed?.name ?? "Onbekend gewas"}</div>
+                        <div className="font-medium truncate flex items-center gap-2">
+                          <span className="truncate">{seed?.name ?? "Onbekend gewas"}</span>
+                          {hasConflict && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] rounded bg-red-100 text-red-800 border border-red-200">
+                              ⚠️ Conflict
+                            </span>
+                          )}
+                        </div>
                         <div className="text-xs text-muted-foreground truncate">{bed?.name ?? "Onbekende bak"}</div>
                       </div>
                     </div>
@@ -495,7 +469,6 @@ export function Dashboard({ garden }: { garden: Garden }) {
 
                         // alleen eerstvolgende open actie invulbaar; done mag je bewerken/legen
                         const canFill = isDone || isNext;
-
                         const dotClasses = [
                           "absolute -translate-x-1/2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border shadow",
                           canFill ? "cursor-pointer" : "cursor-not-allowed opacity-60",
@@ -551,7 +524,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
       {/* Dialog: actie uitvoeren / bewerken of leegmaken */}
       {dialog && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setDialog(null)}>
-          <div className="bg-card w-full max-w-sm rounded-lg shadow-lg p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-card w/full max-w-sm rounded-lg shadow-lg p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
             <h4 className="text-lg font-semibold">Actie {dialog.hasActual ? "bewerken" : "uitvoeren"}</h4>
             <p className="text-sm">
               {(() => {
