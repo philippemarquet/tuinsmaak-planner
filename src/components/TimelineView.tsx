@@ -70,14 +70,34 @@ export function TimelineView({ beds = [], plantings = [], seeds = [], conflictsM
     );
   }
   
-  // Create timeline segments (one per bed segment)
+  // Create timeline segments with greenhouse/outdoor grouping
   const timelineSegments = useMemo((): TimelineSegment[] => {
     try {
       const segments: TimelineSegment[] = [];
       
       if (!beds || beds.length === 0) return segments;
       
-      for (const bed of beds.sort((a, b) => (a?.sort_order || 0) - (b?.sort_order || 0))) {
+      // Split beds same as PlannerPage: outdoor first, then greenhouse
+      const outdoorBeds = beds.filter(b => !b.is_greenhouse).sort((a, b) => (a?.sort_order || 0) - (b?.sort_order || 0));
+      const greenhouseBeds = beds.filter(b => b.is_greenhouse).sort((a, b) => (a?.sort_order || 0) - (b?.sort_order || 0));
+      
+      // Add outdoor beds first
+      for (const bed of outdoorBeds) {
+        if (!bed?.id || !bed?.name || typeof bed.segments !== 'number') continue;
+        
+        const segmentCount = Math.max(1, bed.segments);
+        for (let i = 0; i < segmentCount; i++) {
+          segments.push({
+            bedId: bed.id,
+            bedName: bed.name,
+            segmentIndex: i,
+            isGreenhouse: Boolean(bed.is_greenhouse),
+          });
+        }
+      }
+      
+      // Add greenhouse beds after
+      for (const bed of greenhouseBeds) {
         if (!bed?.id || !bed?.name || typeof bed.segments !== 'number') continue;
         
         const segmentCount = Math.max(1, bed.segments);
@@ -185,11 +205,12 @@ export function TimelineView({ beds = [], plantings = [], seeds = [], conflictsM
     return { left: `${left}%`, width: `${width}%` };
   };
 
-  // Group segments by bed
+  // Group segments by bed and maintain order (outdoor first, then greenhouse)
   const segmentsByBed = useMemo(() => {
     try {
       const grouped = new Map<string, TimelineSegment[]>();
       
+      // First, group all segments by bed
       for (const segment of timelineSegments || []) {
         if (!segment?.bedId) continue;
         
@@ -205,6 +226,21 @@ export function TimelineView({ beds = [], plantings = [], seeds = [], conflictsM
       return new Map();
     }
   }, [timelineSegments]);
+  
+  // Create ordered bed groups for display (outdoor first, then greenhouse)
+  const orderedBedGroups = useMemo(() => {
+    if (!beds || beds.length === 0) return { outdoor: [], greenhouse: [] };
+    
+    const outdoorBeds = beds
+      .filter(b => !b.is_greenhouse)
+      .sort((a, b) => (a?.sort_order || 0) - (b?.sort_order || 0));
+    
+    const greenhouseBeds = beds
+      .filter(b => b.is_greenhouse)
+      .sort((a, b) => (a?.sort_order || 0) - (b?.sort_order || 0));
+    
+    return { outdoor: outdoorBeds, greenhouse: greenhouseBeds };
+  }, [beds]);
 
   // Handle edit planting
   const handleEdit = (planting: Planting) => {
@@ -292,104 +328,224 @@ export function TimelineView({ beds = [], plantings = [], seeds = [], conflictsM
 
         {/* Timeline Rows */}
         <div className="max-h-96 overflow-y-auto">
-          {Array.from(segmentsByBed.entries()).map(([bedId, segments]) => {
-            const bed = beds.find(b => b.id === bedId)!;
-            
-            return (
-              <div key={bedId} className="border-b">
-                {/* Bed Header */}
-                <div className="bg-muted/30 border-b">
-                  <div className="flex items-center">
-                    <div className="w-48 p-2 border-r font-medium text-sm">
-                      {bed.name}
-                      {bed.is_greenhouse && (
-                        <span className="ml-2 px-1.5 py-0.5 text-xs bg-green-100 text-green-700 rounded">
-                          Kas
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex-1"></div>
+          {/* Outdoor Beds Section */}
+          {orderedBedGroups.outdoor.length > 0 && (
+            <div>
+              <div className="bg-blue-50 border-b">
+                <div className="flex items-center">
+                  <div className="w-48 p-2 border-r font-semibold text-sm text-blue-700">
+                    🌱 Buitenbakken
                   </div>
+                  <div className="flex-1"></div>
                 </div>
+              </div>
+              
+              {orderedBedGroups.outdoor.map(bed => {
+                const segments = segmentsByBed.get(bed.id) || [];
                 
-                {/* Segment Rows */}
-                {segments.map((segment) => {
-                  const segmentKey = `${segment.bedId}-${segment.segmentIndex}`;
-                  const segmentEvents = weekEvents.filter(e => e.segmentKey === segmentKey);
-                  
-                  return (
-                    <div key={`${segment.bedId}-${segment.segmentIndex}`} className="relative">
-                      <div className="flex items-center min-h-[48px]">
-                        <div className="w-48 p-3 border-r text-sm text-muted-foreground">
-                          Segment {segment.segmentIndex + 1}
+                return (
+                  <div key={bed.id} className="border-b">
+                    {/* Bed Header */}
+                    <div className="bg-muted/30 border-b">
+                      <div className="flex items-center">
+                        <div className="w-48 p-2 border-r font-medium text-sm">
+                          {bed.name}
                         </div>
-                        
-                        {/* Timeline Area */}
-                        <div className="flex-1 relative h-12 bg-muted/10">
-                          {/* Day Dividers */}
-                          {Array.from({length: 7}, (_, i) => (
-                            <div 
-                              key={i}
-                              className="absolute top-0 bottom-0 border-r border-muted-foreground/20"
-                              style={{ left: `${(i / 7) * 100}%` }}
-                            />
-                          ))}
-                          
-                          {/* Events */}
-                          {segmentEvents.map((event, index) => {
-                            const style = calculateEventStyle(event);
-                            
-                            return (
-                              <div
-                                key={event.id}
-                                className={`absolute top-1 h-10 rounded px-2 text-white text-xs flex items-center justify-between cursor-pointer hover:opacity-90 transition-opacity ${
-                                  event.hasConflict ? 'ring-2 ring-red-500 ring-offset-1' : ''
-                                }`}
-                                style={{
-                                  ...style,
-                                  backgroundColor: event.color,
-                                  zIndex: 10 + index,
-                                }}
-                                title={`${event.seedName}\n${formatDate(event.startDate)} - ${formatDate(event.endDate)}\nWeken ${getWeekNumber(event.startDate)}-${getWeekNumber(event.endDate)}`}
-                              >
-                                <div className="flex items-center gap-1 min-w-0">
-                                  <span className="truncate">{event.seedName}</span>
-                                  {event.hasConflict && (
-                                    <AlertTriangle className="w-3 h-3 text-yellow-300" />
-                                  )}
-                                </div>
-                                
-                                <div className="flex items-center gap-1 ml-1">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleEdit(event.planting);
-                                    }}
-                                    className="p-0.5 hover:bg-white/20 rounded"
-                                  >
-                                    <Edit3 className="w-3 h-3" />
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleDelete(event.planting);
-                                    }}
-                                    className="p-0.5 hover:bg-white/20 rounded"
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
+                        <div className="flex-1"></div>
                       </div>
                     </div>
-                  );
-                })}
+                    
+                    {/* Segment Rows */}
+                    {segments.map((segment) => {
+                      const segmentKey = `${segment.bedId}-${segment.segmentIndex}`;
+                      const segmentEvents = weekEvents.filter(e => e.segmentKey === segmentKey);
+                      
+                      return (
+                        <div key={`${segment.bedId}-${segment.segmentIndex}`} className="relative">
+                          <div className="flex items-center min-h-[48px]">
+                            <div className="w-48 p-3 border-r text-sm text-muted-foreground">
+                              Segment {segment.segmentIndex + 1}
+                            </div>
+                            
+                            {/* Timeline Area */}
+                            <div className="flex-1 relative h-12 bg-muted/10">
+                              {/* Day Dividers */}
+                              {Array.from({length: 7}, (_, i) => (
+                                <div 
+                                  key={i}
+                                  className="absolute top-0 bottom-0 border-r border-muted-foreground/20"
+                                  style={{ left: `${(i / 7) * 100}%` }}
+                                />
+                              ))}
+                              
+                              {/* Events */}
+                              {segmentEvents.map((event, index) => {
+                                const style = calculateEventStyle(event);
+                                
+                                return (
+                                  <div
+                                    key={event.id}
+                                    className={`absolute top-1 h-10 rounded px-2 text-white text-xs flex items-center justify-between cursor-pointer hover:opacity-90 transition-opacity ${
+                                      event.hasConflict ? 'ring-2 ring-red-500 ring-offset-1' : ''
+                                    }`}
+                                    style={{
+                                      ...style,
+                                      backgroundColor: event.color,
+                                      zIndex: 10 + index,
+                                    }}
+                                    title={`${event.seedName}\n${formatDate(event.startDate)} - ${formatDate(event.endDate)}\nWeken ${getWeekNumber(event.startDate)}-${getWeekNumber(event.endDate)}`}
+                                  >
+                                    <div className="flex items-center gap-1 min-w-0">
+                                      <span className="truncate">{event.seedName}</span>
+                                      {event.hasConflict && (
+                                        <AlertTriangle className="w-3 h-3 text-yellow-300" />
+                                      )}
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-1 ml-1">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleEdit(event.planting);
+                                        }}
+                                        className="p-0.5 hover:bg-white/20 rounded"
+                                      >
+                                        <Edit3 className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleDelete(event.planting);
+                                        }}
+                                        className="p-0.5 hover:bg-white/20 rounded"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          
+          {/* Greenhouse Beds Section */}
+          {orderedBedGroups.greenhouse.length > 0 && (
+            <div>
+              <div className="bg-green-50 border-b">
+                <div className="flex items-center">
+                  <div className="w-48 p-2 border-r font-semibold text-sm text-green-700">
+                    🏠 Kasbakken
+                  </div>
+                  <div className="flex-1"></div>
+                </div>
               </div>
-            );
-          })}
+              
+              {orderedBedGroups.greenhouse.map(bed => {
+                const segments = segmentsByBed.get(bed.id) || [];
+                
+                return (
+                  <div key={bed.id} className="border-b">
+                    {/* Bed Header */}
+                    <div className="bg-muted/30 border-b">
+                      <div className="flex items-center">
+                        <div className="w-48 p-2 border-r font-medium text-sm">
+                          {bed.name}
+                          <span className="ml-2 px-1.5 py-0.5 text-xs bg-green-100 text-green-700 rounded">
+                            Kas
+                          </span>
+                        </div>
+                        <div className="flex-1"></div>
+                      </div>
+                    </div>
+                    
+                    {/* Segment Rows */}
+                    {segments.map((segment) => {
+                      const segmentKey = `${segment.bedId}-${segment.segmentIndex}`;
+                      const segmentEvents = weekEvents.filter(e => e.segmentKey === segmentKey);
+                      
+                      return (
+                        <div key={`${segment.bedId}-${segment.segmentIndex}`} className="relative">
+                          <div className="flex items-center min-h-[48px]">
+                            <div className="w-48 p-3 border-r text-sm text-muted-foreground">
+                              Segment {segment.segmentIndex + 1}
+                            </div>
+                            
+                            {/* Timeline Area */}
+                            <div className="flex-1 relative h-12 bg-muted/10">
+                              {/* Day Dividers */}
+                              {Array.from({length: 7}, (_, i) => (
+                                <div 
+                                  key={i}
+                                  className="absolute top-0 bottom-0 border-r border-muted-foreground/20"
+                                  style={{ left: `${(i / 7) * 100}%` }}
+                                />
+                              ))}
+                              
+                              {/* Events */}
+                              {segmentEvents.map((event, index) => {
+                                const style = calculateEventStyle(event);
+                                
+                                return (
+                                  <div
+                                    key={event.id}
+                                    className={`absolute top-1 h-10 rounded px-2 text-white text-xs flex items-center justify-between cursor-pointer hover:opacity-90 transition-opacity ${
+                                      event.hasConflict ? 'ring-2 ring-red-500 ring-offset-1' : ''
+                                    }`}
+                                    style={{
+                                      ...style,
+                                      backgroundColor: event.color,
+                                      zIndex: 10 + index,
+                                    }}
+                                    title={`${event.seedName}\n${formatDate(event.startDate)} - ${formatDate(event.endDate)}\nWeken ${getWeekNumber(event.startDate)}-${getWeekNumber(event.endDate)}`}
+                                  >
+                                    <div className="flex items-center gap-1 min-w-0">
+                                      <span className="truncate">{event.seedName}</span>
+                                      {event.hasConflict && (
+                                        <AlertTriangle className="w-3 h-3 text-yellow-300" />
+                                      )}
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-1 ml-1">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleEdit(event.planting);
+                                        }}
+                                        className="p-0.5 hover:bg-white/20 rounded"
+                                      >
+                                        <Edit3 className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleDelete(event.planting);
+                                        }}
+                                        className="p-0.5 hover:bg-white/20 rounded"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
