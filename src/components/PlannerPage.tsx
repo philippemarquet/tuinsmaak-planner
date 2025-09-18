@@ -492,19 +492,29 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     </div>
   );
 
-  /* ===== MAP view — stutter fix: single transform scale only ===== */
+  /* ===== MAP view — stutter fix: stable container dimensions ===== */
   function PlannerMap() {
     const viewportRef = useRef<HTMLDivElement | null>(null);
     const BASE_W = 2400, BASE_H = 1400;
     const [zoom, setZoom] = useState(0.9);
+    const [isInitialized, setIsInitialized] = useState(false);
     const clampZoom = (z:number) => Math.max(0.25, Math.min(3, z));
+    
     const fit = () => {
       const vp = viewportRef.current; if (!vp) return;
       const zx = (vp.clientWidth - 24) / BASE_W;
       const zy = (vp.clientHeight - 24) / BASE_H;
       setZoom(clampZoom(Math.min(zx, zy)));
     };
-    useEffect(()=>{ fit(); /* only once */ }, []);
+    
+    useEffect(()=>{ 
+      // Delay initialization to prevent flash
+      const timer = setTimeout(() => {
+        fit();
+        setIsInitialized(true);
+      }, 50);
+      return () => clearTimeout(timer);
+    }, []);
 
     const active = (p:Planting)=>isActiveInWeek(p, currentWeek);
     const future = (p:Planting)=>showGhosts && isFutureRelativeToWeek(p, currentWeek);
@@ -522,19 +532,39 @@ export function PlannerPage({ garden }: { garden: Garden }) {
           </div>
         </div>
 
-        <div ref={viewportRef} className="relative w-full h-[70vh] rounded-xl border overflow-auto bg-background">
-          {/* Base canvas: fixed logical size; only transform changes -> no layout thrash */}
-          <div className="relative" style={{ width: BASE_W, height: BASE_H }}>
+        <div 
+          ref={viewportRef} 
+          className="relative w-full h-[70vh] rounded-xl border overflow-auto bg-background"
+          style={{ 
+            // Prevent layout shifts during week transitions
+            minWidth: '100%',
+            minHeight: '70vh'
+          }}
+        >
+          {/* Stable container with consistent dimensions */}
+          <div 
+            className="relative"
+            style={{ 
+              width: BASE_W * zoom,
+              height: BASE_H * zoom,
+              // Ensure smooth transitions
+              transition: isInitialized ? 'none' : 'opacity 0.1s ease-out',
+              opacity: isInitialized ? 1 : 0
+            }}
+          >
             <div
               className="absolute left-0 top-0"
               style={{
-                width: BASE_W, height: BASE_H,
+                width: BASE_W, 
+                height: BASE_H,
                 transform: `scale(${zoom})`,
                 transformOrigin: "0 0",
                 willChange: "transform",
                 backgroundImage: "linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(180deg, rgba(0,0,0,0.04) 1px, transparent 1px)",
                 backgroundSize: "24px 24px",
                 borderRadius: 12,
+                // Prevent flash during re-renders
+                contain: "layout style paint"
               }}
             >
               {beds.map(bed=>{
