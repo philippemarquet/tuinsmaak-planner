@@ -1,4 +1,3 @@
-// src/components/Dashboard.tsx
 import { useEffect, useMemo, useState } from "react";
 import type { Garden, GardenBed, Planting, Seed, Task } from "../lib/types";
 import { listBeds } from "../lib/api/beds";
@@ -21,55 +20,90 @@ function fmtDMY(iso?: string | null) {
   return `${dd}-${mm}-${yyyy}`;
 }
 
-/** Recompute planned_* fields given an anchor (presow/ground/harvest_start/harvest_end). */
+/** Ketencalculatie: herleid ALTIJD opnieuw vanaf de gekozen ankerdatum. */
 function computePlanFromAnchor(params: {
   method: "direct" | "presow";
   seed: Seed;
   anchorType: "presow" | "ground" | "harvest_start" | "harvest_end";
   anchorISO: string;
-  prev: Pick<Planting, "planned_date" | "planned_presow_date" | "planned_harvest_start" | "planned_harvest_end">;
 }) {
-  const { method, seed, anchorType, anchorISO, prev } = params;
-  const presowW = seed.presow_duration_weeks ?? null;
+  const { method, seed, anchorType, anchorISO } = params;
+  const presowW = seed.presow_duration_weeks ?? 0;
   const growW = seed.grow_duration_weeks ?? null;
   const harvestW = seed.harvest_duration_weeks ?? null;
 
-  let planned_date = prev.planned_date || anchorISO;
-  let planned_presow_date = prev.planned_presow_date || null;
-  let planned_harvest_start = prev.planned_harvest_start || null;
-  let planned_harvest_end = prev.planned_harvest_end || null;
+  let planned_date: string | null = null;
+  let planned_presow_date: string | null = null;
+  let planned_harvest_start: string | null = null;
+  let planned_harvest_end: string | null = null;
 
   const A = new Date(anchorISO);
 
   if (anchorType === "presow") {
+    // Voorzaaien → plantdatum is presow + presowW
     planned_presow_date = anchorISO;
-    if (presowW != null) planned_date = toISO(addWeeks(A, presowW));
-    if (growW != null) planned_harvest_start = toISO(addWeeks(new Date(planned_date), growW));
-    if (harvestW != null && planned_harvest_start) planned_harvest_end = toISO(addWeeks(new Date(planned_harvest_start), harvestW));
+    const ground = addWeeks(A, presowW);
+    planned_date = toISO(ground);
+
+    if (growW != null) {
+      const hs = addWeeks(ground, growW);
+      planned_harvest_start = toISO(hs);
+      if (harvestW != null) planned_harvest_end = toISO(addWeeks(hs, harvestW));
+    }
+    if (growW == null && harvestW != null) {
+      // Zonder growW kunnen we harvest_start niet afleiden; dan blijft harvest_* leeg.
+      planned_harvest_start = null;
+      planned_harvest_end = null;
+    }
   } else if (anchorType === "ground") {
+    // Uitplanten/direct zaaien → presow is ground - presowW (alleen bij presow)
     planned_date = anchorISO;
-    if (method === "direct") planned_presow_date = null;
-    else if (method === "presow" && presowW != null) planned_presow_date = toISO(addWeeks(new Date(planned_date), -presowW));
-    if (growW != null) planned_harvest_start = toISO(addWeeks(new Date(planned_date), growW));
-    if (harvestW != null && planned_harvest_start) planned_harvest_end = toISO(addWeeks(new Date(planned_harvest_start), harvestW));
+    if (method === "presow") planned_presow_date = toISO(addWeeks(new Date(anchorISO), -presowW));
+    else planned_presow_date = null;
+
+    if (growW != null) {
+      const hs = addWeeks(new Date(anchorISO), growW);
+      planned_harvest_start = toISO(hs);
+      if (harvestW != null) planned_harvest_end = toISO(addWeeks(hs, harvestW));
+    } else {
+      planned_harvest_start = null;
+      planned_harvest_end = null;
+    }
   } else if (anchorType === "harvest_start") {
     planned_harvest_start = anchorISO;
+
     if (harvestW != null) planned_harvest_end = toISO(addWeeks(A, harvestW));
+
     if (growW != null) {
-      planned_date = toISO(addWeeks(A, -growW));
-      if (method === "presow" && presowW != null) planned_presow_date = toISO(addWeeks(new Date(planned_date), -presowW));
-      if (method === "direct") planned_presow_date = null;
+      const ground = addWeeks(A, -growW);
+      planned_date = toISO(ground);
+      if (method === "presow") planned_presow_date = toISO(addWeeks(ground, -presowW));
+      else planned_presow_date = null;
+    } else {
+      // Zonder growW kunnen we ground/presow niet betrouwbaar terugrekenen.
+      planned_date = null;
+      planned_presow_date = method === "presow" ? null : null;
     }
   } else if (anchorType === "harvest_end") {
     planned_harvest_end = anchorISO;
+
     if (harvestW != null) {
       const hs = addWeeks(A, -harvestW);
       planned_harvest_start = toISO(hs);
       if (growW != null) {
-        planned_date = toISO(addWeeks(hs, -growW));
-        if (method === "presow" && presowW != null) planned_presow_date = toISO(addWeeks(new Date(planned_date), -presowW));
-        if (method === "direct") planned_presow_date = null;
+        const ground = addWeeks(hs, -growW);
+        planned_date = toISO(ground);
+        if (method === "presow") planned_presow_date = toISO(addWeeks(ground, -presowW));
+        else planned_presow_date = null;
+      } else {
+        planned_date = null;
+        planned_presow_date = method === "presow" ? null : null;
       }
+    } else {
+      // Zonder harvestW kunnen we hs niet afleiden → laat start leeg, de rest ook.
+      planned_harvest_start = null;
+      planned_date = null;
+      planned_presow_date = method === "presow" ? null : null;
     }
   }
 
@@ -119,8 +153,14 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const seedsById = useMemo(() => Object.fromEntries(seeds.map(s => [s.id, s])), [seeds]);
   const plantingsById = useMemo(() => Object.fromEntries(plantings.map(p => [p.id, p])), [plantings]);
 
-  /* ---------- conflicts (precompute once per list) ---------- */
+  /* ---------- conflicts ---------- */
   const conflictsMap = useMemo(() => buildConflictsMap(plantings), [plantings]);
+  const totalConflicts = useMemo(() => {
+    let n = 0;
+    for (const [, arr] of conflictsMap) n += arr.length;
+    // Elk conflict telt tweezijdig; deel door 2 voor unieke paren
+    return Math.floor(n / 2);
+  }, [conflictsMap]);
 
   /* ---------- indexeer tasks per planting & type ---------- */
   const tasksIndex = useMemo(() => {
@@ -293,33 +333,33 @@ export function Dashboard({ garden }: { garden: Garden }) {
 
       const field = actualFieldFor(task, pl);
 
-      // 1) schrijf actual_* (server) → ALWAYS succeed and make the dot green
+      // 1) schrijf actual_* (server) → ALTIJD doorvoeren
       await updatePlanting(task.planting_id, { [field]: performedISO } as any);
 
       // 1b) Optimistisch groen + task done
       setPlantings(prev => prev.map(x => x.id === task.planting_id ? { ...x, [field]: performedISO } as any : x));
       setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: "done" } : t));
 
-      // 2) planned_* herberekenen vanaf deze actual (anker) — kan overlap veroorzaken (is oké)
+      // 2) planned_* herberekenen vanaf deze actual (anker) — dwing volledige keten (incl. plantdatum) te herleiden
       const anchorType = anchorTypeFor(task, pl);
       const plan = computePlanFromAnchor({
         method: (pl.method as "direct"|"presow"),
         seed,
         anchorType,
         anchorISO: performedISO,
-        prev: {
-          planned_date: pl.planned_date,
-          planned_presow_date: pl.planned_presow_date,
-          planned_harvest_start: pl.planned_harvest_start,
-          planned_harvest_end: pl.planned_harvest_end,
-        },
       });
-      await updatePlanting(task.planting_id, plan as any);
+
+      try {
+        await updatePlanting(task.planting_id, plan as any);
+      } catch (e) {
+        // Als plan niet past (overlap), negeren we de fout en tonen we straks de conflictbadge
+        console.warn("Plan update gaf fout (waarschijnlijk overlap):", e);
+      }
 
       // 3) taak afronden (server best-effort)
       try { await updateTask(task.id, { status: "done" }); } catch {}
 
-      // 4) herladen en dag-inclusief conflicts checken; ping Planner & toon badge in Dashboard
+      // 4) herladen en conflicts checken; ping Planner & badge in Dashboard
       const { p } = await reloadAll();
       const updated = p.find(x => x.id === task.planting_id);
       if (updated) {
@@ -398,6 +438,13 @@ export function Dashboard({ garden }: { garden: Garden }) {
         </button>
       </div>
 
+      {/* Globale conflict-banner */}
+      {totalConflicts > 0 && (
+        <div className="p-3 rounded-md border bg-amber-50 text-amber-900">
+          ⚠️ Er zijn <b>{totalConflicts}</b> conflicten in je planning. Open de Planner (tab <b>Conflicten</b>) om ze op te lossen.
+        </div>
+      )}
+
       <section className="space-y-3">
         {plantingsSorted.length === 0 ? (
           <p className="text-sm text-muted-foreground">
@@ -412,7 +459,6 @@ export function Dashboard({ garden }: { garden: Garden }) {
             const { start, end } = rangeForRow(p);
             const nextLabel = next ? `${next.ms.label} • ${fmtDMY(next.whenISO)}` : null;
 
-            // ⇩ conflict-indicator per planting
             const conflictCount = conflictsMap.get(p.id)?.length ?? 0;
             const hasConflict = conflictCount > 0;
 
@@ -467,8 +513,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
                         const isNext = next && idx === next.index && !isDone;
                         const isLatePending = isNext && m.task?.due_date && new Date(m.task.due_date) < todayDate;
 
-                        // alleen eerstvolgende open actie invulbaar; done mag je bewerken/legen
-                        const canFill = isDone || isNext;
+                        const canFill = isDone || isNext; // done mag je bewerken/legen
                         const dotClasses = [
                           "absolute -translate-x-1/2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border shadow",
                           canFill ? "cursor-pointer" : "cursor-not-allowed opacity-60",
@@ -498,7 +543,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
                             >
                               {isDone && <span className="text-[10px] text-white grid place-items-center w-full h-full">✓</span>}
                             </div>
-                            {/* datumlabel onder de dot: actual indien aanwezig, anders planned/due */}
+                            {/* datumlabel onder de dot */}
                             <div
                               className="absolute -translate-x-1/2 top-[calc(50%+14px)] text-[10px] text-muted-foreground"
                               style={{ left: `${pct}%` }}
@@ -524,7 +569,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
       {/* Dialog: actie uitvoeren / bewerken of leegmaken */}
       {dialog && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setDialog(null)}>
-          <div className="bg-card w/full max-w-sm rounded-lg shadow-lg p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-card w-full max-w-sm rounded-lg shadow-lg p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
             <h4 className="text-lg font-semibold">Actie {dialog.hasActual ? "bewerken" : "uitvoeren"}</h4>
             <p className="text-sm">
               {(() => {
