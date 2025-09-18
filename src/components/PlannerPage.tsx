@@ -496,25 +496,55 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   function PlannerMap() {
     const viewportRef = useRef<HTMLDivElement | null>(null);
     const BASE_W = 2400, BASE_H = 1400;
-    const [zoom, setZoom] = useState(0.9);
+    
+    // Initialize zoom from localStorage or fit
+    const [zoom, setZoom] = useState(() => {
+      const saved = localStorage.getItem("plannerMapZoom");
+      return saved ? parseFloat(saved) : 1; // Start with 1, will be set to fit if not manual
+    });
+    
     const [isInitialized, setIsInitialized] = useState(false);
+    const [isManualZoom, setIsManualZoom] = useState(() => {
+      return localStorage.getItem("plannerMapManualZoom") === "1";
+    });
+    
     const clampZoom = (z:number) => Math.max(0.25, Math.min(3, z));
     
     const fit = () => {
       const vp = viewportRef.current; if (!vp) return;
       const zx = (vp.clientWidth - 24) / BASE_W;
       const zy = (vp.clientHeight - 24) / BASE_H;
-      setZoom(clampZoom(Math.min(zx, zy)));
+      const fitZoom = clampZoom(Math.min(zx, zy));
+      setZoom(fitZoom);
+      localStorage.setItem("plannerMapZoom", fitZoom.toString());
+    };
+    
+    // Manual zoom handlers that set the manual flag
+    const handleManualZoom = (newZoom: number) => {
+      const clampedZoom = clampZoom(newZoom);
+      setZoom(clampedZoom);
+      setIsManualZoom(true);
+      localStorage.setItem("plannerMapZoom", clampedZoom.toString());
+      localStorage.setItem("plannerMapManualZoom", "1");
+    };
+    
+    const handleFitClick = () => {
+      fit();
+      setIsManualZoom(false);
+      localStorage.setItem("plannerMapManualZoom", "0");
     };
     
     useEffect(()=>{ 
       // Delay initialization to prevent flash
       const timer = setTimeout(() => {
-        fit();
+        // Only auto-fit if user hasn't manually zoomed
+        if (!isManualZoom) {
+          fit();
+        }
         setIsInitialized(true);
       }, 50);
       return () => clearTimeout(timer);
-    }, []);
+    }, [isManualZoom]);
 
     const active = (p:Planting)=>isActiveInWeek(p, currentWeek);
     const future = (p:Planting)=>showGhosts && isFutureRelativeToWeek(p, currentWeek);
@@ -524,11 +554,11 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         <div className="flex items-center justify-between">
           <h3 className="text-xl font-semibold">Plattegrond</h3>
           <div className="flex items-center gap-2">
-            <button className="border rounded px-2 py-1" onClick={()=>setZoom(z=>clampZoom(z-0.1))}>-</button>
-            <input className="w-40" type="range" min={0.25} max={3} step={0.05} value={zoom} onChange={e=>setZoom(clampZoom(parseFloat(e.target.value)))} />
-            <button className="border rounded px-2 py-1" onClick={()=>setZoom(z=>clampZoom(z+0.1))}>+</button>
-            <button className="border rounded px-2 py-1" onClick={()=>setZoom(1)}>100%</button>
-            <button className="border rounded px-2 py-1" onClick={fit}>Fit</button>
+            <button className="border rounded px-2 py-1" onClick={()=>handleManualZoom(zoom-0.1)}>-</button>
+            <input className="w-40" type="range" min={0.25} max={3} step={0.05} value={zoom} onChange={e=>handleManualZoom(parseFloat(e.target.value))} />
+            <button className="border rounded px-2 py-1" onClick={()=>handleManualZoom(zoom+0.1)}>+</button>
+            <button className="border rounded px-2 py-1" onClick={()=>handleManualZoom(1)}>100%</button>
+            <button className="border rounded px-2 py-1" onClick={handleFitClick}>Fit</button>
           </div>
         </div>
 
