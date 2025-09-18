@@ -6,6 +6,7 @@ import { createPlanting, listPlantings, deletePlanting, updatePlanting } from ".
 import { DndContext, useDraggable, useDroppable, DragOverlay } from "@dnd-kit/core";
 import { supabase } from "../lib/supabaseClient";
 import { TimelineView } from "./TimelineView";
+import { buildConflictsMap } from "../lib/conflicts";
 import { ConflictWarning } from "./ConflictWarning";
 import { Edit3, Trash2 } from "lucide-react";
 
@@ -39,6 +40,12 @@ function planFromGroundDate(seed: Seed, method: "direct"|"presow", groundISO: st
     ? toISO(addWeeks(ground, -(seed.presow_duration_weeks ?? 0)))
     : null;
 
+  // ...
+const conflictsMap = useMemo(
+  () => buildConflictsMap(plantings || []),
+  [plantings]
+);
+  
   return {
     planned_date: groundISO,
     planned_presow_date: presow,
@@ -803,7 +810,7 @@ const he = addDays(addWeeks(hs, seed.harvest_duration_weeks!), -1);
               beds={beds || []} 
               plantings={plantings || []} 
               seeds={seeds || []} 
-              conflictsMap={conflictsMap || new Map()}
+              conflictsMap={conflictsMap}   // <-- nu gevuld
               currentWeek={currentWeek}
               onReload={reload}
             />
