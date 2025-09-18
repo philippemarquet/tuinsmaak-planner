@@ -44,25 +44,34 @@ function computePlanFromAnchor(params: {
     planned_presow_date = anchorISO;
     if (presowW != null) planned_date = toISO(addWeeks(A, presowW));
     if (growW != null) planned_harvest_start = toISO(addWeeks(new Date(planned_date), growW));
-    if (harvestW != null && planned_harvest_start) planned_harvest_end = toISO(addWeeks(new Date(planned_harvest_start), harvestW));
+    if (harvestW != null && planned_harvest_start) {
+      // inclusive end
+      planned_harvest_end = toISO(addDays(addWeeks(new Date(planned_harvest_start), harvestW), -1));
+    }
   } else if (anchorType === "ground") {
     planned_date = anchorISO;
     if (method === "direct") planned_presow_date = null;
     else if (method === "presow" && presowW != null) planned_presow_date = toISO(addWeeks(new Date(planned_date), -presowW));
     if (growW != null) planned_harvest_start = toISO(addWeeks(new Date(planned_date), growW));
-    if (harvestW != null && planned_harvest_start) planned_harvest_end = toISO(addWeeks(new Date(planned_harvest_start), harvestW));
+    if (harvestW != null && planned_harvest_start) {
+      planned_harvest_end = toISO(addDays(addWeeks(new Date(planned_harvest_start), harvestW), -1));
+    }
   } else if (anchorType === "harvest_start") {
     planned_harvest_start = anchorISO;
-    if (harvestW != null) planned_harvest_end = toISO(addWeeks(A, harvestW));
+    if (harvestW != null) {
+      planned_harvest_end = toISO(addDays(addWeeks(A, harvestW), -1)); // inclusive end
+    }
     if (growW != null) {
       planned_date = toISO(addWeeks(A, -growW));
       if (method === "presow" && presowW != null) planned_presow_date = toISO(addWeeks(new Date(planned_date), -presowW));
       if (method === "direct") planned_presow_date = null;
     }
   } else if (anchorType === "harvest_end") {
+    // harvest_end wordt als inclusieve einddag geïnterpreteerd
     planned_harvest_end = anchorISO;
     if (harvestW != null) {
-      const hs = addWeeks(A, -harvestW);
+      // start = eind - (harvestW*7 - 1) dagen
+      const hs = addDays(A, -(harvestW * 7 - 1));
       planned_harvest_start = toISO(hs);
       if (growW != null) {
         planned_date = toISO(addWeeks(hs, -growW));
@@ -71,6 +80,7 @@ function computePlanFromAnchor(params: {
       }
     }
   }
+
   return { planned_date, planned_presow_date, planned_harvest_start, planned_harvest_end };
 }
 
@@ -337,7 +347,13 @@ export function Dashboard({ garden }: { garden: Garden }) {
           planned_harvest_end: pl.planned_harvest_end,
         },
       });
-      await updatePlanting(task.planting_id, plan as any);
+   try {
+  await updatePlanting(task.planting_id, plan as any);
+} catch {
+  // Planning past niet → actual blijft staan, bolletje is groen,
+  // en we sturen je naar Conflicten om het opvolgende gewas aan te pakken.
+  pingPlannerConflict(task.planting_id);
+}
 
       // 3) taak afronden
       try { await updateTask(task.id, { status: "done" }); } catch {}
