@@ -27,12 +27,24 @@ function planFromGroundDate(seed: Seed, method: "direct"|"presow", groundISO: st
   const ground = new Date(groundISO);
   const growW = seed.grow_duration_weeks ?? 0;
   const harvestW = seed.harvest_duration_weeks ?? 0;
-  const hs = toISO(addWeeks(ground, growW));
-  const he = toISO(addWeeks(new Date(hs), harvestW));
+
+  // start oogst = plantdatum + groeitijd (weken)
+  const hsISO = toISO(addWeeks(ground, growW));
+
+  // EINDE oogst = start oogst + harvestW weken MIN 1 DAG (inclusief laatste dag)
+  const heDate = addDays(addWeeks(new Date(hsISO), harvestW), -1);
+  const heISO = toISO(heDate);
+
   const presow = method === "presow" && seed.presow_duration_weeks
     ? toISO(addWeeks(ground, -(seed.presow_duration_weeks ?? 0)))
     : null;
-  return { planned_date: groundISO, planned_presow_date: presow, planned_harvest_start: hs, planned_harvest_end: he };
+
+  return {
+    planned_date: groundISO,
+    planned_presow_date: presow,
+    planned_harvest_start: hsISO,
+    planned_harvest_end: heISO,
+  };
 }
 
 /* occupancy helpers — bed bezetting = ground→harvest_end (voorzaaien telt niet) */
@@ -331,9 +343,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     if (!seed.grow_duration_weeks || !seed.harvest_duration_weeks) { notify("Vul groei-/oogstduur bij het zaad.", "err"); return; }
     if (method==="presow" && !seed.presow_duration_weeks) { notify("Voorzaaien vereist voorzaai-weken bij het zaad.", "err"); return; }
 
-    const plantDate = new Date(dateISO);
-    const hs = addWeeks(plantDate, seed.grow_duration_weeks!);
-    const he = addWeeks(hs, seed.harvest_duration_weeks!);
+const plantDate = new Date(dateISO);
+const hs = addWeeks(plantDate, seed.grow_duration_weeks!);
+const he = addDays(addWeeks(hs, seed.harvest_duration_weeks!), -1);
     const segUsed = clamp(segmentsUsed, 1, bed.segments - (target.segmentIndex ?? 0));
 
     if (wouldOverlapWith(plantings, bed.id, (planting?.start_segment ?? target.segmentIndex) ?? 0, segUsed, plantDate, he, planting?.id)) {
