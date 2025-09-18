@@ -1,4 +1,3 @@
-// src/components/PlannerPage.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Garden, GardenBed, Planting, Seed } from "../lib/types";
 import { listBeds } from "../lib/api/beds";
@@ -8,6 +7,7 @@ import { DndContext, useDraggable, useDroppable, DragOverlay } from "@dnd-kit/co
 import { supabase } from "../lib/supabaseClient";
 import { TimelineView } from "./TimelineView";
 import { ConflictWarning } from "./ConflictWarning";
+import { Edit3, Trash2 } from "lucide-react";
 
 /* ===== helpers ===== */
 const toISO = (d: Date) => d.toISOString().slice(0, 10);
@@ -236,7 +236,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     let best: null | { k:number; bed:GardenBed; seg:number; start:Date; end:Date } = null;
 
     outer: for (const tick of weekShiftGenerator(baseStart, baseEnd, 52)) {
-      // same bed first (same segment range anywhere)
       for (const bed of [beds.find(b=>b.id===target.garden_bed_id)!, ...envBeds.filter(b=>b.id!==target.garden_bed_id)]) {
         const seg = findAlternateSegment(plantings, bed, target.segments_used ?? 1, tick.start, tick.end, target.id, extrasBlockForSource(source));
         if (seg != null) { best = { k: tick.k, bed, seg, start: tick.start, end: tick.end }; break outer; }
@@ -280,20 +279,17 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     return arr;
   }, [seeds, q, inStockOnly, inPlanner, greenhouseOnly, plantings]);
 
-  /* ===== UI: header & tabs with enhanced warnings ===== */
+  /* ===== UI: header & tabs ===== */
   const conflictCount = Array.from(conflictsMap.values()).reduce((acc, v)=>acc+v.length, 0);
   const hasConflicts = conflictCount > 0;
-  
-  // Store conflicts in localStorage for TopNav access
+
   useEffect(() => {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
         localStorage.setItem("plannerHasConflicts", hasConflicts ? "1" : "0");
         localStorage.setItem("plannerConflictCount", String(conflictCount || 0));
       }
-    } catch (error) {
-      console.error("Error storing conflict state:", error);
-    }
+    } catch {}
   }, [hasConflicts, conflictCount]);
 
   const pendingBadge = hasConflicts ? (
@@ -363,13 +359,10 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     }
   }
 
-  /* ===== LIST view: conflicts inline + actions ===== */
-  function BedListCard({ bed }:{bed:GardenBed}) { return null } // placeholder TS type guard (we'll inline cards below)
-
-  /* ===== RENDER ===== */
+  /* ===== LIST view ===== */
   const seedsList = (
     <div className="sticky top-24">
-      <div className="space-y-3 max-h-[calc(100vh-7rem)] overflow-auto pr-1 pb-3">
+      <div className="space-y-3 max-h?[calc(100vh-7rem)] overflow-auto pr-1 pb-3">
         <h3 className="text-base font-semibold">Zoek/filters</h3>
         <input className="w-full border rounded px-2 py-1" value={q} onChange={e=>setQ(e.target.value)} placeholder="Zoek op naam…" />
         <div className="text-sm space-y-1">
@@ -408,7 +401,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                     <div className="flex items-center justify-between mb-1.5">
                       <div className="flex items-center gap-2">
                         <h5 className="font-semibold text-sm">{bed.name}</h5>
-                        {conflictCount>0 && <Chip tone="danger">⚠️</Chip>}
+                        {(plantings.some(p=> (conflictsFor(p).length>0) && p.garden_bed_id===bed.id)) && <Chip tone="danger">⚠️</Chip>}
                       </div>
                       {bed.is_greenhouse && <Chip>Kas</Chip>}
                     </div>
@@ -435,7 +428,22 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                                     <div className="flex items-center justify-between">
                                       <span className="truncate">{seed?.name ?? "—"}</span>
                                       {(i === p.start_segment) && (
-                                        <button className="text-white/80 hover:text-white" onClick={()=>{ if(confirm("Verwijderen?")) deletePlanting(p.id).then(reload); }}>✕</button>
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            className="p-0.5 hover:bg-white/20 rounded"
+                                            title="Bewerken"
+                                            onClick={() => setPopup({ mode:"edit", planting:p, seed:seed!, bed, segmentIndex: p.start_segment ?? 0 })}
+                                          >
+                                            <Edit3 className="w-3 h-3" />
+                                          </button>
+                                          <button
+                                            className="p-0.5 hover:bg-white/20 rounded"
+                                            title="Verwijderen"
+                                            onClick={()=>{ if(confirm("Verwijderen?")) deletePlanting(p.id).then(reload); }}
+                                          >
+                                            <Trash2 className="w-3 h-3" />
+                                          </button>
+                                        </div>
                                       )}
                                     </div>
                                     {/* conflicts inline */}
@@ -492,24 +500,20 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     </div>
   );
 
-  /* ===== MAP view — stutter fix: stable container dimensions ===== */
+  /* ===== MAP view — stutter fix + edit/delete overlay ===== */
   function PlannerMap() {
     const viewportRef = useRef<HTMLDivElement | null>(null);
     const BASE_W = 2400, BASE_H = 1400;
-    
-    // Initialize zoom from localStorage or fit
+
     const [zoom, setZoom] = useState(() => {
       const saved = localStorage.getItem("plannerMapZoom");
-      return saved ? parseFloat(saved) : 1; // Start with 1, will be set to fit if not manual
+      return saved ? parseFloat(saved) : 1;
     });
-    
     const [isInitialized, setIsInitialized] = useState(false);
-    const [isManualZoom, setIsManualZoom] = useState(() => {
-      return localStorage.getItem("plannerMapManualZoom") === "1";
-    });
-    
+    const [isManualZoom, setIsManualZoom] = useState(() => localStorage.getItem("plannerMapManualZoom") === "1");
+
     const clampZoom = (z:number) => Math.max(0.25, Math.min(3, z));
-    
+
     const fit = () => {
       const vp = viewportRef.current; if (!vp) return;
       const zx = (vp.clientWidth - 24) / BASE_W;
@@ -518,8 +522,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       setZoom(fitZoom);
       localStorage.setItem("plannerMapZoom", fitZoom.toString());
     };
-    
-    // Manual zoom handlers that set the manual flag
+
     const handleManualZoom = (newZoom: number) => {
       const clampedZoom = clampZoom(newZoom);
       setZoom(clampedZoom);
@@ -527,20 +530,15 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       localStorage.setItem("plannerMapZoom", clampedZoom.toString());
       localStorage.setItem("plannerMapManualZoom", "1");
     };
-    
     const handleFitClick = () => {
       fit();
       setIsManualZoom(false);
       localStorage.setItem("plannerMapManualZoom", "0");
     };
-    
+
     useEffect(()=>{ 
-      // Delay initialization to prevent flash
       const timer = setTimeout(() => {
-        // Only auto-fit if user hasn't manually zoomed
-        if (!isManualZoom) {
-          fit();
-        }
+        if (!isManualZoom) fit();
         setIsInitialized(true);
       }, 50);
       return () => clearTimeout(timer);
@@ -565,36 +563,19 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         <div 
           ref={viewportRef} 
           className="relative w-full h-[70vh] rounded-xl border overflow-auto bg-background"
-          style={{ 
-            // Prevent layout shifts during week transitions
-            minWidth: '100%',
-            minHeight: '70vh'
-          }}
+          style={{ minWidth: '100%', minHeight: '70vh' }}
         >
-          {/* Stable container with consistent dimensions */}
           <div 
             className="relative"
-            style={{ 
-              width: BASE_W * zoom,
-              height: BASE_H * zoom,
-              // Ensure smooth transitions
-              transition: isInitialized ? 'none' : 'opacity 0.1s ease-out',
-              opacity: isInitialized ? 1 : 0
-            }}
+            style={{ width: BASE_W * zoom, height: BASE_H * zoom, transition: isInitialized ? 'none' : 'opacity 0.1s ease-out', opacity: isInitialized ? 1 : 0 }}
           >
             <div
               className="absolute left-0 top-0"
               style={{
-                width: BASE_W, 
-                height: BASE_H,
-                transform: `scale(${zoom})`,
-                transformOrigin: "0 0",
-                willChange: "transform",
+                width: BASE_W, height: BASE_H,
+                transform: `scale(${zoom})`, transformOrigin: "0 0", willChange: "transform",
                 backgroundImage: "linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(180deg, rgba(0,0,0,0.04) 1px, transparent 1px)",
-                backgroundSize: "24px 24px",
-                borderRadius: 12,
-                // Prevent flash during re-renders
-                contain: "layout style paint"
+                backgroundSize: "24px 24px", borderRadius: 12, contain: "layout style paint"
               }}
             >
               {beds.map(bed=>{
@@ -654,6 +635,24 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                               style={{ ...rect, backgroundColor: color }}>
                               <span className="truncate">{seed?.name ?? "—"}</span>
                               {hasConflict && <span className="ml-1">⚠️</span>}
+
+                              {/* edit/delete overlay rechtsboven */}
+                              <div className="absolute top-0.5 right-0.5 flex gap-0.5">
+                                <button
+                                  className="p-0.5 rounded hover:bg-white/20"
+                                  title="Bewerken"
+                                  onClick={(e)=>{ e.stopPropagation(); setPopup({ mode:"edit", planting:p, seed:seed!, bed, segmentIndex: p.start_segment ?? 0 }); }}
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                </button>
+                                <button
+                                  className="p-0.5 rounded hover:bg-white/20"
+                                  title="Verwijderen"
+                                  onClick={(e)=>{ e.stopPropagation(); if (confirm("Verwijderen?")) deletePlanting(p.id).then(reload); }}
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
                             </div>
                           );
                         })}
@@ -762,39 +761,20 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         </div>
       </div>
 
-      {/* Enhanced Conflict Warning */}
+      {/* Conflict Warning */}
       {hasConflicts && (
         <ConflictWarning 
           conflictCount={conflictCount}
           onResolveAll={async () => {
-            // Auto-resolve conflicts with priority logic
             for (const [sourceId, impacted] of conflictsMap.entries()) {
               const source = plantings.find(p => p.id === sourceId);
               if (!source) continue;
-              
               const laterConflicts = impacted.filter(x => (x.planned_date ?? "") >= (source.planned_date ?? ""));
-              
               for (const target of laterConflicts) {
-                try {
-                  // Try priority 1: same bed, other segment
-                  await resolveSameDatesOtherSegment(source, target);
-                  break;
-                } catch {
-                  try {
-                    // Try priority 2: other bed, same dates
-                    await resolveSameDatesOtherBed(source, target);
-                    break;
-                  } catch {
-                    try {
-                      // Try priority 3: earliest available slot
-                      await resolveEarliestSlotMinWeeks(source, target);
-                      break;
-                    } catch {
-                      // Skip if all methods fail
-                      console.warn(`Could not auto-resolve conflict for ${target.id}`);
-                    }
-                  }
-                }
+                try { await resolveSameDatesOtherSegment(source, target); break; }
+                catch { try { await resolveSameDatesOtherBed(source, target); break; }
+                catch { try { await resolveEarliestSlotMinWeeks(source, target); break; }
+                catch { console.warn(`Auto-resolve faalde voor ${target.id}`); }}}
               }
             }
             await reload();
