@@ -61,15 +61,6 @@ function getWeekNumber(date: Date): number {
 export function TimelineView({ beds = [], plantings = [], seeds = [], conflictsMap = new Map(), currentWeek, onReload }: TimelineViewProps) {
   const [editPlanting, setEditPlanting] = useState<Planting | null>(null);
   
-  // Early return if no data
-  if (!beds.length) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        Geen bedden gevonden. Voeg eerst bedden toe in de instellingen.
-      </div>
-    );
-  }
-  
   // Create timeline segments with greenhouse/outdoor grouping
   const timelineSegments = useMemo((): TimelineSegment[] => {
     try {
@@ -289,17 +280,17 @@ export function TimelineView({ beds = [], plantings = [], seeds = [], conflictsM
     }
   };
 
-  return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h3 className="text-xl font-semibold">Timeline Weergave</h3>
-        <div className="flex items-center gap-3 text-sm">
-          <span className="text-muted-foreground">
-            Week {getWeekNumber(currentWeek)} - {formatDate(weekBounds.start)} t/m {formatDate(weekBounds.end)}
-          </span>
-        </div>
+return (
+  <div className="space-y-4">
+    {/* Header */}
+    <div className="flex items-center justify-between">
+      <h3 className="text-xl font-semibold">Timeline Weergave</h3>
+      <div className="flex items-center gap-3 text-sm">
+        <span className="text-muted-foreground">
+          Week {getWeekNumber(currentWeek)} - {formatDate(weekBounds.start)} t/m {formatDate(weekBounds.end)}
+        </span>
       </div>
+    </div>
 
       {/* Timeline Grid */}
       <div className="border rounded-lg overflow-hidden bg-white">
