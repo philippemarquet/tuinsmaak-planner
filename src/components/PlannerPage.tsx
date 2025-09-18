@@ -39,12 +39,6 @@ function planFromGroundDate(seed: Seed, method: "direct"|"presow", groundISO: st
   const presow = method === "presow" && seed.presow_duration_weeks
     ? toISO(addWeeks(ground, -(seed.presow_duration_weeks ?? 0)))
     : null;
-
-  // ...
-const conflictsMap = useMemo(
-  () => buildConflictsMap(plantings || []),
-  [plantings]
-);
   
   return {
     planned_date: groundISO,
@@ -201,14 +195,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     }
     return res;
   }
-  const conflictsMap = useMemo(() => {
-    const map = new Map<string, Planting[]>();
-    for (const p of plantings) {
-      const list = conflictsFor(p);
-      if (list.length) map.set(p.id, list);
-    }
-    return map;
-  }, [plantings]);
+  const conflictsMap = useMemo(() => buildConflictsMap(plantings || []), [plantings]);
 
   /* ===== practical resolver: target = later/impact crop ===== */
   function extrasBlockForSource(source: Planting) {
