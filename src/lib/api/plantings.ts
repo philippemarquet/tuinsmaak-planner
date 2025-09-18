@@ -1,4 +1,3 @@
-// src/lib/api/plantings.ts
 import { supabase } from "../supabaseClient";
 import type { Planting } from "../types";
 
@@ -36,11 +35,21 @@ export async function createPlanting(input: CreatePlantingInput): Promise<Planti
   return data as unknown as Planting;
 }
 
-type UpdatePlantingInput = Partial<Pick<
-  CreatePlantingInput,
-  "method" | "planned_date" | "planned_harvest_start" | "planned_harvest_end" |
-  "start_segment" | "segments_used" | "color" | "status"
->>;
+type UpdatePlantingInput = Partial<
+  Pick<
+    CreatePlantingInput,
+    "method" | "planned_date" | "planned_harvest_start" | "planned_harvest_end" |
+    "start_segment" | "segments_used" | "color" | "status"
+  >
+> & {
+  planned_presow_date?: string | null;
+  garden_bed_id?: string;
+
+  actual_presow_date?: string | null;
+  actual_ground_date?: string | null;
+  actual_harvest_start?: string | null;
+  actual_harvest_end?: string | null;
+};
 
 export async function updatePlanting(id: string, input: UpdatePlantingInput): Promise<Planting> {
   const { data, error } = await supabase
