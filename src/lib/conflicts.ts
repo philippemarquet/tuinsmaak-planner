@@ -1,5 +1,5 @@
 // src/lib/conflicts.ts
-import type { Planting } from "./types";
+import type { Planting, Seed } from "./types";
 
 /** Inclusief op dag-niveau: overlap als aStart <= bEnd && bStart <= aEnd */
 function intervalsOverlapDayInclusive(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
@@ -17,13 +17,43 @@ type Window = { start: Date | null; end: Date | null };
 
 /**
  * Occupancy window:
- * - Start = (actual_ground_date ?? planned_date)
- * - End   = (actual_harvest_end ?? planned_harvest_end)
- * We nemen 'actual' voorkeur, maar vallen terug op 'planned'.
+ * - Start = (actual_ground_date ?? calculated from actual_presow_date ?? planned_date)
+ * - End   = (actual_harvest_end ?? calculated from new ground date ?? planned_harvest_end)
+ * We nemen 'actual' voorkeur, berekenen indien nodig, en vallen terug op 'planned'.
  */
-export function occupancyWindow(p: Planting): Window {
-  const startISO = (p.actual_ground_date ?? p.planned_date) ?? null;
-  const endISO   = (p.actual_harvest_end ?? p.planned_harvest_end) ?? null;
+export function occupancyWindow(p: Planting, seed?: Seed): Window {
+  let startISO: string | null = null;
+  let endISO: string | null = null;
+
+  // Bepaal start datum
+  if (p.actual_ground_date) {
+    startISO = p.actual_ground_date;
+  } else if (p.actual_presow_date && seed?.presow_duration_weeks) {
+    // Bereken nieuwe ground date op basis van actual presow + duration
+    const actualPresowDate = new Date(p.actual_presow_date);
+    if (!isNaN(actualPresowDate.getTime())) {
+      const newGroundDate = new Date(actualPresowDate);
+      newGroundDate.setDate(newGroundDate.getDate() + (seed.presow_duration_weeks * 7));
+      startISO = newGroundDate.toISOString().split('T')[0];
+    }
+  } else {
+    startISO = p.planned_date;
+  }
+
+  // Bepaal eind datum
+  if (p.actual_harvest_end) {
+    endISO = p.actual_harvest_end;
+  } else if (startISO && p.actual_presow_date && seed?.harvest_duration_weeks) {
+    // Als we een nieuwe ground date hebben berekend, bereken ook nieuwe harvest end
+    const groundDate = new Date(startISO);
+    if (!isNaN(groundDate.getTime())) {
+      const newHarvestEnd = new Date(groundDate);
+      newHarvestEnd.setDate(newHarvestEnd.getDate() + (seed.harvest_duration_weeks * 7));
+      endISO = newHarvestEnd.toISOString().split('T')[0];
+    }
+  } else {
+    endISO = p.planned_harvest_end;
+  }
 
   if (!startISO || !endISO) return { start: null, end: null };
 
@@ -48,21 +78,29 @@ function segUsed(p: Planting)  { return Math.max(1, p.segments_used ?? 1); }
  * Kern: geeft voor elk planting.id de lijst met andere plantingen waarmee een conflict bestaat.
  * Een conflict = (zelfde bak) ∧ (datums overlappen dag-inclusief) ∧ (segmenten overlappen).
  */
-export function buildConflictsMap(plantings: Planting[]): Map<string, Planting[]> {
+export function buildConflictsMap(plantings: Planting[], seeds: Seed[] = []): Map<string, Planting[]> {
   const map = new Map<string, Planting[]>();
   for (const p of plantings) map.set(p.id, []);
+
+  // Maak seed lookup map
+  const seedsById = new Map<string, Seed>();
+  for (const seed of seeds) {
+    seedsById.set(seed.id, seed);
+  }
 
   const n = plantings.length;
   for (let i = 0; i < n; i++) {
     const a = plantings[i];
-    const wa = occupancyWindow(a);
+    const seedA = seedsById.get(a.seed_id);
+    const wa = occupancyWindow(a, seedA);
     if (!wa.start || !wa.end) continue;
 
     for (let j = i + 1; j < n; j++) {
       const b = plantings[j];
       if (!sameBed(a, b)) continue;
 
-      const wb = occupancyWindow(b);
+      const seedB = seedsById.get(b.seed_id);
+      const wb = occupancyWindow(b, seedB);
       if (!wb.start || !wb.end) continue;
 
       // Datums overlappen?

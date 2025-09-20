@@ -131,7 +131,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const plantingsById = useMemo(() => Object.fromEntries(plantings.map(p => [p.id, p])), [plantings]);
 
   /* ---------- conflicts ---------- */
-  const conflictsMap = useMemo(() => buildConflictsMap(plantings), [plantings]);
+  const conflictsMap = useMemo(() => buildConflictsMap(plantings, seeds), [plantings, seeds]);
   const totalConflicts = useMemo(() => countUniqueConflicts(conflictsMap), [conflictsMap]);
   
   // Update conflict flags consistently

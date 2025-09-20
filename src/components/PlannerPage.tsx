@@ -196,7 +196,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     }
     return res;
   }
-  const conflictsMap = useMemo(() => buildConflictsMap(plantings || []), [plantings]);
+  const conflictsMap = useMemo(() => buildConflictsMap(plantings || [], seeds || []), [plantings, seeds]);
 
   /* ===== practical resolver: target = later/impact crop ===== */
   function extrasBlockForSource(source: Planting) {

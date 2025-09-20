@@ -2,6 +2,7 @@
 import { useMemo, useState } from "react";
 import type { GardenBed, Planting, Seed } from "../lib/types";
 import { deletePlanting, updatePlanting } from "../lib/api/plantings";
+import { occupancyWindow } from "../lib/conflicts";
 import { Trash2, Edit3, AlertTriangle } from "lucide-react";
 
 interface TimelineViewProps {
@@ -104,9 +105,16 @@ export function TimelineView({
 
     for (const p of plantings) {
       if (!p?.id || !p?.garden_bed_id || !p?.seed_id) continue;
-      const start = parseISO(p.planned_date);
-      const end = parseISO(p.planned_harvest_end);
-      if (!start || !end) continue;
+      
+      const seed = seedById[p.seed_id];
+      if (!seed) continue;
+
+      // Use occupancyWindow for consistent date calculation
+      const window = occupancyWindow(p, seed);
+      if (!window.start || !window.end) continue;
+
+      const start = window.start;
+      const end = window.end;
 
       const seedName = seedById[p.seed_id]?.name || "Onbekend";
       const color = p.color && (p.color.startsWith("#") || p.color.startsWith("rgb")) ? p.color : "#22c55e";
