@@ -6,6 +6,7 @@ import { listSeeds } from "../lib/api/seeds";
 import { listTasks, updateTask } from "../lib/api/tasks";
 import { buildConflictsMap, countUniqueConflicts } from "../lib/conflicts";
 import { ConflictWarning } from "./ConflictWarning";
+import { useConflictFlags } from "../hooks/useConflictFlags";
 
 /* ---------- helpers ---------- */
 function toISO(d: Date) { return d.toISOString().slice(0, 10); }
@@ -132,6 +133,9 @@ export function Dashboard({ garden }: { garden: Garden }) {
   /* ---------- conflicts ---------- */
   const conflictsMap = useMemo(() => buildConflictsMap(plantings), [plantings]);
   const totalConflicts = useMemo(() => countUniqueConflicts(conflictsMap), [conflictsMap]);
+  
+  // Update conflict flags consistently
+  useConflictFlags(totalConflicts);
 
   /* ---------- indexeer tasks per planting & type ---------- */
   const tasksIndex = useMemo(() => {
@@ -271,6 +275,14 @@ export function Dashboard({ garden }: { garden: Garden }) {
       localStorage.setItem("plannerFlashAt", String(Date.now()));
     } catch {}
   }
+
+  // Update conflict flags in localStorage consistently
+  useEffect(() => {
+    try {
+      localStorage.setItem("plannerHasConflicts", totalConflicts > 0 ? "1" : "0");
+      localStorage.setItem("plannerConflictCount", String(totalConflicts));
+    } catch {}
+  }, [totalConflicts]);
 
   async function reloadAll() {
     const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);

@@ -42,15 +42,13 @@ export function TopNav() {
   }, []);
 
   const handlePlannerClick = () => {
-    try {
-      if (hasConflicts && typeof window !== 'undefined' && window.localStorage) {
-        localStorage.setItem("plannerOpenTab", "conflicts");
-      }
-      window.location.href = "/planner";
-    } catch (error) {
-      console.error("Error navigating to planner:", error);
-      window.location.href = "/planner";
+    if (hasConflicts) {
+      localStorage.setItem("plannerOpenTab", "conflicts");
     }
+    // Dispatch custom event to navigate
+    window.dispatchEvent(new CustomEvent('navigateToPlanner', { 
+      detail: { tab: hasConflicts ? "conflicts" : "list" } 
+    }));
   };
 
   return (

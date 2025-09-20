@@ -30,9 +30,42 @@ export default function App() {
     return saved ?? "dashboard";
   });
 
+  const [conflictCount, setConflictCount] = useState(0);
+  const [hasConflicts, setHasConflicts] = useState(false);
+
   useEffect(() => {
     localStorage.setItem("activeTab", activeTab);
   }, [activeTab]);
+
+  // Listen for conflict updates
+  useEffect(() => {
+    const checkConflicts = () => {
+      try {
+        const conflictCountStr = localStorage.getItem("plannerConflictCount");
+        const hasConflictsStr = localStorage.getItem("plannerHasConflicts");
+        const count = parseInt(conflictCountStr || "0", 10);
+        const hasC = hasConflictsStr === "1";
+        setConflictCount(count);
+        setHasConflicts(hasC);
+      } catch {}
+    };
+
+    checkConflicts();
+    const interval = setInterval(checkConflicts, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Listen for planner navigation events
+  useEffect(() => {
+    const handlePlannerNavigation = (event: CustomEvent) => {
+      const { tab } = event.detail;
+      setActiveTab("planner");
+      // Let PlannerPage handle the specific tab via localStorage
+    };
+
+    window.addEventListener('navigateToPlanner', handlePlannerNavigation as EventListener);
+    return () => window.removeEventListener('navigateToPlanner', handlePlannerNavigation as EventListener);
+  }, []);
 
   // Gebruik een vaste garden object met de vaste ID
   const garden = { 
@@ -83,7 +116,14 @@ export default function App() {
                         : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted",
                     ].join(" ")}
                   >
-                    {t.label}
+                    <span className="flex items-center gap-2">
+                      {t.label}
+                      {t.key === "planner" && hasConflicts && (
+                        <span className="inline-flex items-center justify-center w-5 h-5 text-[10px] bg-red-500 text-white rounded-full">
+                          ⚠️
+                        </span>
+                      )}
+                    </span>
                   </button>
                 );
               })}

@@ -6,9 +6,10 @@ import { createPlanting, listPlantings, deletePlanting, updatePlanting } from ".
 import { DndContext, useDraggable, useDroppable, DragOverlay } from "@dnd-kit/core";
 import { supabase } from "../lib/supabaseClient";
 import { TimelineView } from "./TimelineView";
-import { buildConflictsMap } from "../lib/conflicts";
+import { buildConflictsMap, countUniqueConflicts } from "../lib/conflicts";
 import { ConflictWarning } from "./ConflictWarning";
 import { Edit3, Trash2 } from "lucide-react";
+import { useConflictFlags } from "../hooks/useConflictFlags";
 
 /* ===== helpers ===== */
 const toISO = (d: Date) => d.toISOString().slice(0, 10);
@@ -286,17 +287,10 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   }, [seeds, q, inStockOnly, inPlanner, greenhouseOnly, plantings]);
 
   /* ===== UI: header & tabs ===== */
-  const conflictCount = Array.from(conflictsMap.values()).reduce((acc, v)=>acc+v.length, 0);
-  const hasConflicts = conflictCount > 0;
-
-  useEffect(() => {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        localStorage.setItem("plannerHasConflicts", hasConflicts ? "1" : "0");
-        localStorage.setItem("plannerConflictCount", String(conflictCount || 0));
-      }
-    } catch {}
-  }, [hasConflicts, conflictCount]);
+  const conflictCount = useMemo(() => countUniqueConflicts(conflictsMap), [conflictsMap]);
+  
+  // Update conflict flags consistently
+  const { hasConflicts } = useConflictFlags(conflictCount);
 
   const pendingBadge = hasConflicts ? (
     <div className="flex items-center gap-2">
