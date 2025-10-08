@@ -51,13 +51,13 @@ export function occupancyWindow(p: Planting, seed?: Seed): Window {
   // Bepaal eind datum
   if (p.actual_harvest_end) {
     endISO = p.actual_harvest_end;
-  } else if (startISO && p.actual_presow_date && seed?.harvest_duration_weeks) {
-    // Als we een nieuwe ground date hebben berekend, bereken ook nieuwe harvest end
+  } else if (startISO && seed && seed.grow_duration_weeks != null && seed.harvest_duration_weeks != null) {
+    // Recalculate harvest end from ground date using grow + harvest durations
     const groundDate = new Date(startISO);
     if (!isNaN(groundDate.getTime())) {
-      const newHarvestEnd = new Date(groundDate);
-      newHarvestEnd.setDate(newHarvestEnd.getDate() + (seed.harvest_duration_weeks * 7));
-      endISO = newHarvestEnd.toISOString().split('T')[0];
+      const end = new Date(groundDate);
+      end.setDate(end.getDate() + ((seed.grow_duration_weeks + seed.harvest_duration_weeks) * 7));
+      endISO = end.toISOString().split('T')[0];
     }
   } else {
     endISO = p.planned_harvest_end;
