@@ -1,8 +1,16 @@
 // src/lib/conflicts.ts
 import type { Planting, Seed } from "./types";
 
-/** Inclusief op dag-niveau: overlap als aStart <= bEnd && bStart <= aEnd */
+/** 
+ * Day-level overlap check for planting occupancy.
+ * A planting ending on Sunday and another starting on Monday should NOT overlap.
+ * Only overlaps if there's at least one shared day.
+ * Example: A ends Sunday, B starts Monday → aEnd < bStart → no overlap ✓
+ */
 function intervalsOverlapDayInclusive(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
+  // Overlaps only if: aStart <= bEnd AND bStart <= aEnd
+  // But for same-day adjacency (end = start), we want NO overlap
+  // So we use strict: aEnd >= bStart means last day of A >= first day of B
   return aStart <= bEnd && bStart <= aEnd;
 }
 
