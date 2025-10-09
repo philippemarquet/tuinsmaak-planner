@@ -485,65 +485,47 @@ export function Dashboard({ garden }: { garden: Garden }) {
                     </div>
                   </div>
 
-                  {/* midden: timeline */}
+                  {/* midden: milestones lijst i.p.v. overlappende tijdlijn */}
                   <div className="col-span-12 md:col-span-8">
-                    <div className="relative h-12">
-                      <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[6px] rounded bg-muted" />
-                      <div className="absolute top-0 bottom-0 w-[2px] bg-primary/60"
-                           style={{ left: `${pctInRange(todayDate, start, end)}%` }} title="Vandaag" />
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                       {ms.map((m, idx) => {
-                        const baseISO = m.actualISO ?? m.task?.due_date ?? m.plannedISO;
-                        if (!baseISO) return null;
-                        const d = new Date(baseISO);
-                        const pct = pctInRange(d, start, end);
-                        const isDone = m.status === "done"; // groen zodra er een actual is of task done
+                        const isDone = m.status === "done";
                         const isNext = next && idx === next.index && !isDone;
-                        const isLatePending = isNext && m.task?.due_date && new Date(m.task.due_date) < todayDate;
-
-                        const canFill = isDone || isNext; // done mag je bewerken/legen
-                        const dotClasses = [
-                          "absolute -translate-x-1/2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border shadow",
-                          canFill ? "cursor-pointer" : "cursor-not-allowed opacity-60",
-                          isDone ? "bg-green-500 border-green-600"
-                                 : isNext ? "bg-yellow-400 border-yellow-500"
-                                          : "bg-gray-300 border-gray-400",
-                          isLatePending ? "ring-2 ring-red-400" : "",
-                        ].join(" ");
-                        const title =
-                          `${m.label}` +
+                        const isPending = !isDone && !isNext;
+                        const baseISO = m.actualISO ?? m.task?.due_date ?? m.plannedISO;
+                        const title = `${m.label}` +
                           (m.actualISO ? ` • uitgevoerd: ${fmtDMY(m.actualISO)}` :
                            m.task?.due_date ? ` • gepland: ${fmtDMY(m.task.due_date)}` :
                            m.plannedISO ? ` • gepland: ${fmtDMY(m.plannedISO)}` : "");
-
+                        const bulletCls = isDone
+                          ? "bg-green-500 border-green-600"
+                          : isNext
+                          ? "bg-yellow-400 border-yellow-500"
+                          : "bg-gray-300 border-gray-400";
+                        const canClick = isDone || isNext;
                         return (
-                          <div key={m.id}>
-                            <div
-                              className={dotClasses}
-                              style={{ left: `${pct}%` }}
-                              title={canFill ? title : "Je kunt alleen de eerstvolgende actie invullen"}
-                              onClick={() => {
-                                if (!canFill) return;
-                                const t = m.task; if (!t) return;
-                                const defaultISO = (m.actualISO || toISO(new Date()));
-                                setDialog({ task: t, dateISO: defaultISO, hasActual: !!m.actualISO });
-                              }}
-                            >
-                              {isDone && <span className="text-[10px] text-white grid place-items-center w-full h-full">✓</span>}
-                            </div>
-                            {/* datumlabel onder de dot */}
-                            <div
-                              className="absolute -translate-x-1/2 top-[calc(50%+14px)] text-[10px] text-muted-foreground"
-                              style={{ left: `${pct}%` }}
-                            >
-                              {fmtDMY(m.actualISO ?? m.plannedISO ?? m.task?.due_date ?? null)}
-                            </div>
-                          </div>
+                          <button
+                            key={m.id}
+                            type="button"
+                            className={`flex items-center gap-2 p-2 rounded border bg-background text-left ${canClick?"hover:bg-muted cursor-pointer":"opacity-60 cursor-not-allowed"}`}
+                            title={canClick ? title : "Je kunt alleen de eerstvolgende actie invullen"}
+                            onClick={() => {
+                              if (!canClick) return;
+                              const t = m.task; if (!t) return;
+                              const defaultISO = (m.actualISO || toISO(new Date()));
+                              setDialog({ task: t, dateISO: defaultISO, hasActual: !!m.actualISO });
+                            }}
+                          >
+                            <span className={`inline-flex w-4 h-4 rounded-full border shadow ${bulletCls}`} />
+                            <span className="text-xs flex-1 min-w-0">
+                              <span className="block font-medium truncate">{m.label}</span>
+                              <span className="block text-muted-foreground truncate">
+                                {baseISO ? fmtDMY(baseISO) : "—"}
+                              </span>
+                            </span>
+                          </button>
                         );
                       })}
-                      <div className="absolute left-0 right-0 -bottom-1.5 flex justify-between text-[10px] text-muted-foreground">
-                        <span>{fmtDMY(toISO(start))}</span>
-                        <span>{fmtDMY(toISO(end))}</span>
-                      </div>
                     </div>
                   </div>
                 </div>

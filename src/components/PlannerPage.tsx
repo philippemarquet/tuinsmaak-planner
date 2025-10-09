@@ -320,29 +320,29 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     setPopup({ mode:"create", seed, bed, segmentIndex: parseInt(segStr, 10) });
   }
 
-  /* ===== CRUD helpers for planting dialog ===== */
   async function handleConfirmPlanting(opts:{
     mode:"create"|"edit";
     target:{ seed:Seed; bed:GardenBed; segmentIndex:number; planting?:Planting };
-    segmentsUsed:number; method:"direct"|"presow"; dateISO:string; color:string;
+    segmentsUsed:number; method:"direct"|"presow"; dateISO:string; color:string; bedIdOverride?: string;
   }) {
-    const { mode, target, segmentsUsed, method, dateISO, color } = opts;
+    const { mode, target, segmentsUsed, method, dateISO, color, bedIdOverride } = opts;
     const { seed, bed, planting } = target;
+    const bedToUse = bedIdOverride ? (beds.find(b=>b.id===bedIdOverride) ?? bed) : bed;
     if (!seed.grow_duration_weeks || !seed.harvest_duration_weeks) { notify("Vul groei-/oogstduur bij het zaad.", "err"); return; }
     if (method==="presow" && !seed.presow_duration_weeks) { notify("Voorzaaien vereist voorzaai-weken bij het zaad.", "err"); return; }
 
-const plantDate = new Date(dateISO);
-const hs = addWeeks(plantDate, seed.grow_duration_weeks!);
-const he = addDays(addWeeks(hs, seed.harvest_duration_weeks!), -1);
-    const segUsed = clamp(segmentsUsed, 1, bed.segments - (target.segmentIndex ?? 0));
+    const plantDate = new Date(dateISO);
+    const hs = addWeeks(plantDate, seed.grow_duration_weeks!);
+    const he = addDays(addWeeks(hs, seed.harvest_duration_weeks!), -1);
+    const segUsed = clamp(segmentsUsed, 1, bedToUse.segments - (target.segmentIndex ?? 0));
 
-    if (wouldOverlapWith(plantings, bed.id, (planting?.start_segment ?? target.segmentIndex) ?? 0, segUsed, plantDate, he, planting?.id)) {
+    if (wouldOverlapWith(plantings, bedToUse.id, (planting?.start_segment ?? target.segmentIndex) ?? 0, segUsed, plantDate, he, planting?.id)) {
       notify("Deze planning botst in tijd/segment.", "err"); return;
     }
 
     if (mode==="create") {
       await createPlanting({
-        seed_id: seed.id, garden_bed_id: bed.id, garden_id: bed.garden_id,
+        seed_id: seed.id, garden_bed_id: bedToUse.id, garden_id: bedToUse.garden_id,
         planned_date: toISO(plantDate), planned_harvest_start: toISO(hs), planned_harvest_end: toISO(he),
         planned_presow_date: method==="presow" && seed.presow_duration_weeks ? toISO(addWeeks(plantDate, -(seed.presow_duration_weeks??0))) : null,
         method, segments_used: segUsed, start_segment: target.segmentIndex, color: color || seed.default_color || "#22c55e", status: "planned",
@@ -350,7 +350,7 @@ const he = addDays(addWeeks(hs, seed.harvest_duration_weeks!), -1);
       await reload(); setPopup(null); notify("Planting toegevoegd.", "ok");
     } else {
       await updatePlanting(planting!.id, {
-        garden_bed_id: bed.id,
+        garden_bed_id: bedToUse.id,
         planned_date: toISO(plantDate), planned_harvest_start: toISO(hs), planned_harvest_end: toISO(he),
         planned_presow_date: method==="presow" && seed.presow_duration_weeks ? toISO(addWeeks(plantDate, -(seed.presow_duration_weeks??0))) : null,
         method, segments_used: segUsed, start_segment: planting?.start_segment ?? target.segmentIndex, color: color || planting?.color || seed.default_color || "#22c55e",
@@ -838,14 +838,15 @@ const he = addDays(addWeeks(hs, seed.harvest_duration_weeks!), -1);
               mode={popup.mode}
               seed={popup.seed}
               bed={popup.bed}
+              beds={beds}
               defaultSegment={popup.segmentIndex}
               defaultDateISO={popup.mode==="edit" ? (popup.planting.planned_date ?? toISO(currentWeek)) : toISO(currentWeek)}
               existing={popup.mode==="edit" ? popup.planting : undefined}
               onCancel={()=>setPopup(null)}
-              onConfirm={(segmentsUsed, method, date, color)=>handleConfirmPlanting({
+              onConfirm={(segmentsUsed, method, date, color, bedId)=>handleConfirmPlanting({
                 mode: popup.mode,
                 target: popup.mode==="create" ? { seed: popup.seed, bed: popup.bed, segmentIndex: popup.segmentIndex } : { seed: popup.seed, bed: popup.bed, segmentIndex: popup.segmentIndex, planting: popup.planting },
-                segmentsUsed, method, dateISO: date, color
+                segmentsUsed, method, dateISO: date, color, bedIdOverride: bedId
               })}
             />
           </div>
@@ -864,19 +865,20 @@ const he = addDays(addWeeks(hs, seed.harvest_duration_weeks!), -1);
 
 /* ===== PlantingForm ===== */
 function PlantingForm({
-  mode, seed, bed, defaultSegment, defaultDateISO, existing, onCancel, onConfirm,
+  mode, seed, bed, defaultSegment, defaultDateISO, existing, beds, onCancel, onConfirm,
 }:{
   mode:"create"|"edit"; seed:Seed; bed:GardenBed; defaultSegment:number; defaultDateISO:string;
-  existing?:Planting; onCancel:()=>void; onConfirm:(segmentsUsed:number, method:"direct"|"presow", dateISO:string, color:string)=>void;
+  existing?:Planting; beds:GardenBed[]; onCancel:()=>void; onConfirm:(segmentsUsed:number, method:"direct"|"presow", dateISO:string, color:string, bedId:string)=>void;
 }) {
   const [segmentsUsed, setSegmentsUsed] = useState<number>(existing?.segments_used ?? 1);
   const [method, setMethod] = useState<"direct"|"presow">(existing?.method ?? ((seed.sowing_type==="direct"||seed.sowing_type==="presow")?seed.sowing_type:"direct"));
   const [date, setDate] = useState<string>(existing?.planned_date ?? defaultDateISO);
   const [color, setColor] = useState<string>(() => existing?.color?.startsWith("#") ? existing.color : (seed.default_color?.startsWith("#")?seed.default_color:"#22c55e"));
+  const [bedId, setBedId] = useState<string>(existing?.garden_bed_id ?? bed.id);
   const maxSeg = Math.max(1, bed.segments - defaultSegment);
 
   return (
-    <form onSubmit={e=>{ e.preventDefault(); onConfirm(segmentsUsed, method, date, color); }} className="space-y-4">
+    <form onSubmit={e=>{ e.preventDefault(); onConfirm(segmentsUsed, method, date, color, bedId); }} className="space-y-4">
       <div>
         <label className="block text-sm font-medium mb-1">Aantal segmenten</label>
         <input type="number" min={1} max={maxSeg} value={segmentsUsed} onChange={e=>setSegmentsUsed(Number(e.target.value))} className="border rounded px-2 py-1 w-full" />
