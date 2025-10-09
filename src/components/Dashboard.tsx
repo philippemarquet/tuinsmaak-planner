@@ -5,7 +5,6 @@ import { listPlantings, updatePlanting } from "../lib/api/plantings";
 import { listSeeds } from "../lib/api/seeds";
 import { listTasks, updateTask } from "../lib/api/tasks";
 import { buildConflictsMap, countUniqueConflicts } from "../lib/conflicts";
-import { ConflictWarning } from "./ConflictWarning";
 import { useConflictFlags } from "../hooks/useConflictFlags";
 
 /* ---------- helpers ---------- */
@@ -134,7 +133,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const conflictsMap = useMemo(() => buildConflictsMap(plantings, seeds), [plantings, seeds]);
   const totalConflicts = useMemo(() => countUniqueConflicts(conflictsMap), [conflictsMap]);
   
-  // Update conflict flags consistently
+  // Update conflict flags (badge elders)
   useConflictFlags(totalConflicts);
 
   /* ---------- indexeer tasks per planting & type ---------- */
@@ -276,7 +275,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
     } catch {}
   }
 
-  // Update conflict flags in localStorage consistently
+  // Update conflict flags in localStorage
   useEffect(() => {
     try {
       localStorage.setItem("plannerHasConflicts", totalConflicts > 0 ? "1" : "0");
@@ -323,7 +322,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
       setPlantings(prev => prev.map(x => x.id === task.planting_id ? { ...x, [field]: performedISO } as any : x));
       setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: "done" } : t));
 
-      // 2) Vanaf deze actual de hele keten opnieuw herleiden (incl. plantdatum bij presow)
+      // 2) Vanaf deze actual de keten herleiden (alleen deze planting)
       const anchorType = anchorTypeFor(task, pl);
       const plan = computePlanFromAnchor({
         method: (pl.method as "direct"|"presow"),
@@ -335,7 +334,6 @@ export function Dashboard({ garden }: { garden: Garden }) {
       try {
         await updatePlanting(task.planting_id, plan as any);
       } catch (e) {
-        // Plan past niet → oké; we tonen het conflict zo.
         console.warn("Plan update gaf fout (waarschijnlijk overlap):", e);
       }
 
@@ -347,7 +345,6 @@ export function Dashboard({ garden }: { garden: Garden }) {
       const cmap = buildConflictsMap(p, seeds);
       const conflicts = cmap.get(task.planting_id) ?? [];
       
-      // Just ping planner if conflicts exist - no popup
       if (conflicts.length > 0) {
         pingPlannerConflict(task.planting_id);
       }
@@ -418,19 +415,25 @@ export function Dashboard({ garden }: { garden: Garden }) {
         </button>
       </div>
 
-      {/* Duidelijke warning bovenaan */}
-      <ConflictWarning
-        conflictCount={totalConflicts}
-        onResolveAll={() => {
-          // Redirect to planner conflicts tab
-          try {
-            localStorage.setItem("plannerNeedsAttention", "1");
-            localStorage.setItem("plannerOpenTab", "conflicts");
-            window.location.hash = "#planner";
-          } catch {}
-        }}
-        onDismiss={undefined}
-      />
+      {/* Conflict banner (alleen info; geen auto-oplossen meer) */}
+      {totalConflicts > 0 && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 text-amber-900 p-3 flex items-center justify-between">
+          <div className="text-sm">
+            ⚠️ {totalConflicts} conflict{totalConflicts!==1?"en":""} gedetecteerd. Bekijk en los op in de Planner (tabblad “Conflicten”).
+          </div>
+          <button
+            className="text-sm px-2 py-1 rounded border border-amber-300 hover:bg-amber-100"
+            onClick={() => {
+              try {
+                localStorage.setItem("plannerOpenTab", "conflicts");
+                window.location.hash = "#planner";
+              } catch {}
+            }}
+          >
+            Open conflicten
+          </button>
+        </div>
+      )}
 
       <section className="space-y-3">
         {plantingsSorted.length === 0 ? (
@@ -485,7 +488,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
                     </div>
                   </div>
 
-                  {/* midden: milestones lijst i.p.v. overlappende tijdlijn */}
+                  {/* midden: milestones lijst */}
                   <div className="col-span-12 md:col-span-8">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                       {ms.map((m, idx) => {
