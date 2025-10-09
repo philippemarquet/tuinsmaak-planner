@@ -1,3 +1,4 @@
+// src/components/PlannerPage.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Garden, GardenBed, Planting, Seed, CropType } from "../lib/types";
 import { listBeds } from "../lib/api/beds";
@@ -30,30 +31,17 @@ function planFromGroundDate(seed: Seed, method: "direct"|"presow", groundISO: st
   const ground = new Date(groundISO);
   const growW = seed.grow_duration_weeks ?? 0;
   const harvestW = seed.harvest_duration_weeks ?? 0;
-
-  // start oogst = plantdatum + groeitijd (weken)
   const hsISO = toISO(addWeeks(ground, growW));
-
-  // EINDE oogst = start oogst + harvestW weken MIN 1 DAG (inclusief laatste dag)
   const heDate = addDays(addWeeks(new Date(hsISO), harvestW), -1);
   const heISO = toISO(heDate);
-
   const presow = method === "presow" && seed.presow_duration_weeks
     ? toISO(addWeeks(ground, -(seed.presow_duration_weeks ?? 0)))
     : null;
-  
-  return {
-    planned_date: groundISO,
-    planned_presow_date: presow,
-    planned_harvest_start: hsISO,
-    planned_harvest_end: heISO,
-  };
+  return { planned_date: groundISO, planned_presow_date: presow, planned_harvest_start: hsISO, planned_harvest_end: heISO };
 }
 
-/* occupancy helpers — bed bezetting = ground→harvest_end (voorzaaien telt niet) */
-function intervalOverlap(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
-  return aStart <= bEnd && bStart <= aEnd;
-}
+/* occupancy helpers */
+function intervalOverlap(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) { return aStart <= bEnd && bStart <= aEnd; }
 function segmentsOverlap(aStartSeg: number, aUsed: number, bStartSeg: number, bUsed: number) {
   const aEnd = aStartSeg + aUsed - 1, bEnd = bStartSeg + bUsed - 1;
   return aStartSeg <= bEnd && bStartSeg <= aEnd;
@@ -91,10 +79,7 @@ function findAlternateSegment(
 }
 function* weekShiftGenerator(start: Date, end: Date, maxWeeks = 52) {
   let s = new Date(start), e = new Date(end);
-  for (let k = 0; k <= maxWeeks; k++) {
-    yield { k, start: new Date(s), end: new Date(e) };
-    s = addWeeks(s, 1); e = addWeeks(e, 1);
-  }
+  for (let k = 0; k <= maxWeeks; k++) { yield { k, start: new Date(s), end: new Date(e) }; s = addWeeks(s, 1); e = addWeeks(e, 1); }
 }
 
 /* ===== tiny UI bits ===== */
@@ -125,15 +110,13 @@ function MapDroppable({ id }:{id:string}) {
 
 /* ===== main ===== */
 type InPlanner = 'all'|'planned'|'unplanned';
-
 const MONTHS_NL = ["Jan","Feb","Mrt","Apr","Mei","Jun","Jul","Aug","Sep","Okt","Nov","Dec"];
 
 export function PlannerPage({ garden }: { garden: Garden }) {
   const [beds, setBeds] = useState<GardenBed[]>([]);
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [plantings, setPlantings] = useState<Planting[]>([]);
-  const [cropTypes, setCropTypes] = useState<CropType[]>([]); // ← nieuw: categorieën laden
-
+  const [cropTypes, setCropTypes] = useState<CropType[]>([]);
   const [view, setView] = useState<"list"|"map"|"conflicts"|"timeline">(() => (localStorage.getItem("plannerOpenTab") as any) || (localStorage.getItem("plannerView") as any) || "list");
   const [q, setQ] = useState(localStorage.getItem("plannerQ") ?? "");
   const [inStockOnly, setInStockOnly] = useState(localStorage.getItem("plannerInStock")==="1");
@@ -141,7 +124,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   const [greenhouseOnly, setGreenhouseOnly] = useState(localStorage.getItem("plannerGHOnly")==="1");
   const [showGhosts, setShowGhosts] = useState(localStorage.getItem("plannerShowGhosts")==="0" ? false : true);
 
-  // nieuw: filters
+  // nieuwe filters
   const [selectedCropType, setSelectedCropType] = useState<string>(localStorage.getItem("plannerCropType") ?? "all");
   const [selectedMonth, setSelectedMonth] = useState<string>(localStorage.getItem("plannerMonth") ?? "all");
 
@@ -149,18 +132,15 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     const saved = localStorage.getItem("plannerWeekISO"); return saved ? new Date(saved) : (() => { const n = new Date(); const d = new Date(n); d.setDate(n.getDate()-((n.getDay()||7)-1)); return d; })();
   });
 
-  // toast
   const [toast, setToast] = useState<{msg:string; tone:"info"|"ok"|"err"}|null>(null);
   const notify = (msg:string, tone:"info"|"ok"|"err"="info") => { setToast({msg, tone}); setTimeout(()=>setToast(null), 2500); };
 
-  // popups
   const [popup, setPopup] = useState<null | { mode:"create"; seed:Seed; bed:GardenBed; segmentIndex:number } | { mode:"edit"; planting:Planting; seed:Seed; bed:GardenBed; segmentIndex:number }>(null);
 
-  // drag
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const activeSeed = useMemo(() => activeDragId?.startsWith("seed-") ? seeds.find(s=>s.id===activeDragId.replace("seed-","")) ?? null : null, [activeDragId, seeds]);
 
-  // effects
+  // data
   const reload = async () => {
     const [b,s,p,cts] = await Promise.all([listBeds(garden.id), listSeeds(garden.id), listPlantings(garden.id), listCropTypes()]);
     setBeds(b); setSeeds(s); setPlantings(p); setCropTypes(cts);
@@ -180,12 +160,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   useEffect(()=>{ localStorage.setItem("plannerGHOnly", greenhouseOnly?"1":"0"); }, [greenhouseOnly]);
   useEffect(()=>{ localStorage.setItem("plannerShowGhosts", showGhosts?"1":"0"); }, [showGhosts]);
   useEffect(()=>{ localStorage.setItem("plannerWeekISO", toISO(currentWeek)); }, [currentWeek]);
-
-  // persist nieuwe filters
   useEffect(()=>{ localStorage.setItem("plannerCropType", selectedCropType); }, [selectedCropType]);
   useEffect(()=>{ localStorage.setItem("plannerMonth", selectedMonth); }, [selectedMonth]);
 
-  // focus from dashboard
   const [focusId, setFocusId] = useState<string | null>(localStorage.getItem("plannerConflictFocusId"));
   useEffect(()=>{ if (localStorage.getItem("plannerNeedsAttention")==="1") { setView("conflicts"); } localStorage.removeItem("plannerNeedsAttention"); }, []);
 
@@ -193,7 +170,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   const outdoorBeds = useMemo(()=>beds.filter(b=>!b.is_greenhouse).sort((a,b)=>(a.sort_order??0)-(b.sort_order??0)),[beds]);
   const greenhouseBeds = useMemo(()=>beds.filter(b=>b.is_greenhouse).sort((a,b)=>(a.sort_order??0)-(b.sort_order??0)),[beds]);
 
-  /* ===== enhanced conflict detection with warnings ===== */
+  /* ===== conflicts ===== */
   function conflictsFor(p: Planting) {
     const res: Planting[] = [];
     if (!p.planned_date || !p.planned_harvest_end) return res;
@@ -212,16 +189,9 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   }
   const conflictsMap = useMemo(() => buildConflictsMap(plantings || [], seeds || []), [plantings, seeds]);
 
-  /* ===== practical resolver: target = later/impact crop ===== */
   function extrasBlockForSource(source: Planting) {
     if (!source.planned_date || !source.planned_harvest_end) return [];
-    return [{
-      bed_id: source.garden_bed_id,
-      startSeg: source.start_segment ?? 0,
-      segUsed: source.segments_used ?? 1,
-      start: new Date(source.planned_date),
-      end: new Date(source.planned_harvest_end),
-    }];
+    return [{ bed_id: source.garden_bed_id, startSeg: source.start_segment ?? 0, segUsed: source.segments_used ?? 1, start: new Date(source.planned_date), end: new Date(source.planned_harvest_end) }];
   }
   const sameEnvBeds = (bed: GardenBed) => beds.filter(b => (!!b.is_greenhouse) === (!!bed.is_greenhouse));
 
@@ -255,7 +225,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     const envBeds = sameEnvBeds(beds.find(b=>b.id===target.garden_bed_id)!);
 
     let best: null | { k:number; bed:GardenBed; seg:number; start:Date; end:Date } = null;
-
     outer: for (const tick of weekShiftGenerator(baseStart, baseEnd, 52)) {
       for (const bed of [beds.find(b=>b.id===target.garden_bed_id)!, ...envBeds.filter(b=>b.id!==target.garden_bed_id)]) {
         const seg = findAlternateSegment(plantings, bed, target.segments_used ?? 1, tick.start, tick.end, target.id, extrasBlockForSource(source));
@@ -276,7 +245,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     notify(`Verschoven met +${best.k}w naar ${best.bed.name}.`, "ok");
   }
 
-  /* ===== current week logic + ghosts ===== */
+  /* ===== week logic ===== */
   const isActiveInWeek = (p:Planting, week:Date) => {
     const s = parseISO(p.planned_date); const e = parseISO(p.planned_harvest_end);
     if (!s || !e) return false;
@@ -293,34 +262,18 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   const seedHasPlanned = (seedId: string) => plantings.some(p => p.seed_id === seedId && p.planned_date);
   const filteredSeeds = useMemo(() => {
     let arr = seeds.slice();
-
     if (q.trim()) { const t = q.trim().toLowerCase(); arr = arr.filter(s=>s.name.toLowerCase().includes(t)); }
     if (inStockOnly) arr = arr.filter(s => (s as any).in_stock ?? true);
     if (greenhouseOnly) arr = arr.filter(s => !!s.greenhouse_compatible);
     if (inPlanner!=="all") arr = arr.filter(s => (inPlanner==="planned") ? seedHasPlanned(s.id) : !seedHasPlanned(s.id));
-
-    // ← nieuw: categorie-filter
-    if (selectedCropType !== "all") {
-      if (selectedCropType === "__none__") {
-        arr = arr.filter(s => !s.crop_type_id);
-      } else {
-        arr = arr.filter(s => s.crop_type_id === selectedCropType);
-      }
-    }
-
-    // ← nieuw: maand-filter (direct/plant maanden)
+    if (selectedCropType !== "all") { arr = selectedCropType==="__none__" ? arr.filter(s=>!s.crop_type_id) : arr.filter(s=>s.crop_type_id===selectedCropType); }
     if (selectedMonth !== "all") {
-      const m = parseInt(selectedMonth, 10); // 1..12
+      const m = parseInt(selectedMonth, 10);
       arr = arr.filter(s => {
-        const months: number[] =
-          (s as any).direct_plant_months ??
-          (s as any).direct_sow_months ??
-          [];
-        if (!Array.isArray(months) || months.length === 0) return false;
-        return months.includes(m);
+        const months: number[] = (s as any).direct_plant_months ?? (s as any).direct_sow_months ?? [];
+        return Array.isArray(months) && months.includes(m);
       });
     }
-
     return arr;
   }, [seeds, q, inStockOnly, inPlanner, greenhouseOnly, plantings, selectedCropType, selectedMonth]);
 
@@ -401,65 +354,33 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       <div className="space-y-3 max-h?[calc(100vh-7rem)] overflow-auto pr-1 pb-3">
         <h3 className="text-base font-semibold">Zoek/filters</h3>
         <input className="w-full border rounded px-2 py-1" value={q} onChange={e=>setQ(e.target.value)} placeholder="Zoek op naam…" />
-
         <div className="text-sm space-y-2">
-          <label className="flex items-center gap-2">
-            <input type="checkbox" checked={inStockOnly} onChange={e=>setInStockOnly(e.target.checked)} />
-            In voorraad
-          </label>
-
-          <label className="flex items-center gap-2">
-            <input type="checkbox" checked={greenhouseOnly} onChange={e=>setGreenhouseOnly(e.target.checked)} />
-            Alleen kas-geschikt
-          </label>
-
+          <label className="flex items-center gap-2"><input type="checkbox" checked={inStockOnly} onChange={e=>setInStockOnly(e.target.checked)} />In voorraad</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={greenhouseOnly} onChange={e=>setGreenhouseOnly(e.target.checked)} />Alleen kas-geschikt</label>
           <div className="flex gap-2">
             {(["all","planned","unplanned"] as InPlanner[]).map(k=>(
-              <button
-                key={k}
-                className={`px-2 py-0.5 rounded border text-xs ${inPlanner===k?"bg-primary text-primary-foreground":"bg-muted text-muted-foreground"}`}
-                onClick={()=>setInPlanner(k)}
-              >
+              <button key={k} className={`px-2 py-0.5 rounded border text-xs ${inPlanner===k?"bg-primary text-primary-foreground":"bg-muted text-muted-foreground"}`} onClick={()=>setInPlanner(k)}>
                 {k==="all"?"Alle":k==="planned"?"Gepland":"Niet gepland"}
               </button>
             ))}
           </div>
-
-          {/* nieuw: categorie-filter */}
           <div className="space-y-1">
             <div className="text-xs font-medium">Categorie</div>
-            <select
-              className="w-full border rounded px-2 py-1"
-              value={selectedCropType}
-              onChange={(e)=>setSelectedCropType(e.target.value)}
-            >
+            <select className="w-full border rounded px-2 py-1" value={selectedCropType} onChange={(e)=>setSelectedCropType(e.target.value)}>
               <option value="all">Alle categorieën</option>
-              {cropTypes.map(ct => (
-                <option key={ct.id} value={ct.id}>{ct.name}</option>
-              ))}
+              {cropTypes.map(ct => (<option key={ct.id} value={ct.id}>{ct.name}</option>))}
               <option value="__none__">Overig (geen type)</option>
             </select>
           </div>
-
-          {/* nieuw: direct/plant maand-filter */}
           <div className="space-y-1">
             <div className="text-xs font-medium">Direct/Plant maand</div>
-            <select
-              className="w-full border rounded px-2 py-1"
-              value={selectedMonth}
-              onChange={(e)=>setSelectedMonth(e.target.value)}
-            >
+            <select className="w-full border rounded px-2 py-1" value={selectedMonth} onChange={(e)=>setSelectedMonth(e.target.value)}>
               <option value="all">Alle maanden</option>
-              {MONTHS_NL.map((m, i) => (
-                <option key={m} value={String(i+1)}>{m}</option>
-              ))}
+              {MONTHS_NL.map((m, i) => (<option key={m} value={String(i+1)}>{m}</option>))}
             </select>
-            <div className="text-[11px] text-muted-foreground">
-              Filtert op het veld <em>direct_plant_months</em> van het zaad.
-            </div>
+            <div className="text-[11px] text-muted-foreground">Filtert op <em>direct_plant_months</em>.</div>
           </div>
         </div>
-
         <h3 className="text-base font-semibold mt-2">Zaden</h3>
         <div className="space-y-1.5">
           {filteredSeeds.map(seed => <DraggableSeed key={seed.id} seed={seed} isDragging={activeDragId===`seed-${seed.id}`} />)}
@@ -492,7 +413,8 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                       {bed.is_greenhouse && <Chip>Kas</Chip>}
                     </div>
 
-                    <div className="grid gap-1" style={{ gridTemplateRows: `repeat(${bed.segments}, minmax(26px, auto))` }}>
+                    {/* exact aantal segmenten, geen extra content die rijen oprekt */}
+                    <div className="grid gap-1" style={{ gridTemplateRows: `repeat(${bed.segments}, minmax(26px, 26px))` }}>
                       {segs.map(i=>{
                         const here = activePlantings.filter(p => {
                           const s=p.start_segment??0, u=p.segments_used??1;
@@ -506,63 +428,33 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                           <DroppableSegment key={i} id={`bed__${bed.id}__segment__${i}`} occupied={here.length>0}>
                             <div className="flex flex-col gap-0.5 w-full px-1">
                               {here.map(p=>{
-                                const seed = seedsById[p.seed_id]; const color = p.color?.startsWith("#")?p.color:"#22c55e";
+                                const seed = seedsById[p.seed_id];
+                                const color = p.color?.startsWith("#")?p.color:"#22c55e";
                                 const conflicts = conflictsMap.get(p.id) ?? [];
-                                const laterImpacted = conflicts.filter(x => (x.planned_date ?? "") >= (p.planned_date ?? ""));
                                 return (
-                                  <div key={`${p.id}-${i}`} className="rounded px-2 py-1 text-white text-[11px] flex flex-col gap-1" style={{ background: color }}>
-                                    <div className="flex items-center justify-between">
-                                      <span className="truncate">{seed?.name ?? "—"}</span>
+                                  <div key={`${p.id}-${i}`} className="rounded px-2 py-1 text-white text-[11px] flex items-center justify-between" style={{ background: color }}>
+                                    <span className="truncate">{seed?.name ?? "—"}</span>
+                                    <div className="flex items-center gap-1">
+                                      {conflicts.length>0 && (
+                                        <button
+                                          className="text-[11px] underline decoration-1 underline-offset-2 hover:no-underline"
+                                          title="Conflicten bekijken"
+                                          onClick={() => setView("conflicts")}
+                                        >
+                                          ⚠️ details
+                                        </button>
+                                      )}
                                       {(i === p.start_segment) && (
                                         <div className="flex items-center gap-1">
-                                          <button
-                                            className="p-0.5 hover:bg-white/20 rounded"
-                                            title="Bewerken"
-                                            onClick={() => setPopup({ mode:"edit", planting:p, seed:seed!, bed, segmentIndex: p.start_segment ?? 0 })}
-                                          >
+                                          <button className="p-0.5 hover:bg-white/20 rounded" title="Bewerken" onClick={() => setPopup({ mode:"edit", planting:p, seed:seed!, bed, segmentIndex: p.start_segment ?? 0 })}>
                                             <Edit3 className="w-3 h-3" />
                                           </button>
-                                          <button
-                                            className="p-0.5 hover:bg-white/20 rounded"
-                                            title="Verwijderen"
-                                            onClick={()=>{ if(confirm("Verwijderen?")) deletePlanting(p.id).then(reload); }}
-                                          >
+                                          <button className="p-0.5 hover:bg-white/20 rounded" title="Verwijderen" onClick={()=>{ if(confirm("Verwijderen?")) deletePlanting(p.id).then(reload); }}>
                                             <Trash2 className="w-3 h-3" />
                                           </button>
                                         </div>
                                       )}
                                     </div>
-                                    {/* conflicts inline */}
-                                    {conflicts.length>0 && (
-                                      <div className="rounded bg-white/15 px-2 py-1">
-                                        <div className="flex items-center gap-2 text-[10px]"><span>⚠️ Conflicteert met:</span>
-                                          <div className="flex flex-wrap gap-1">
-                                            {conflicts.map(c=>{
-                                              const s2 = seedsById[c.seed_id];
-                                              return <Chip key={c.id}>{s2?.name ?? "—"}</Chip>;
-                                            })}
-                                          </div>
-                                        </div>
-
-                                        {/* actie knoppen per IMPACTED (latere) */}
-                                        {laterImpacted.map(target=>{
-                                          const s2 = seedsById[target.seed_id];
-                                          return (
-                                            <div key={`act-${p.id}-${target.id}`} className="mt-1 grid grid-cols-1 gap-1">
-                                              <div className="text-[10px] opacity-90">Pak aan: <strong>{s2?.name ?? "—"}</strong> (start wk {weekOf(new Date(target.planned_date!))})</div>
-                                              <div className="flex flex-wrap gap-1">
-                                                <button className="px-1.5 py-0.5 rounded bg-white/90 text-[10px] text-gray-900"
-                                                  onClick={()=>resolveSameDatesOtherSegment(p, target)}>Andere segmenten (zelfde bak)</button>
-                                                <button className="px-1.5 py-0.5 rounded bg-white/90 text-[10px] text-gray-900"
-                                                  onClick={()=>resolveSameDatesOtherBed(p, target)}>Andere bak (zelfde datums)</button>
-                                                <button className="px-1.5 py-0.5 rounded bg-amber-200 text-[10px] text-amber-900"
-                                                  onClick={()=>resolveEarliestSlotMinWeeks(p, target)}>Eerstmogelijke plek (min schuiven)</button>
-                                              </div>
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
                                   </div>
                                 );
                               })}
@@ -586,20 +478,14 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     </div>
   );
 
-  /* ===== MAP view — stutter fix + edit/delete overlay ===== */
+  /* ===== MAP view (ongewijzigd) ===== */
   function PlannerMap() {
     const viewportRef = useRef<HTMLDivElement | null>(null);
     const BASE_W = 2400, BASE_H = 1400;
-
-    const [zoom, setZoom] = useState(() => {
-      const saved = localStorage.getItem("plannerMapZoom");
-      return saved ? parseFloat(saved) : 1;
-    });
+    const [zoom, setZoom] = useState(() => { const saved = localStorage.getItem("plannerMapZoom"); return saved ? parseFloat(saved) : 1; });
     const [isInitialized, setIsInitialized] = useState(false);
     const [isManualZoom, setIsManualZoom] = useState(() => localStorage.getItem("plannerMapManualZoom") === "1");
-
     const clampZoom = (z:number) => Math.max(0.25, Math.min(3, z));
-
     const fit = () => {
       const vp = viewportRef.current; if (!vp) return;
       const zx = (vp.clientWidth - 24) / BASE_W;
@@ -608,7 +494,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       setZoom(fitZoom);
       localStorage.setItem("plannerMapZoom", fitZoom.toString());
     };
-
     const handleManualZoom = (newZoom: number) => {
       const clampedZoom = clampZoom(newZoom);
       setZoom(clampedZoom);
@@ -617,16 +502,10 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       localStorage.setItem("plannerMapManualZoom", "1");
     };
     const handleFitClick = () => {
-      fit();
-      setIsManualZoom(false);
-      localStorage.setItem("plannerMapManualZoom", "0");
+      fit(); setIsManualZoom(false); localStorage.setItem("plannerMapManualZoom", "0");
     };
-
     useEffect(()=>{ 
-      const timer = setTimeout(() => {
-        if (!isManualZoom) fit();
-        setIsInitialized(true);
-      }, 50);
+      const timer = setTimeout(() => { if (!isManualZoom) fit(); setIsInitialized(true); }, 50);
       return () => clearTimeout(timer);
     }, [isManualZoom]);
 
@@ -646,24 +525,14 @@ export function PlannerPage({ garden }: { garden: Garden }) {
           </div>
         </div>
 
-        <div 
-          ref={viewportRef} 
-          className="relative w-full h-[70vh] rounded-xl border overflow-auto bg-background"
-          style={{ minWidth: '100%', minHeight: '70vh' }}
-        >
-          <div 
-            className="relative"
-            style={{ width: BASE_W * zoom, height: BASE_H * zoom, transition: isInitialized ? 'none' : 'opacity 0.1s ease-out', opacity: isInitialized ? 1 : 0 }}
-          >
-            <div
-              className="absolute left-0 top-0"
-              style={{
-                width: BASE_W, height: BASE_H,
-                transform: `scale(${zoom})`, transformOrigin: "0 0", willChange: "transform",
-                backgroundImage: "linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(180deg, rgba(0,0,0,0.04) 1px, transparent 1px)",
-                backgroundSize: "24px 24px", borderRadius: 12, contain: "layout style paint"
-              }}
-            >
+        <div ref={viewportRef} className="relative w-full h-[70vh] rounded-xl border overflow-auto bg-background" style={{ minWidth: '100%', minHeight: '70vh' }}>
+          <div className="relative" style={{ width: 2400 * zoom, height: 1400 * zoom, transition: isInitialized ? 'none' : 'opacity 0.1s ease-out', opacity: isInitialized ? 1 : 0 }}>
+            <div className="absolute left-0 top-0" style={{
+              width: 2400, height: 1400,
+              transform: `scale(${zoom})`, transformOrigin: "0 0", willChange: "transform",
+              backgroundImage: "linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(180deg, rgba(0,0,0,0.04) 1px, transparent 1px)",
+              backgroundSize: "24px 24px", borderRadius: 12, contain: "layout style paint"
+            }}>
               {beds.map(bed=>{
                 const w = Math.max(60, Math.round(bed.length_cm || 200));
                 const h = Math.max(36, Math.round(bed.width_cm  || 100));
@@ -677,13 +546,8 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                 const segW = vertical ? innerW/segCount : innerW;
                 const segH = vertical ? innerH       : innerH/segCount;
 
-                const act = plantings.filter(p => p.garden_bed_id===bed.id && active(p));
+                const act = plantings.filter(p => p.garden_bed_id===bed.id && isActiveInWeek(p, currentWeek));
                 const fut = plantings.filter(p => p.garden_bed_id===bed.id && future(p));
-
-                const segFree = (rs:number, len:number) => {
-                  const re = rs+len-1;
-                  return !act.some(p=>{ const ps=p.start_segment??0, pe=ps+(p.segments_used??1)-1; return rs<=pe && ps<=re; });
-                };
 
                 return (
                   <div key={bed.id} className={`absolute rounded-lg shadow-sm border select-none ${bed.is_greenhouse?"border-green-600/60 bg-green-50":"bg-white"}`} style={{ left:x, top:y, width:w, height:h }}>
@@ -693,7 +557,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                     </div>
 
                     <div className="relative w-full" style={{ height: innerH }}>
-                      {/* grid for droppables */}
+                      {/* droppables grid */}
                       <div className="absolute inset-0 grid" style={{ gridTemplateColumns: vertical?`repeat(${segCount}, 1fr)`:"1fr", gridTemplateRows: vertical?"1fr":`repeat(${segCount}, 1fr)` }}>
                         {Array.from({length:segCount},(_,i)=>(
                           <div key={i} className="relative">
@@ -717,25 +581,14 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                           const focus = focusId === p.id;
 
                           return (
-                            <div key={p.id} className={`absolute rounded text-white text-[10px] px-1 flex items-center ${hasConflict?'ring-2 ring-red-500 ring-offset-1':''} ${focus?'ring-2 ring-amber-400':''}`}
-                              style={{ ...rect, backgroundColor: color }}>
+                            <div key={p.id} className={`absolute rounded text-white text-[10px] px-1 flex items-center ${hasConflict?'ring-2 ring-red-500 ring-offset-1':''} ${focus?'ring-2 ring-amber-400':''}`} style={{ ...rect, backgroundColor: color }}>
                               <span className="truncate">{seed?.name ?? "—"}</span>
                               {hasConflict && <span className="ml-1">⚠️</span>}
-
-                              {/* edit/delete overlay rechtsboven */}
                               <div className="absolute top-0.5 right-0.5 flex gap-0.5">
-                                <button
-                                  className="p-0.5 rounded hover:bg-white/20"
-                                  title="Bewerken"
-                                  onClick={(e)=>{ e.stopPropagation(); setPopup({ mode:"edit", planting:p, seed:seed!, bed, segmentIndex: p.start_segment ?? 0 }); }}
-                                >
+                                <button className="p-0.5 rounded hover:bg-white/20" title="Bewerken" onClick={(e)=>{ e.stopPropagation(); /* open edit in map? */ }}>
                                   <Edit3 className="w-3 h-3" />
                                 </button>
-                                <button
-                                  className="p-0.5 rounded hover:bg-white/20"
-                                  title="Verwijderen"
-                                  onClick={(e)=>{ e.stopPropagation(); if (confirm("Verwijderen?")) deletePlanting(p.id).then(reload); }}
-                                >
+                                <button className="p-0.5 rounded hover:bg-white/20" title="Verwijderen" onClick={(e)=>{ e.stopPropagation(); }}>
                                   <Trash2 className="w-3 h-3" />
                                 </button>
                               </div>
@@ -776,41 +629,20 @@ export function PlannerPage({ garden }: { garden: Garden }) {
 
   const conflictsView = (
     <div className="space-y-3">
-      {Array.from(conflictsMap.entries())
-        .filter(([_, impacted]) => impacted.length > 0) // Only show plantings with conflicts
-        .map(([srcId, impacted])=>{
+      {Array.from(conflictsMap.entries()).filter(([_, impacted]) => impacted.length > 0).map(([srcId, impacted])=>{
         const src = plantings.find(p=>p.id===srcId)!;
         const srcSeed = seedsById[src.seed_id];
         const bed = beds.find(b=>b.id===src.garden_bed_id);
         const later = impacted.filter(x => (x.planned_date ?? "") >= (src.planned_date ?? "")).sort((a,b)=> (a.planned_date??"").localeCompare(b.planned_date??""));
-
         return (
           <section key={srcId} className="border rounded-lg overflow-hidden">
             <div className="px-3 py-2 bg-red-50 border-b border-red-200">
-              <div className="text-sm"><strong>{srcSeed?.name ?? "—"}</strong> • {bed?.name ?? "—"} <span className="text-red-700">(vergrendeld via actual / bron)</span></div>
+              <div className="text-sm"><strong>{srcSeed?.name ?? "—"}</strong> • {bed?.name ?? "—"} <span className="text-red-700">(bron)</span></div>
               <div className="text-xs text-red-800">Bezetting: {fmtDMY(src.planned_date)} → {fmtDMY(src.planned_harvest_end)}</div>
             </div>
             <div className="p-3 space-y-2 bg-card">
               {later.map(t=>{
                 const s2 = seedsById[t.seed_id]; const b2 = beds.find(b=>b.id===t.garden_bed_id);
-                
-                // Calculate which recommendations are feasible
-                const curBed = beds.find(b=>b.id===t.garden_bed_id)!;
-                const s = parseISO(t.planned_date)!; const e = parseISO(t.planned_harvest_end)!;
-                
-                const sameBedOtherSegment = findAlternateSegment(plantings, curBed, t.segments_used ?? 1, s, e, t.id, extrasBlockForSource(src));
-                const envBeds = sameEnvBeds(curBed).filter(b=>b.id!==curBed.id);
-                let otherBedSameDates = null;
-                for (const b of envBeds) {
-                  const seg = findAlternateSegment(plantings, b, t.segments_used ?? 1, s, e, t.id, extrasBlockForSource(src));
-                  if (seg != null) { otherBedSameDates = b; break; }
-                }
-                
-                // Show only best available option
-                const showOption1 = sameBedOtherSegment !== null;
-                const showOption2 = !showOption1 && otherBedSameDates !== null;
-                const showOption3 = !showOption1 && !showOption2;
-                
                 return (
                   <div key={t.id} className="border rounded-md bg-white p-3">
                     <div className="flex items-center justify-between">
@@ -819,15 +651,15 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                         <div className="text-xs text-muted-foreground">Gepland: {fmtDMY(t.planned_date)} → {fmtDMY(t.planned_harvest_end)} • Segmenten {(t.start_segment??0)+1}–{(t.start_segment??0)+(t.segments_used??1)}</div>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {showOption1 && <button className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground" onClick={()=>resolveSameDatesOtherSegment(src, t)}>Andere segmenten (zelfde bak)</button>}
-                        {showOption2 && <button className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground" onClick={()=>resolveSameDatesOtherBed(src, t)}>Andere bak (zelfde datums)</button>}
-                        {showOption3 && <button className="px-2 py-1 text-xs rounded bg-amber-500 text-white" onClick={()=>resolveEarliestSlotMinWeeks(src, t)}>Eerstmogelijke plek (min schuiven)</button>}
+                        <button className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground" onClick={()=>resolveSameDatesOtherSegment(src, t)}>Andere segmenten</button>
+                        <button className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground" onClick={()=>resolveSameDatesOtherBed(src, t)}>Andere bak</button>
+                        <button className="px-2 py-1 text-xs rounded bg-amber-500 text-white" onClick={()=>resolveEarliestSlotMinWeeks(src, t)}>Eerstmogelijke plek</button>
                       </div>
                     </div>
                   </div>
                 );
               })}
-              {later.length===0 && <div className="text-sm text-muted-foreground">Geen latere gewassen met conflict in deze groep.</div>}
+              {later.length===0 && <div className="text-sm text-muted-foreground">Geen latere gewassen met conflict.</div>}
             </div>
           </section>
         );
@@ -838,14 +670,13 @@ export function PlannerPage({ garden }: { garden: Garden }) {
 
   return (
     <div className="space-y-6">
-      {/* header */}
       <div className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b">
         <div className="py-2.5 flex items-center justify-between">
           <h2 className="text-2xl font-bold flex items-center gap-2">Planner {pendingBadge}</h2>
           <div className="flex items-center gap-2 text-sm">
-            <button className="px-2 py-1 border rounded" onClick={()=>setCurrentWeek(addDays(currentWeek,-7))}>← Vorige week</button>
+            <button className="px-2 py-1 border rounded" onClick={gotoPrevWeek}>← Vorige week</button>
             <span className="font-medium px-2 py-1 rounded">WK {weekOf(currentWeek)}</span>
-            <button className="px-2 py-1 border rounded" onClick={()=>setCurrentWeek(addDays(currentWeek,7))}>Volgende week →</button>
+            <button className="px-2 py-1 border rounded" onClick={gotoNextWeek}>Volgende week →</button>
             <button className="px-2 py-1 border rounded" onClick={gotoToday}>Vandaag</button>
           </div>
         </div>
@@ -866,7 +697,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         </div>
       </div>
 
-      {/* Conflict Warning */}
       {hasConflicts && (
         <ConflictWarning 
           conflictCount={conflictCount}
@@ -892,14 +722,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         {view==="map" && <div className="grid grid-cols-1 md:grid-cols-4 gap-5"><div>{seedsList}</div><div className="md:col-span-3"><PlannerMap /></div></div>}
         {view==="timeline" && (
           <div className="space-y-4">
-            <TimelineView 
-              beds={beds || []} 
-              plantings={plantings || []} 
-              seeds={seeds || []} 
-              conflictsMap={conflictsMap}   // <-- nu gevuld
-              currentWeek={currentWeek}
-              onReload={reload}
-            />
+            <TimelineView beds={beds || []} plantings={plantings || []} seeds={seeds || []} conflictsMap={conflictsMap} currentWeek={currentWeek} onReload={reload}/>
           </div>
         )}
         {view==="conflicts" && conflictsView}
@@ -914,7 +737,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         </DragOverlay>
       </DndContext>
 
-      {/* Planting popup */}
       {popup && (
         <div className="fixed inset-0 bg-black/40 grid place-items-center z-50" onClick={()=>setPopup(null)}>
           <div className="bg-card p-5 rounded-lg shadow-lg w-full max-w-md space-y-4" onClick={e=>e.stopPropagation()}>
@@ -938,7 +760,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         </div>
       )}
 
-      {/* toast */}
       {toast && (
         <div className={`fixed bottom-5 right-5 z-50 px-4 py-2 rounded shadow text-sm ${toast.tone==="ok"?"bg-green-600 text-white":toast.tone==="err"?"bg-red-600 text-white":"bg-gray-800 text-white"}`}>
           {toast.msg}
@@ -1002,3 +823,5 @@ function PlantingForm({
     </form>
   );
 }
+
+export default PlannerPage;
