@@ -97,9 +97,9 @@ export default function PlantingEditor({ gardenId, planting, onClose, onSaved }:
               {seeds.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
 
-            <label className="text-sm">Bak</label>
+            <label className="text-sm font-medium">Bak {editing && <span className="text-xs text-muted-foreground">(kan worden aangepast)</span>}</label>
             <select 
-              className="w-full rounded-md border border-input bg-background px-3 py-2" 
+              className="w-full rounded-md border-2 border-input bg-card px-3 py-2.5 text-foreground hover:border-primary focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors cursor-pointer relative z-50" 
               value={bedId} 
               onChange={e=>setBedId(e.target.value)}
             >
