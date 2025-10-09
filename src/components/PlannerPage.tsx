@@ -12,7 +12,8 @@ import {
   parseISO,
   toISO,
 } from "../lib/conflicts";
-import { ConflictsTab } from "../components/ConflictsTab";
+import ConflictsTab from "../components/ConflictsTab";
+import { computeConflictsMap } from "../lib/conflicts"; // (optioneel: voor icoontjes elders)
 
 type TabKey = "list" | "map" | "timeline" | "conflicts";
 
@@ -272,12 +273,13 @@ export default function PlannerPage({ garden }: { garden: Garden }) {
         />
       )}
       {tab === "conflicts" && (
-        <ConflictsTab
-          beds={beds}
-          plantings={plantings}
-          seeds={seeds}
-          onApply={async () => { await onReload(); }}
-        />
+ <ConflictsTab
+  garden={garden}
+  beds={beds}
+  plantings={plantings}
+  seeds={seeds}
+  onReload={reloadAll}
+/>
       )}
 
       {/* Editor (alleen gebruikt in lijst/plattegrond; Timeline heeft eigen editor) */}
