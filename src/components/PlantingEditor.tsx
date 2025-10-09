@@ -46,6 +46,7 @@ export default function PlantingEditor({ gardenId, planting, onClose, onSaved }:
       plants_per_row: plantsPerRow,
       status,
       notes: notes || null,
+      garden_bed_id: bedId || undefined,
     };
 
     if (editing) {
@@ -86,13 +87,22 @@ export default function PlantingEditor({ gardenId, planting, onClose, onSaved }:
         <div className="grid md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <label className="text-sm">Gewas</label>
-            <select className="w-full rounded-md border border-input bg-background px-3 py-2" value={seedId} onChange={e=>setSeedId(e.target.value)}>
+            <select 
+              className="w-full rounded-md border border-input bg-background px-3 py-2" 
+              value={seedId} 
+              onChange={e=>setSeedId(e.target.value)}
+              disabled={editing}
+            >
               <option value="">Kies gewas</option>
               {seeds.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
 
             <label className="text-sm">Bak</label>
-            <select className="w-full rounded-md border border-input bg-background px-3 py-2" value={bedId} onChange={e=>setBedId(e.target.value)}>
+            <select 
+              className="w-full rounded-md border border-input bg-background px-3 py-2" 
+              value={bedId} 
+              onChange={e=>setBedId(e.target.value)}
+            >
               <option value="">Kies bak</option>
               {beds.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>

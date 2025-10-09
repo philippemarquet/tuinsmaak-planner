@@ -691,7 +691,9 @@ const he = addDays(addWeeks(hs, seed.harvest_duration_weeks!), -1);
 
   const conflictsView = (
     <div className="space-y-3">
-      {Array.from(conflictsMap.entries()).map(([srcId, impacted])=>{
+      {Array.from(conflictsMap.entries())
+        .filter(([_, impacted]) => impacted.length > 0) // Only show plantings with conflicts
+        .map(([srcId, impacted])=>{
         const src = plantings.find(p=>p.id===srcId)!;
         const srcSeed = seedsById[src.seed_id];
         const bed = beds.find(b=>b.id===src.garden_bed_id);
@@ -706,6 +708,24 @@ const he = addDays(addWeeks(hs, seed.harvest_duration_weeks!), -1);
             <div className="p-3 space-y-2 bg-card">
               {later.map(t=>{
                 const s2 = seedsById[t.seed_id]; const b2 = beds.find(b=>b.id===t.garden_bed_id);
+                
+                // Calculate which recommendations are feasible
+                const curBed = beds.find(b=>b.id===t.garden_bed_id)!;
+                const s = parseISO(t.planned_date)!; const e = parseISO(t.planned_harvest_end)!;
+                
+                const sameBedOtherSegment = findAlternateSegment(plantings, curBed, t.segments_used ?? 1, s, e, t.id, extrasBlockForSource(src));
+                const envBeds = sameEnvBeds(curBed).filter(b=>b.id!==curBed.id);
+                let otherBedSameDates = null;
+                for (const b of envBeds) {
+                  const seg = findAlternateSegment(plantings, b, t.segments_used ?? 1, s, e, t.id, extrasBlockForSource(src));
+                  if (seg != null) { otherBedSameDates = b; break; }
+                }
+                
+                // Show only best available option
+                const showOption1 = sameBedOtherSegment !== null;
+                const showOption2 = !showOption1 && otherBedSameDates !== null;
+                const showOption3 = !showOption1 && !showOption2;
+                
                 return (
                   <div key={t.id} className="border rounded-md bg-white p-3">
                     <div className="flex items-center justify-between">
@@ -714,9 +734,9 @@ const he = addDays(addWeeks(hs, seed.harvest_duration_weeks!), -1);
                         <div className="text-xs text-muted-foreground">Gepland: {fmtDMY(t.planned_date)} → {fmtDMY(t.planned_harvest_end)} • Segmenten {(t.start_segment??0)+1}–{(t.start_segment??0)+(t.segments_used??1)}</div>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        <button className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground" onClick={()=>resolveSameDatesOtherSegment(src, t)}>Andere segmenten (zelfde bak)</button>
-                        <button className="px-2 py-1 text-xs rounded border" onClick={()=>resolveSameDatesOtherBed(src, t)}>Andere bak (zelfde datums)</button>
-                        <button className="px-2 py-1 text-xs rounded bg-amber-200 text-amber-900" onClick={()=>resolveEarliestSlotMinWeeks(src, t)}>Eerstmogelijke plek (min schuiven)</button>
+                        {showOption1 && <button className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground" onClick={()=>resolveSameDatesOtherSegment(src, t)}>Andere segmenten (zelfde bak)</button>}
+                        {showOption2 && <button className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground" onClick={()=>resolveSameDatesOtherBed(src, t)}>Andere bak (zelfde datums)</button>}
+                        {showOption3 && <button className="px-2 py-1 text-xs rounded bg-amber-500 text-white" onClick={()=>resolveEarliestSlotMinWeeks(src, t)}>Eerstmogelijke plek (min schuiven)</button>}
                       </div>
                     </div>
                   </div>
@@ -727,7 +747,7 @@ const he = addDays(addWeeks(hs, seed.harvest_duration_weeks!), -1);
           </section>
         );
       })}
-      {conflictsMap.size===0 && <p className="text-sm text-muted-foreground">Geen conflicten 🎉</p>}
+      {Array.from(conflictsMap.entries()).filter(([_, impacted]) => impacted.length > 0).length === 0 && <p className="text-sm text-muted-foreground">Geen conflicten 🎉</p>}
     </div>
   );
 

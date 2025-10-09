@@ -4,10 +4,8 @@ import { listBeds } from "../lib/api/beds";
 import { listPlantings, updatePlanting } from "../lib/api/plantings";
 import { listSeeds } from "../lib/api/seeds";
 import { listTasks, updateTask } from "../lib/api/tasks";
-import { buildConflictsMap, countUniqueConflicts, conflictsFor } from "../lib/conflicts";
+import { buildConflictsMap, countUniqueConflicts } from "../lib/conflicts";
 import { ConflictWarning } from "./ConflictWarning";
-import { ConflictDetailsModal } from "./ConflictDetailsModal";
-import { generateConflictDetails, type ConflictDetail } from "../lib/conflictResolution";
 import { useConflictFlags } from "../hooks/useConflictFlags";
 
 /* ---------- helpers ---------- */
@@ -116,8 +114,6 @@ export function Dashboard({ garden }: { garden: Garden }) {
   } | null>(null);
 
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [showConflictDetails, setShowConflictDetails] = useState(false);
-  const [conflictDetails, setConflictDetails] = useState<ConflictDetail[]>([]);
 
   useEffect(() => {
     Promise.all([
@@ -351,21 +347,8 @@ export function Dashboard({ garden }: { garden: Garden }) {
       const cmap = buildConflictsMap(p, seeds);
       const conflicts = cmap.get(task.planting_id) ?? [];
       
-      // Generate detailed conflict information
+      // Just ping planner if conflicts exist - no popup
       if (conflicts.length > 0) {
-        const details: ConflictDetail[] = [];
-        for (const conflicting of conflicts) {
-          const detail = generateConflictDetails(
-            p.find(x => x.id === task.planting_id)!,
-            conflicting,
-            p,
-            beds,
-            seeds
-          );
-          details.push(detail);
-        }
-        setConflictDetails(details);
-        setShowConflictDetails(true);
         pingPlannerConflict(task.planting_id);
       }
     } catch (e: any) {
@@ -439,25 +422,12 @@ export function Dashboard({ garden }: { garden: Garden }) {
       <ConflictWarning
         conflictCount={totalConflicts}
         onResolveAll={() => {
-          // Generate details for all conflicts
-          const allDetails: ConflictDetail[] = [];
-          for (const [plantingId, conflictList] of conflictsMap.entries()) {
-            const planting = plantingsById[plantingId];
-            if (!planting) continue;
-            
-            for (const conflicting of conflictList) {
-              const detail = generateConflictDetails(
-                planting,
-                conflicting,
-                plantings,
-                beds,
-                seeds
-              );
-              allDetails.push(detail);
-            }
-          }
-          setConflictDetails(allDetails);
-          setShowConflictDetails(true);
+          // Redirect to planner conflicts tab
+          try {
+            localStorage.setItem("plannerNeedsAttention", "1");
+            localStorage.setItem("plannerOpenTab", "conflicts");
+            window.location.hash = "#planner";
+          } catch {}
         }}
         onDismiss={undefined}
       />
@@ -624,17 +594,6 @@ export function Dashboard({ garden }: { garden: Garden }) {
             </div>
           </div>
         </div>
-      )}
-      
-      {showConflictDetails && (
-        <ConflictDetailsModal
-          conflicts={conflictDetails}
-          onClose={() => setShowConflictDetails(false)}
-          onApplyRecommendation={async (plantingId, rec) => {
-            // TODO: Implement auto-apply recommendation
-            alert(`Auto-toepassen van aanbeveling voor planting ${plantingId}: ${rec.description}`);
-          }}
-        />
       )}
     </div>
   );
