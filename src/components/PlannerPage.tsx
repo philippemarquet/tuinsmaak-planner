@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Garden, GardenBed, Planting, Seed } from "../lib/types";
+import type { Garden, GardenBed, Planting, Seed, CropType } from "../lib/types";
 import { listBeds } from "../lib/api/beds";
 import { listSeeds } from "../lib/api/seeds";
 import { createPlanting, listPlantings, deletePlanting, updatePlanting } from "../lib/api/plantings";
+import { listCropTypes } from "../lib/api/cropTypes";
 import { DndContext, useDraggable, useDroppable, DragOverlay } from "@dnd-kit/core";
 import { supabase } from "../lib/supabaseClient";
 import { TimelineView } from "./TimelineView";
 import { buildConflictsMap, countUniqueConflicts } from "../lib/conflicts";
+import { ConflictWarning } from "./ConflictWarning";
 import { Edit3, Trash2 } from "lucide-react";
 import { useConflictFlags } from "../hooks/useConflictFlags";
-import { generateConflictDetails } from "../lib/conflictResolution";
 
 /* ===== helpers ===== */
 const toISO = (d: Date) => d.toISOString().slice(0, 10);
@@ -30,7 +31,10 @@ function planFromGroundDate(seed: Seed, method: "direct"|"presow", groundISO: st
   const growW = seed.grow_duration_weeks ?? 0;
   const harvestW = seed.harvest_duration_weeks ?? 0;
 
+  // start oogst = plantdatum + groeitijd (weken)
   const hsISO = toISO(addWeeks(ground, growW));
+
+  // EINDE oogst = start oogst + harvestW weken MIN 1 DAG (inclusief laatste dag)
   const heDate = addDays(addWeeks(new Date(hsISO), harvestW), -1);
   const heISO = toISO(heDate);
 
@@ -122,16 +126,25 @@ function MapDroppable({ id }:{id:string}) {
 /* ===== main ===== */
 type InPlanner = 'all'|'planned'|'unplanned';
 
+const MONTHS_NL = ["Jan","Feb","Mrt","Apr","Mei","Jun","Jul","Aug","Sep","Okt","Nov","Dec"];
+
 export function PlannerPage({ garden }: { garden: Garden }) {
   const [beds, setBeds] = useState<GardenBed[]>([]);
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [plantings, setPlantings] = useState<Planting[]>([]);
+  const [cropTypes, setCropTypes] = useState<CropType[]>([]); // ← nieuw: categorieën laden
+
   const [view, setView] = useState<"list"|"map"|"conflicts"|"timeline">(() => (localStorage.getItem("plannerOpenTab") as any) || (localStorage.getItem("plannerView") as any) || "list");
   const [q, setQ] = useState(localStorage.getItem("plannerQ") ?? "");
   const [inStockOnly, setInStockOnly] = useState(localStorage.getItem("plannerInStock")==="1");
   const [inPlanner, setInPlanner] = useState<InPlanner>((localStorage.getItem("plannerInPlanner") as InPlanner) ?? "all");
   const [greenhouseOnly, setGreenhouseOnly] = useState(localStorage.getItem("plannerGHOnly")==="1");
   const [showGhosts, setShowGhosts] = useState(localStorage.getItem("plannerShowGhosts")==="0" ? false : true);
+
+  // nieuw: filters
+  const [selectedCropType, setSelectedCropType] = useState<string>(localStorage.getItem("plannerCropType") ?? "all");
+  const [selectedMonth, setSelectedMonth] = useState<string>(localStorage.getItem("plannerMonth") ?? "all");
+
   const [currentWeek, setCurrentWeek] = useState<Date>(() => {
     const saved = localStorage.getItem("plannerWeekISO"); return saved ? new Date(saved) : (() => { const n = new Date(); const d = new Date(n); d.setDate(n.getDate()-((n.getDay()||7)-1)); return d; })();
   });
@@ -149,8 +162,8 @@ export function PlannerPage({ garden }: { garden: Garden }) {
 
   // effects
   const reload = async () => {
-    const [b,s,p] = await Promise.all([listBeds(garden.id), listSeeds(garden.id), listPlantings(garden.id)]);
-    setBeds(b); setSeeds(s); setPlantings(p);
+    const [b,s,p,cts] = await Promise.all([listBeds(garden.id), listSeeds(garden.id), listPlantings(garden.id), listCropTypes()]);
+    setBeds(b); setSeeds(s); setPlantings(p); setCropTypes(cts);
   };
   useEffect(()=>{ reload().catch(console.error); }, [garden.id]);
   useEffect(()=>{
@@ -168,6 +181,10 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   useEffect(()=>{ localStorage.setItem("plannerShowGhosts", showGhosts?"1":"0"); }, [showGhosts]);
   useEffect(()=>{ localStorage.setItem("plannerWeekISO", toISO(currentWeek)); }, [currentWeek]);
 
+  // persist nieuwe filters
+  useEffect(()=>{ localStorage.setItem("plannerCropType", selectedCropType); }, [selectedCropType]);
+  useEffect(()=>{ localStorage.setItem("plannerMonth", selectedMonth); }, [selectedMonth]);
+
   // focus from dashboard
   const [focusId, setFocusId] = useState<string | null>(localStorage.getItem("plannerConflictFocusId"));
   useEffect(()=>{ if (localStorage.getItem("plannerNeedsAttention")==="1") { setView("conflicts"); } localStorage.removeItem("plannerNeedsAttention"); }, []);
@@ -176,7 +193,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   const outdoorBeds = useMemo(()=>beds.filter(b=>!b.is_greenhouse).sort((a,b)=>(a.sort_order??0)-(b.sort_order??0)),[beds]);
   const greenhouseBeds = useMemo(()=>beds.filter(b=>b.is_greenhouse).sort((a,b)=>(a.sort_order??0)-(b.sort_order??0)),[beds]);
 
-  /* ===== conflicts ===== */
+  /* ===== enhanced conflict detection with warnings ===== */
   function conflictsFor(p: Planting) {
     const res: Planting[] = [];
     if (!p.planned_date || !p.planned_harvest_end) return res;
@@ -195,7 +212,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   }
   const conflictsMap = useMemo(() => buildConflictsMap(plantings || [], seeds || []), [plantings, seeds]);
 
-  /* ===== practical resolver helpers (blijven staan voor interne checks; geen auto-wijzigingen meer in UI) ===== */
+  /* ===== practical resolver: target = later/impact crop ===== */
   function extrasBlockForSource(source: Planting) {
     if (!source.planned_date || !source.planned_harvest_end) return [];
     return [{
@@ -208,9 +225,56 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   }
   const sameEnvBeds = (bed: GardenBed) => beds.filter(b => (!!b.is_greenhouse) === (!!bed.is_greenhouse));
 
-  async function resolveSameDatesOtherSegment() { /* verwijderd uit UI */ }
-  async function resolveSameDatesOtherBed() { /* verwijderd uit UI */ }
-  async function resolveEarliestSlotMinWeeks() { /* verwijderd uit UI */ }
+  async function resolveSameDatesOtherSegment(source: Planting, target: Planting) {
+    const bed = beds.find(b=>b.id===target.garden_bed_id)!;
+    const s = parseISO(target.planned_date)!; const e = parseISO(target.planned_harvest_end)!;
+    const seg = findAlternateSegment(plantings, bed, target.segments_used ?? 1, s, e, target.id, extrasBlockForSource(source));
+    if (seg == null) { notify("Geen vrij segment in deze bak voor deze datums.", "err"); return; }
+    await updatePlanting(target.id, { start_segment: seg } as any);
+    await reload(); notify("Segment aangepast.", "ok");
+  }
+  async function resolveSameDatesOtherBed(source: Planting, target: Planting) {
+    const curBed = beds.find(b=>b.id===target.garden_bed_id)!;
+    const envBeds = sameEnvBeds(curBed).filter(b=>b.id!==curBed.id);
+    const s = parseISO(target.planned_date)!; const e = parseISO(target.planned_harvest_end)!;
+    for (const b of envBeds) {
+      const seg = findAlternateSegment(plantings, b, target.segments_used ?? 1, s, e, target.id, extrasBlockForSource(source));
+      if (seg != null) {
+        await updatePlanting(target.id, { garden_bed_id: b.id, start_segment: seg } as any);
+        await reload(); notify(`Verplaatst naar ${b.name} (zelfde datums).`, "ok");
+        return;
+      }
+    }
+    notify("Geen andere bak beschikbaar op dezelfde datums.", "err");
+  }
+  async function resolveEarliestSlotMinWeeks(source: Planting, target: Planting) {
+    const seed = seedsById[target.seed_id]!; const method = (target.method as "direct"|"presow") ?? "direct";
+    const s0 = parseISO(target.planned_date)!;
+    const plan0 = planFromGroundDate(seed, method, toISO(s0));
+    const baseStart = new Date(plan0.planned_date); const baseEnd = new Date(plan0.planned_harvest_end ?? plan0.planned_date);
+    const envBeds = sameEnvBeds(beds.find(b=>b.id===target.garden_bed_id)!);
+
+    let best: null | { k:number; bed:GardenBed; seg:number; start:Date; end:Date } = null;
+
+    outer: for (const tick of weekShiftGenerator(baseStart, baseEnd, 52)) {
+      for (const bed of [beds.find(b=>b.id===target.garden_bed_id)!, ...envBeds.filter(b=>b.id!==target.garden_bed_id)]) {
+        const seg = findAlternateSegment(plantings, bed, target.segments_used ?? 1, tick.start, tick.end, target.id, extrasBlockForSource(source));
+        if (seg != null) { best = { k: tick.k, bed, seg, start: tick.start, end: tick.end }; break outer; }
+      }
+    }
+    if (!best) { notify("Geen plek gevonden binnen 52 weken.", "err"); return; }
+
+    const newPlan = planFromGroundDate(seed, method, toISO(best.start));
+    await updatePlanting(target.id, {
+      garden_bed_id: best.bed.id, start_segment: best.seg,
+      planned_date: newPlan.planned_date,
+      planned_presow_date: newPlan.planned_presow_date,
+      planned_harvest_start: newPlan.planned_harvest_start,
+      planned_harvest_end: newPlan.planned_harvest_end,
+    } as any);
+    await reload();
+    notify(`Verschoven met +${best.k}w naar ${best.bed.name}.`, "ok");
+  }
 
   /* ===== current week logic + ghosts ===== */
   const isActiveInWeek = (p:Planting, week:Date) => {
@@ -229,12 +293,36 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   const seedHasPlanned = (seedId: string) => plantings.some(p => p.seed_id === seedId && p.planned_date);
   const filteredSeeds = useMemo(() => {
     let arr = seeds.slice();
+
     if (q.trim()) { const t = q.trim().toLowerCase(); arr = arr.filter(s=>s.name.toLowerCase().includes(t)); }
     if (inStockOnly) arr = arr.filter(s => (s as any).in_stock ?? true);
     if (greenhouseOnly) arr = arr.filter(s => !!s.greenhouse_compatible);
     if (inPlanner!=="all") arr = arr.filter(s => (inPlanner==="planned") ? seedHasPlanned(s.id) : !seedHasPlanned(s.id));
+
+    // ← nieuw: categorie-filter
+    if (selectedCropType !== "all") {
+      if (selectedCropType === "__none__") {
+        arr = arr.filter(s => !s.crop_type_id);
+      } else {
+        arr = arr.filter(s => s.crop_type_id === selectedCropType);
+      }
+    }
+
+    // ← nieuw: maand-filter (direct/plant maanden)
+    if (selectedMonth !== "all") {
+      const m = parseInt(selectedMonth, 10); // 1..12
+      arr = arr.filter(s => {
+        const months: number[] =
+          (s as any).direct_plant_months ??
+          (s as any).direct_sow_months ??
+          [];
+        if (!Array.isArray(months) || months.length === 0) return false;
+        return months.includes(m);
+      });
+    }
+
     return arr;
-  }, [seeds, q, inStockOnly, inPlanner, greenhouseOnly, plantings]);
+  }, [seeds, q, inStockOnly, inPlanner, greenhouseOnly, plantings, selectedCropType, selectedMonth]);
 
   /* ===== UI: header & tabs ===== */
   const conflictCount = useMemo(() => countUniqueConflicts(conflictsMap), [conflictsMap]);
@@ -303,7 +391,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         planned_presow_date: method==="presow" && seed.presow_duration_weeks ? toISO(addWeeks(plantDate, -(seed.presow_duration_weeks??0))) : null,
         method, segments_used: segUsed, start_segment: planting?.start_segment ?? target.segmentIndex, color: color || planting?.color || seed.default_color || "#22c55e",
       } as any);
-      await reload(); setPopup(null); notify("Planting bijgewerkt.", "ok");
+        await reload(); setPopup(null); notify("Planting bijgewerkt.", "ok");
     }
   }
 
@@ -313,15 +401,65 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       <div className="space-y-3 max-h?[calc(100vh-7rem)] overflow-auto pr-1 pb-3">
         <h3 className="text-base font-semibold">Zoek/filters</h3>
         <input className="w-full border rounded px-2 py-1" value={q} onChange={e=>setQ(e.target.value)} placeholder="Zoek op naam…" />
-        <div className="text-sm space-y-1">
-          <label className="flex items-center gap-2"><input type="checkbox" checked={inStockOnly} onChange={e=>setInStockOnly(e.target.checked)} />In voorraad</label>
-          <label className="flex items-center gap-2"><input type="checkbox" checked={greenhouseOnly} onChange={e=>setGreenhouseOnly(e.target.checked)} />Alleen kas-geschikt</label>
+
+        <div className="text-sm space-y-2">
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={inStockOnly} onChange={e=>setInStockOnly(e.target.checked)} />
+            In voorraad
+          </label>
+
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={greenhouseOnly} onChange={e=>setGreenhouseOnly(e.target.checked)} />
+            Alleen kas-geschikt
+          </label>
+
           <div className="flex gap-2">
             {(["all","planned","unplanned"] as InPlanner[]).map(k=>(
-              <button key={k} className={`px-2 py-0.5 rounded border text-xs ${inPlanner===k?"bg-primary text-primary-foreground":"bg-muted text-muted-foreground"}`} onClick={()=>setInPlanner(k)}>{k==="all"?"Alle":k==="planned"?"Gepland":"Niet gepland"}</button>
+              <button
+                key={k}
+                className={`px-2 py-0.5 rounded border text-xs ${inPlanner===k?"bg-primary text-primary-foreground":"bg-muted text-muted-foreground"}`}
+                onClick={()=>setInPlanner(k)}
+              >
+                {k==="all"?"Alle":k==="planned"?"Gepland":"Niet gepland"}
+              </button>
             ))}
           </div>
+
+          {/* nieuw: categorie-filter */}
+          <div className="space-y-1">
+            <div className="text-xs font-medium">Categorie</div>
+            <select
+              className="w-full border rounded px-2 py-1"
+              value={selectedCropType}
+              onChange={(e)=>setSelectedCropType(e.target.value)}
+            >
+              <option value="all">Alle categorieën</option>
+              {cropTypes.map(ct => (
+                <option key={ct.id} value={ct.id}>{ct.name}</option>
+              ))}
+              <option value="__none__">Overig (geen type)</option>
+            </select>
+          </div>
+
+          {/* nieuw: direct/plant maand-filter */}
+          <div className="space-y-1">
+            <div className="text-xs font-medium">Direct/Plant maand</div>
+            <select
+              className="w-full border rounded px-2 py-1"
+              value={selectedMonth}
+              onChange={(e)=>setSelectedMonth(e.target.value)}
+            >
+              <option value="all">Alle maanden</option>
+              {MONTHS_NL.map((m, i) => (
+                <option key={m} value={String(i+1)}>{m}</option>
+              ))}
+            </select>
+            <div className="text-[11px] text-muted-foreground">
+              Filtert op het veld <em>direct_plant_months</em> van het zaad.
+            </div>
+          </div>
         </div>
+
         <h3 className="text-base font-semibold mt-2">Zaden</h3>
         <div className="space-y-1.5">
           {filteredSeeds.map(seed => <DraggableSeed key={seed.id} seed={seed} isDragging={activeDragId===`seed-${seed.id}`} />)}
@@ -394,11 +532,10 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                                         </div>
                                       )}
                                     </div>
-                                    {/* inline: alleen weergave, geen auto-actie knoppen */}
+                                    {/* conflicts inline */}
                                     {conflicts.length>0 && (
                                       <div className="rounded bg-white/15 px-2 py-1">
-                                        <div className="flex items-center gap-2 text-[10px]">
-                                          <span>⚠️ Conflicteert met:</span>
+                                        <div className="flex items-center gap-2 text-[10px]"><span>⚠️ Conflicteert met:</span>
                                           <div className="flex flex-wrap gap-1">
                                             {conflicts.map(c=>{
                                               const s2 = seedsById[c.seed_id];
@@ -406,6 +543,24 @@ export function PlannerPage({ garden }: { garden: Garden }) {
                                             })}
                                           </div>
                                         </div>
+
+                                        {/* actie knoppen per IMPACTED (latere) */}
+                                        {laterImpacted.map(target=>{
+                                          const s2 = seedsById[target.seed_id];
+                                          return (
+                                            <div key={`act-${p.id}-${target.id}`} className="mt-1 grid grid-cols-1 gap-1">
+                                              <div className="text-[10px] opacity-90">Pak aan: <strong>{s2?.name ?? "—"}</strong> (start wk {weekOf(new Date(target.planned_date!))})</div>
+                                              <div className="flex flex-wrap gap-1">
+                                                <button className="px-1.5 py-0.5 rounded bg-white/90 text-[10px] text-gray-900"
+                                                  onClick={()=>resolveSameDatesOtherSegment(p, target)}>Andere segmenten (zelfde bak)</button>
+                                                <button className="px-1.5 py-0.5 rounded bg-white/90 text-[10px] text-gray-900"
+                                                  onClick={()=>resolveSameDatesOtherBed(p, target)}>Andere bak (zelfde datums)</button>
+                                                <button className="px-1.5 py-0.5 rounded bg-amber-200 text-[10px] text-amber-900"
+                                                  onClick={()=>resolveEarliestSlotMinWeeks(p, target)}>Eerstmogelijke plek (min schuiven)</button>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
                                       </div>
                                     )}
                                   </div>
@@ -431,194 +586,7 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     </div>
   );
 
-  /* ===== MAP view / Timeline view blijven ongewijzigd ===== */
-
-  const conflictsView = (
-    <div className="space-y-3">
-      {Array.from(conflictsMap.entries())
-        .filter(([_, impacted]) => impacted.length > 0)
-        .map(([srcId, impacted])=>{
-        const src = plantings.find(p=>p.id===srcId)!;
-        const srcSeed = seedsById[src.seed_id];
-        const bed = beds.find(b=>b.id===src.garden_bed_id);
-        const later = impacted
-          .filter(x => (x.planned_date ?? "") >= (src.planned_date ?? ""))
-          .sort((a,b)=> (a.planned_date??"").localeCompare(b.planned_date??""));
-
-        return (
-          <section key={srcId} className="border rounded-lg overflow-hidden">
-            <div className="px-3 py-2 bg-red-50 border-b border-red-200">
-              <div className="text-sm">
-                <strong>{srcSeed?.name ?? "—"}</strong> • {bed?.name ?? "—"} <span className="text-red-700">(vergrendeld via actual / bron)</span>
-              </div>
-              <div className="text-xs text-red-800">
-                Bezetting: {fmtDMY(src.planned_date)} → {fmtDMY(src.planned_harvest_end)} • Segmenten {(src.start_segment??0)+1}–{(src.start_segment??0)+(src.segments_used??1)}
-              </div>
-            </div>
-
-            <div className="p-3 space-y-2 bg-card">
-              {later.map(target=>{
-                const s2 = seedsById[target.seed_id]; 
-                const b2 = beds.find(b=>b.id===target.garden_bed_id);
-
-                // Genereer *tekstueel advies* op basis van haalbare opties
-                const detail = generateConflictDetails(src, target, plantings, beds, seeds);
-                const feasible = detail.recommendations.filter(r => r.feasible);
-
-                return (
-                  <div key={target.id} className="border rounded-md bg-white p-3">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">
-                        {s2?.name ?? "—"} <span className="text-muted-foreground">• {b2?.name ?? "—"}</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        Gepland: {fmtDMY(target.planned_date)} → {fmtDMY(target.planned_harvest_end)} • Segmenten {(target.start_segment??0)+1}–{(target.start_segment??0)+(target.segments_used??1)}
-                      </div>
-                    </div>
-
-                    {/* Advies (geen knoppen meer) */}
-                    <div className="mt-2 text-sm">
-                      {feasible.length > 0 ? (
-                        <>
-                          <div className="font-medium mb-1">Beschikbaar advies:</div>
-                          <ol className="list-decimal ml-5 space-y-1">
-                            {feasible.map(rec => {
-                              const label = rec.type === "same_bed_different_segment" ? "Optie 1"
-                                : rec.type === "different_bed_same_time" ? "Optie 2"
-                                : "Optie 3";
-                              return (
-                                <li key={rec.type}>
-                                  <span className="font-medium mr-1">{label}:</span>
-                                  <span>{rec.description}</span>
-                                </li>
-                              );
-                            })}
-                          </ol>
-                        </>
-                      ) : (
-                        <div className="text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-                          Geen directe alternatieven gevonden (ook niet binnen 90 dagen). Overweeg handmatig data/locatie te herschikken.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-              {later.length===0 && <div className="text-sm text-muted-foreground">Geen latere gewassen met conflict in deze groep.</div>}
-            </div>
-          </section>
-        );
-      })}
-      {Array.from(conflictsMap.entries()).filter(([_, impacted]) => impacted.length > 0).length === 0 && <p className="text-sm text-muted-foreground">Geen conflicten 🎉</p>}
-    </div>
-  );
-
-  return (
-    <div className="space-y-6">
-      {/* header */}
-      <div className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b">
-        <div className="py-2.5 flex items-center justify-between">
-          <h2 className="text-2xl font-bold flex items-center gap-2">Planner {pendingBadge}</h2>
-          <div className="flex items-center gap-2 text-sm">
-            <button className="px-2 py-1 border rounded" onClick={()=>setCurrentWeek(addDays(currentWeek,-7))}>← Vorige week</button>
-            <span className="font-medium px-2 py-1 rounded">WK {weekOf(currentWeek)}</span>
-            <button className="px-2 py-1 border rounded" onClick={()=>setCurrentWeek(addDays(currentWeek,7))}>Volgende week →</button>
-            <button className="px-2 py-1 border rounded" onClick={gotoToday}>Vandaag</button>
-          </div>
-        </div>
-        <div className="flex items-center gap-3 pb-2">
-          {(["list","map","timeline","conflicts"] as const).map(k=>{
-            const active = view===k; const danger = k==="conflicts" && conflictCount>0;
-            return (
-              <button key={k} onClick={()=>setView(k)} className={`px-3 py-1.5 text-sm rounded-md border ${active?(danger?"bg-red-600 text-white border-red-600":"bg-primary text-primary-foreground"):(danger?"bg-red-50 text-red-700 border-red-200 hover:bg-red-100":"bg-card text-muted-foreground hover:text-foreground")}`}>
-                {k==="list"?"Lijstweergave":k==="map"?"Plattegrond":k==="timeline"?"Timeline":"Conflicten"}
-                {k==="conflicts" && conflictCount>0 && <span className="ml-1.5 px-1 py-0.5 text-xs rounded-full bg-white/20">{conflictCount}</span>}
-              </button>
-            );
-          })}
-          <label className="ml-auto mr-1 flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={showGhosts} onChange={(e)=>setShowGhosts(e.target.checked)} />
-            Toon toekomstige plantingen
-          </label>
-        </div>
-
-        {/* Info banner (geen auto-oplossen meer) */}
-        {conflictCount > 0 && view !== "conflicts" && (
-          <div className="px-3 pb-2">
-            <div className="rounded-md border border-amber-300 bg-amber-50 text-amber-900 p-2 text-sm flex items-center justify-between">
-              <span>⚠️ {conflictCount} conflict{conflictCount!==1?"en":""} — bekijk advies in het tabblad “Conflicten”.</span>
-              <button
-                className="px-2 py-1 text-xs rounded border border-amber-300 hover:bg-amber-100"
-                onClick={() => setView("conflicts")}
-              >
-                Open conflicten
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        {view==="list" && listView}
-        {view==="map" && <div className="grid grid-cols-1 md:grid-cols-4 gap-5"><div>{seedsList}</div><div className="md:col-span-3"><PlannerMap /></div></div>}
-        {view==="timeline" && (
-          <div className="space-y-4">
-            <TimelineView 
-              beds={beds || []} 
-              plantings={plantings || []} 
-              seeds={seeds || []} 
-              conflictsMap={conflictsMap}
-              currentWeek={currentWeek}
-              onReload={reload}
-            />
-          </div>
-        )}
-        {view==="conflicts" && conflictsView}
-
-        <DragOverlay dropAnimation={null}>
-          {activeSeed ? (
-            <div className="px-2 py-1 border rounded-md bg-secondary text-sm flex items-center gap-2 pointer-events-none shadow-lg">
-              <span className="inline-block w-3 h-3 rounded" style={{ background: activeSeed.default_color?.startsWith("#")?activeSeed.default_color:"#22c55e" }} />
-              <span className="truncate">{activeSeed.name}</span>
-            </div>
-          ) : null}
-        </DragOverlay>
-      </DndContext>
-
-      {/* Planting popup */}
-      {popup && (
-        <div className="fixed inset-0 bg-black/40 grid place-items-center z-50" onClick={()=>setPopup(null)}>
-          <div className="bg-card p-5 rounded-lg shadow-lg w-full max-w-md space-y-4" onClick={e=>e.stopPropagation()}>
-            <h3 className="text-lg font-semibold">{popup.mode==="create"?"Nieuwe planting":"Planting bewerken"}</h3>
-            <PlantingForm
-              mode={popup.mode}
-              seed={popup.seed}
-              bed={popup.bed}
-              beds={beds}
-              defaultSegment={popup.segmentIndex}
-              defaultDateISO={popup.mode==="edit" ? (popup.planting.planned_date ?? toISO(currentWeek)) : toISO(currentWeek)}
-              existing={popup.mode==="edit" ? popup.planting : undefined}
-              onCancel={()=>setPopup(null)}
-              onConfirm={(segmentsUsed, method, date, color, bedId)=>handleConfirmPlanting({
-                mode: popup.mode,
-                target: popup.mode==="create" ? { seed: popup.seed, bed: popup.bed, segmentIndex: popup.segmentIndex } : { seed: popup.seed, bed: popup.bed, segmentIndex: popup.segmentIndex, planting: popup.planting },
-                segmentsUsed, method, dateISO: date, color, bedIdOverride: bedId
-              })}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* toast */}
-      {toast && (
-        <div className={`fixed bottom-5 right-5 z-50 px-4 py-2 rounded shadow text-sm ${toast.tone==="ok"?"bg-green-600 text-white":toast.tone==="err"?"bg-red-600 text-white":"bg-gray-800 text-white"}`}>
-          {toast.msg}
-        </div>
-      )}
-    </div>
-  );
-
-  /* ===== Map component (ongewijzigd, maar behouden voor volledigheid) ===== */
+  /* ===== MAP view — stutter fix + edit/delete overlay ===== */
   function PlannerMap() {
     const viewportRef = useRef<HTMLDivElement | null>(null);
     const BASE_W = 2400, BASE_H = 1400;
@@ -687,15 +655,300 @@ export function PlannerPage({ garden }: { garden: Garden }) {
             className="relative"
             style={{ width: BASE_W * zoom, height: BASE_H * zoom, transition: isInitialized ? 'none' : 'opacity 0.1s ease-out', opacity: isInitialized ? 1 : 0 }}
           >
-            {/* ... (ongewijzigde map-inhoud) ... */}
+            <div
+              className="absolute left-0 top-0"
+              style={{
+                width: BASE_W, height: BASE_H,
+                transform: `scale(${zoom})`, transformOrigin: "0 0", willChange: "transform",
+                backgroundImage: "linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(180deg, rgba(0,0,0,0.04) 1px, transparent 1px)",
+                backgroundSize: "24px 24px", borderRadius: 12, contain: "layout style paint"
+              }}
+            >
+              {beds.map(bed=>{
+                const w = Math.max(60, Math.round(bed.length_cm || 200));
+                const h = Math.max(36, Math.round(bed.width_cm  || 100));
+                const x = bed.location_x ?? 20;
+                const y = bed.location_y ?? 20;
+
+                const HEADER = 28;
+                const innerW = w, innerH = Math.max(1, h - HEADER);
+                const segCount = Math.max(1, bed.segments);
+                const vertical = innerW >= innerH;
+                const segW = vertical ? innerW/segCount : innerW;
+                const segH = vertical ? innerH       : innerH/segCount;
+
+                const act = plantings.filter(p => p.garden_bed_id===bed.id && active(p));
+                const fut = plantings.filter(p => p.garden_bed_id===bed.id && future(p));
+
+                const segFree = (rs:number, len:number) => {
+                  const re = rs+len-1;
+                  return !act.some(p=>{ const ps=p.start_segment??0, pe=ps+(p.segments_used??1)-1; return rs<=pe && ps<=re; });
+                };
+
+                return (
+                  <div key={bed.id} className={`absolute rounded-lg shadow-sm border select-none ${bed.is_greenhouse?"border-green-600/60 bg-green-50":"bg-white"}`} style={{ left:x, top:y, width:w, height:h }}>
+                    <div className="flex items-center justify-between px-2 py-1 border-b bg-muted/50 rounded-t-lg" style={{ height: HEADER }}>
+                      <span className="text-xs font-medium truncate">{bed.name}</span>
+                      {bed.is_greenhouse && <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-600 text-white">Kas</span>}
+                    </div>
+
+                    <div className="relative w-full" style={{ height: innerH }}>
+                      {/* grid for droppables */}
+                      <div className="absolute inset-0 grid" style={{ gridTemplateColumns: vertical?`repeat(${segCount}, 1fr)`:"1fr", gridTemplateRows: vertical?"1fr":`repeat(${segCount}, 1fr)` }}>
+                        {Array.from({length:segCount},(_,i)=>(
+                          <div key={i} className="relative">
+                            <MapDroppable id={`bed__${bed.id}__segment__${i}`} />
+                            <div className="absolute inset-0 pointer-events-none border border-dashed border-black/10" />
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* active blocks */}
+                      <div className="absolute inset-0">
+                        {act.map(p=>{
+                          const seed = seedsById[p.seed_id];
+                          const start = p.start_segment ?? 0; const used = Math.max(1, p.segments_used ?? 1);
+                          const inset = 1;
+                          const rect = vertical
+                            ? { top: inset, height: Math.max(1, innerH - inset*2), left: inset + start*segW, width: Math.max(1, used*segW - inset*2) }
+                            : { left: inset, width: Math.max(1, innerW - inset*2), top: inset + start*segH, height: Math.max(1, used*segH - inset*2) };
+                          const color = p.color?.startsWith("#") ? p.color : "#22c55e";
+                          const hasConflict = (conflictsMap.get(p.id)?.length ?? 0) > 0;
+                          const focus = focusId === p.id;
+
+                          return (
+                            <div key={p.id} className={`absolute rounded text-white text-[10px] px-1 flex items-center ${hasConflict?'ring-2 ring-red-500 ring-offset-1':''} ${focus?'ring-2 ring-amber-400':''}`}
+                              style={{ ...rect, backgroundColor: color }}>
+                              <span className="truncate">{seed?.name ?? "—"}</span>
+                              {hasConflict && <span className="ml-1">⚠️</span>}
+
+                              {/* edit/delete overlay rechtsboven */}
+                              <div className="absolute top-0.5 right-0.5 flex gap-0.5">
+                                <button
+                                  className="p-0.5 rounded hover:bg-white/20"
+                                  title="Bewerken"
+                                  onClick={(e)=>{ e.stopPropagation(); setPopup({ mode:"edit", planting:p, seed:seed!, bed, segmentIndex: p.start_segment ?? 0 }); }}
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                </button>
+                                <button
+                                  className="p-0.5 rounded hover:bg-white/20"
+                                  title="Verwijderen"
+                                  onClick={(e)=>{ e.stopPropagation(); if (confirm("Verwijderen?")) deletePlanting(p.id).then(reload); }}
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* future ghosts */}
+                      {showGhosts && (
+                        <div className="absolute inset-0 pointer-events-none">
+                          {fut.map(p=>{
+                            const seed = seedsById[p.seed_id]; if (!seed) return null;
+                            const start = p.start_segment ?? 0; const used = Math.max(1, p.segments_used ?? 1);
+                            const inset = 1;
+                            const rect = vertical
+                              ? { top: inset, height: Math.max(1, innerH - inset*2), left: inset + start*segW, width: Math.max(1, used*segW - inset*2) }
+                              : { left: inset, width: Math.max(1, innerW - inset*2), top: inset + start*segH, height: Math.max(1, used*segH - inset*2) };
+                            const bg = (p.color?.startsWith("#") ? p.color : "rgba(34,197,94,.35)");
+                            return (
+                              <div key={`ghost-${p.id}`} className="absolute rounded text-white text-[10px] px-1 flex items-center" style={{ ...rect, backgroundColor:bg, opacity:0.35, border:"1px dashed rgba(0,0,0,.45)" }}>
+                                <span className="truncate">{seed.name}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       </section>
     );
   }
+
+  const conflictsView = (
+    <div className="space-y-3">
+      {Array.from(conflictsMap.entries())
+        .filter(([_, impacted]) => impacted.length > 0) // Only show plantings with conflicts
+        .map(([srcId, impacted])=>{
+        const src = plantings.find(p=>p.id===srcId)!;
+        const srcSeed = seedsById[src.seed_id];
+        const bed = beds.find(b=>b.id===src.garden_bed_id);
+        const later = impacted.filter(x => (x.planned_date ?? "") >= (src.planned_date ?? "")).sort((a,b)=> (a.planned_date??"").localeCompare(b.planned_date??""));
+
+        return (
+          <section key={srcId} className="border rounded-lg overflow-hidden">
+            <div className="px-3 py-2 bg-red-50 border-b border-red-200">
+              <div className="text-sm"><strong>{srcSeed?.name ?? "—"}</strong> • {bed?.name ?? "—"} <span className="text-red-700">(vergrendeld via actual / bron)</span></div>
+              <div className="text-xs text-red-800">Bezetting: {fmtDMY(src.planned_date)} → {fmtDMY(src.planned_harvest_end)}</div>
+            </div>
+            <div className="p-3 space-y-2 bg-card">
+              {later.map(t=>{
+                const s2 = seedsById[t.seed_id]; const b2 = beds.find(b=>b.id===t.garden_bed_id);
+                
+                // Calculate which recommendations are feasible
+                const curBed = beds.find(b=>b.id===t.garden_bed_id)!;
+                const s = parseISO(t.planned_date)!; const e = parseISO(t.planned_harvest_end)!;
+                
+                const sameBedOtherSegment = findAlternateSegment(plantings, curBed, t.segments_used ?? 1, s, e, t.id, extrasBlockForSource(src));
+                const envBeds = sameEnvBeds(curBed).filter(b=>b.id!==curBed.id);
+                let otherBedSameDates = null;
+                for (const b of envBeds) {
+                  const seg = findAlternateSegment(plantings, b, t.segments_used ?? 1, s, e, t.id, extrasBlockForSource(src));
+                  if (seg != null) { otherBedSameDates = b; break; }
+                }
+                
+                // Show only best available option
+                const showOption1 = sameBedOtherSegment !== null;
+                const showOption2 = !showOption1 && otherBedSameDates !== null;
+                const showOption3 = !showOption1 && !showOption2;
+                
+                return (
+                  <div key={t.id} className="border rounded-md bg-white p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium truncate">{s2?.name ?? "—"} <span className="text-muted-foreground">• {b2?.name ?? "—"}</span></div>
+                        <div className="text-xs text-muted-foreground">Gepland: {fmtDMY(t.planned_date)} → {fmtDMY(t.planned_harvest_end)} • Segmenten {(t.start_segment??0)+1}–{(t.start_segment??0)+(t.segments_used??1)}</div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {showOption1 && <button className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground" onClick={()=>resolveSameDatesOtherSegment(src, t)}>Andere segmenten (zelfde bak)</button>}
+                        {showOption2 && <button className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground" onClick={()=>resolveSameDatesOtherBed(src, t)}>Andere bak (zelfde datums)</button>}
+                        {showOption3 && <button className="px-2 py-1 text-xs rounded bg-amber-500 text-white" onClick={()=>resolveEarliestSlotMinWeeks(src, t)}>Eerstmogelijke plek (min schuiven)</button>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {later.length===0 && <div className="text-sm text-muted-foreground">Geen latere gewassen met conflict in deze groep.</div>}
+            </div>
+          </section>
+        );
+      })}
+      {Array.from(conflictsMap.entries()).filter(([_, impacted]) => impacted.length > 0).length === 0 && <p className="text-sm text-muted-foreground">Geen conflicten 🎉</p>}
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      {/* header */}
+      <div className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b">
+        <div className="py-2.5 flex items-center justify-between">
+          <h2 className="text-2xl font-bold flex items-center gap-2">Planner {pendingBadge}</h2>
+          <div className="flex items-center gap-2 text-sm">
+            <button className="px-2 py-1 border rounded" onClick={()=>setCurrentWeek(addDays(currentWeek,-7))}>← Vorige week</button>
+            <span className="font-medium px-2 py-1 rounded">WK {weekOf(currentWeek)}</span>
+            <button className="px-2 py-1 border rounded" onClick={()=>setCurrentWeek(addDays(currentWeek,7))}>Volgende week →</button>
+            <button className="px-2 py-1 border rounded" onClick={gotoToday}>Vandaag</button>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 pb-2">
+          {(["list","map","timeline","conflicts"] as const).map(k=>{
+            const active = view===k; const danger = k==="conflicts" && conflictCount>0;
+            return (
+              <button key={k} onClick={()=>setView(k)} className={`px-3 py-1.5 text-sm rounded-md border ${active?(danger?"bg-red-600 text-white border-red-600":"bg-primary text-primary-foreground"):(danger?"bg-red-50 text-red-700 border-red-200 hover:bg-red-100":"bg-card text-muted-foreground hover:text-foreground")}`}>
+                {k==="list"?"Lijstweergave":k==="map"?"Plattegrond":k==="timeline"?"Timeline":"Conflicten"}
+                {k==="conflicts" && conflictCount>0 && <span className="ml-1.5 px-1 py-0.5 text-xs rounded-full bg-white/20">{conflictCount}</span>}
+              </button>
+            );
+          })}
+          <label className="ml-auto mr-1 flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={showGhosts} onChange={(e)=>setShowGhosts(e.target.checked)} />
+            Toon toekomstige plantingen
+          </label>
+        </div>
+      </div>
+
+      {/* Conflict Warning */}
+      {hasConflicts && (
+        <ConflictWarning 
+          conflictCount={conflictCount}
+          onResolveAll={async () => {
+            for (const [sourceId, impacted] of conflictsMap.entries()) {
+              const source = plantings.find(p => p.id === sourceId);
+              if (!source) continue;
+              const laterConflicts = impacted.filter(x => (x.planned_date ?? "") >= (source.planned_date ?? ""));
+              for (const target of laterConflicts) {
+                try { await resolveSameDatesOtherSegment(source, target); break; }
+                catch { try { await resolveSameDatesOtherBed(source, target); break; }
+                catch { try { await resolveEarliestSlotMinWeeks(source, target); break; }
+                catch { console.warn(`Auto-resolve faalde voor ${target.id}`); }}}
+              }
+            }
+            await reload();
+          }}
+        />
+      )}
+
+      <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        {view==="list" && listView}
+        {view==="map" && <div className="grid grid-cols-1 md:grid-cols-4 gap-5"><div>{seedsList}</div><div className="md:col-span-3"><PlannerMap /></div></div>}
+        {view==="timeline" && (
+          <div className="space-y-4">
+            <TimelineView 
+              beds={beds || []} 
+              plantings={plantings || []} 
+              seeds={seeds || []} 
+              conflictsMap={conflictsMap}   // <-- nu gevuld
+              currentWeek={currentWeek}
+              onReload={reload}
+            />
+          </div>
+        )}
+        {view==="conflicts" && conflictsView}
+
+        <DragOverlay dropAnimation={null}>
+          {activeSeed ? (
+            <div className="px-2 py-1 border rounded-md bg-secondary text-sm flex items-center gap-2 pointer-events-none shadow-lg">
+              <span className="inline-block w-3 h-3 rounded" style={{ background: activeSeed.default_color?.startsWith("#")?activeSeed.default_color:"#22c55e" }} />
+              <span className="truncate">{activeSeed.name}</span>
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+
+      {/* Planting popup */}
+      {popup && (
+        <div className="fixed inset-0 bg-black/40 grid place-items-center z-50" onClick={()=>setPopup(null)}>
+          <div className="bg-card p-5 rounded-lg shadow-lg w-full max-w-md space-y-4" onClick={e=>e.stopPropagation()}>
+            <h3 className="text-lg font-semibold">{popup.mode==="create"?"Nieuwe planting":"Planting bewerken"}</h3>
+            <PlantingForm
+              mode={popup.mode}
+              seed={popup.seed}
+              bed={popup.bed}
+              beds={beds}
+              defaultSegment={popup.segmentIndex}
+              defaultDateISO={popup.mode==="edit" ? (popup.planting.planned_date ?? toISO(currentWeek)) : toISO(currentWeek)}
+              existing={popup.mode==="edit" ? popup.planting : undefined}
+              onCancel={()=>setPopup(null)}
+              onConfirm={(segmentsUsed, method, date, color, bedId)=>handleConfirmPlanting({
+                mode: popup.mode,
+                target: popup.mode==="create" ? { seed: popup.seed, bed: popup.bed, segmentIndex: popup.segmentIndex } : { seed: popup.seed, bed: popup.bed, segmentIndex: popup.segmentIndex, planting: popup.planting },
+                segmentsUsed, method, dateISO: date, color, bedIdOverride: bedId
+              })}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* toast */}
+      {toast && (
+        <div className={`fixed bottom-5 right-5 z-50 px-4 py-2 rounded shadow text-sm ${toast.tone==="ok"?"bg-green-600 text-white":toast.tone==="err"?"bg-red-600 text-white":"bg-gray-800 text-white"}`}>
+          {toast.msg}
+        </div>
+      )}
+    </div>
+  );
 }
 
-/* ===== PlantingForm (ongewijzigd) ===== */
+/* ===== PlantingForm ===== */
 function PlantingForm({
   mode, seed, bed, defaultSegment, defaultDateISO, existing, beds, onCancel, onConfirm,
 }:{
