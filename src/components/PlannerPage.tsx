@@ -1286,24 +1286,33 @@ function PlantingForm({
         </p>
       </div>
 
-      {/* Startsegment */}
-      <div>
-        <label className="block text-sm font-medium mb-1">Startsegment</label>
-        <div className="flex items-center gap-2">
-          <input
-            type="range"
-            min={0}
-            max={maxStartIndex}
-            value={startSegment}
-            onChange={(e) => setStartSegment(parseInt(e.target.value, 10))}
-            className="w-full"
-          />
-          <span className="text-sm w-10 text-right">{startSegment + 1}</span>
-        </div>
-        <p className="text-xs text-muted-foreground mt-1">
-          Eerste segment in “{selectedBed.name}” is <strong>{startSegment + 1}</strong> (van {selectedBed.segments}).
-        </p>
-      </div>
+{/* Startsegment (nummer-veld met pijltjes) */}
+<div>
+  <label className="block text-sm font-medium mb-1">Startsegment</label>
+  <div className="flex items-center gap-2">
+    <input
+      type="number"
+      min={1}
+      max={Math.max(1, selectedBed.segments ?? 1)}
+      step={1}
+      value={startSegment + 1} // 1-based tonen
+      onChange={(e) => {
+        const max = Math.max(1, selectedBed.segments ?? 1);
+        const raw = Number(e.target.value);
+        const asInt = Number.isFinite(raw) ? Math.floor(raw) : 1;
+        const clamped1 = clamp(asInt, 1, max); // 1..max
+        setStartSegment(clamped1 - 1); // intern 0-based
+      }}
+      className="border rounded px-2 py-1 w-24"
+    />
+    <span className="text-sm text-muted-foreground">
+      van {Math.max(1, selectedBed.segments ?? 1)} segmenten
+    </span>
+  </div>
+  <p className="text-xs text-muted-foreground mt-1">
+    Eerste segment in “{selectedBed.name}” is <strong>{startSegment + 1}</strong>.
+  </p>
+</div>
 
       {/* Aantal segmenten */}
       <div>
