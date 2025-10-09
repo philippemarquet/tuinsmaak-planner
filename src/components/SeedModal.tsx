@@ -25,7 +25,7 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
     purchase_date: seed.purchase_date ?? "",
     row_spacing_cm: seed.row_spacing_cm ?? null,
     plant_spacing_cm: seed.plant_spacing_cm ?? null,
-    greenhouse_compatible: seed.greenhouse_compatible ?? false,
+    greenhouse_compatible: seed.greenhouse_compatible ?? false, // ← al aanwezig in state
     sowing_type: (seed.sowing_type === "presow" ? "presow" : "direct"),
 
     presow_duration_weeks: seed.presow_duration_weeks ?? null,
@@ -69,6 +69,7 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
         grow_duration_weeks: !form.grow_duration_weeks || String(form.grow_duration_weeks) === "" ? null : Number(form.grow_duration_weeks),
         harvest_duration_weeks: !form.harvest_duration_weeks || String(form.harvest_duration_weeks) === "" ? null : Number(form.harvest_duration_weeks),
         notes: form.notes || null,
+        // greenhouse_compatible + in_stock gaan al mee via ...form
         // default_color verwacht #hex (ColorField regelt conversie)
       };
 
@@ -86,7 +87,7 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-index-50 z-50">
       <div className="bg-card rounded-lg shadow-lg p-6 w-full max-w-3xl space-y-4 max-h-[90vh] overflow-y-auto">
         <h3 className="text-lg font-semibold mb-2">
           {editing ? "Zaad bewerken" : "Nieuw zaad"}
@@ -127,7 +128,7 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
           </div>
         </div>
 
-        {/* Aankoopdatum + In voorraad */}
+        {/* Aankoopdatum + In voorraad + Geschikt voor kas */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-1">Aankoopdatum</label>
@@ -138,7 +139,7 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
               className="w-full border rounded-md px-2 py-1"
             />
           </div>
-          <div>
+          <div className="flex items-center gap-6">
             <label className="inline-flex items-center gap-2">
               <input
                 type="checkbox"
@@ -147,8 +148,20 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
               />
               <span className="text-sm font-medium">In voorraad</span>
             </label>
+
+            {/* ✅ nieuwe checkbox, zelfde rij en stijl */}
+            <label className="inline-flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={!!form.greenhouse_compatible}
+                onChange={(e) => handleChange("greenhouse_compatible", e.target.checked)}
+              />
+              <span className="text-sm font-medium">Geschikt voor kas</span>
+            </label>
           </div>
         </div>
+
+        {/* Afstanden + Zaaitype */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium mb-1">Rijafstand (cm)</label>
