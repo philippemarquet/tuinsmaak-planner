@@ -1,150 +1,240 @@
 // src/lib/conflictResolution.ts
-import type { GardenBed, Planting } from "./types";
-import { buildConflictsMap, intervalsOverlap, segmentsOverlap, occupancyWindow, parseISO } from "./conflicts";
+import type { Planting, GardenBed, Seed } from "./types";
+import { occupancyWindow } from "./conflicts";
 
-export type FitOption = { bed_id: string; start_segment: number };
-export type EarliestFit = { dateISO: string; bed_id: string; start_segment: number };
-export type ConflictDetail = {
-  offender: Planting;        // the planting the user should modify
-  blockers: Planting[];      // plantings it conflicts with (typically "locked" / earlier)
-  sameBedOption?: FitOption | null;
-  otherBedOptions?: FitOption[];
-  earliestFit?: EarliestFit | null;
-};
-
-export function isLocked(p: Planting): boolean {
-  return Boolean(p.actual_ground_date || p.actual_presow_date || p.actual_harvest_start || p.actual_harvest_end);
+export interface ConflictDetail {
+  actualizedPlanting: Planting;
+  conflictingPlanting: Planting;
+  actualizedSeed: Seed;
+  conflictingSeed: Seed;
+  recommendations: ResolutionRecommendation[];
 }
 
-/** Returns offender/blocker pairs (only the "new"/unlocked side as offender). */
-export function pickOffenders(plantings: Planting[]): ConflictDetail[] {
-  const conflicts = buildConflictsMap(plantings);
-  const details: ConflictDetail[] = [];
-  const handled = new Set<string>();
+export interface ResolutionRecommendation {
+  type: "same_bed_different_segment" | "different_bed_same_time" | "different_time";
+  description: string;
+  targetBed?: GardenBed;
+  targetSegment?: number;
+  targetDate?: string;
+  feasible: boolean;
+}
 
-  for (const [pid, others] of conflicts) {
-    const p = plantings.find(x => x.id === pid);
-    if (!p) continue;
-    for (const q of others) {
-      const key = pid < q.id ? pid + "|" + q.id : q.id + "|" + pid;
-      if (handled.has(key)) continue;
-      handled.add(key);
-
-      const pLocked = isLocked(p);
-      const qLocked = isLocked(q);
-      let offender: Planting, blocker: Planting;
-
-      if (pLocked && !qLocked) { offender = q; blocker = p; }
-      else if (!pLocked && qLocked) { offender = p; blocker = q; }
-      else {
-        // both unlocked or both locked → choose the one with later planned_date as offender
-        const pStart = parseISO(p.planned_date)!.getTime();
-        const qStart = parseISO(q.planned_date)!.getTime();
-        if (pStart >= qStart) { offender = p; blocker = q; } else { offender = q; blocker = p; }
-      }
-
-      // Aggregate blockers per offender
-      let entry = details.find(d => d.offender.id === offender.id);
-      if (!entry) {
-        entry = { offender, blockers: [] };
-        details.push(entry);
-      }
-      if (!entry.blockers.find(b => b.id === blocker.id)) entry.blockers.push(blocker);
-    }
+/**
+ * Generate detailed conflict information and resolution recommendations
+ */
+export function generateConflictDetails(
+  actualizedPlanting: Planting,
+  conflictingPlanting: Planting,
+  allPlantings: Planting[],
+  beds: GardenBed[],
+  seeds: Seed[]
+): ConflictDetail {
+  const actualizedSeed = seeds.find(s => s.id === actualizedPlanting.seed_id)!;
+  const conflictingSeed = seeds.find(s => s.id === conflictingPlanting.seed_id)!;
+  
+  const recommendations: ResolutionRecommendation[] = [];
+  
+  const conflictWindow = occupancyWindow(conflictingPlanting, conflictingSeed);
+  if (!conflictWindow.start || !conflictWindow.end) {
+    return { actualizedPlanting, conflictingPlanting, actualizedSeed, conflictingSeed, recommendations: [] };
   }
 
-  return details;
+  const currentBed = beds.find(b => b.id === conflictingPlanting.garden_bed_id);
+  if (!currentBed) {
+    return { actualizedPlanting, conflictingPlanting, actualizedSeed, conflictingSeed, recommendations: [] };
+  }
+
+  // 1. Same bed, different segment
+  const availableSegments = findAvailableSegments(
+    currentBed,
+    conflictWindow.start,
+    conflictWindow.end,
+    conflictingPlanting.segments_used ?? 1,
+    allPlantings,
+    seeds,
+    conflictingPlanting.id
+  );
+  
+  if (availableSegments.length > 0) {
+    recommendations.push({
+      type: "same_bed_different_segment",
+      description: `Verplaats naar segment ${availableSegments[0]} in ${currentBed.name} (zelfde timing)`,
+      targetBed: currentBed,
+      targetSegment: availableSegments[0],
+      feasible: true
+    });
+  } else {
+    recommendations.push({
+      type: "same_bed_different_segment",
+      description: `Geen vrije segmenten in ${currentBed.name}`,
+      feasible: false
+    });
+  }
+
+  // 2. Different bed, same time
+  const alternativeBed = findAlternativeBed(
+    beds,
+    currentBed.id,
+    conflictWindow.start,
+    conflictWindow.end,
+    conflictingPlanting.segments_used ?? 1,
+    allPlantings,
+    seeds,
+    conflictingSeed
+  );
+  
+  if (alternativeBed) {
+    recommendations.push({
+      type: "different_bed_same_time",
+      description: `Verplaats naar ${alternativeBed.bed.name}, segment ${alternativeBed.segment} (zelfde timing)`,
+      targetBed: alternativeBed.bed,
+      targetSegment: alternativeBed.segment,
+      feasible: true
+    });
+  } else {
+    recommendations.push({
+      type: "different_bed_same_time",
+      description: `Geen alternatieve bak beschikbaar op zelfde datum`,
+      feasible: false
+    });
+  }
+
+  // 3. Different timing - find first available slot
+  const earliestSlot = findEarliestAvailableSlot(
+    beds,
+    conflictWindow.start,
+    conflictWindow.end,
+    conflictingPlanting.segments_used ?? 1,
+    allPlantings,
+    seeds,
+    conflictingSeed
+  );
+  
+  if (earliestSlot) {
+    const daysDiff = Math.floor((earliestSlot.date.getTime() - conflictWindow.start.getTime()) / (1000 * 60 * 60 * 24));
+    recommendations.push({
+      type: "different_time",
+      description: `Verplaats naar ${earliestSlot.bed.name}, segment ${earliestSlot.segment} op ${earliestSlot.date.toLocaleDateString('nl-NL')} (+${daysDiff} dagen)`,
+      targetBed: earliestSlot.bed,
+      targetSegment: earliestSlot.segment,
+      targetDate: earliestSlot.date.toISOString().split('T')[0],
+      feasible: true
+    });
+  } else {
+    recommendations.push({
+      type: "different_time",
+      description: `Geen alternatieve slot gevonden binnen redelijke termijn`,
+      feasible: false
+    });
+  }
+
+  return {
+    actualizedPlanting,
+    conflictingPlanting,
+    actualizedSeed,
+    conflictingSeed,
+    recommendations
+  };
 }
 
-/** Compute all free contiguous segment start positions for a given bed and interval. */
-export function freeStartsForInterval(
+function findAvailableSegments(
   bed: GardenBed,
-  plantings: Planting[],
-  startISO: string,
-  endISO: string,
-  neededSegments: number,
-  excludePlantingId?: string
+  startDate: Date,
+  endDate: Date,
+  segmentsNeeded: number,
+  allPlantings: Planting[],
+  seeds: Seed[],
+  excludeId: string
 ): number[] {
-  const segCount = Math.max(1, bed.segments ?? 1);
-  const starts: number[] = [];
-  const s = parseISO(startISO)!;
-  const e = parseISO(endISO)!;
-
-  for (let startSeg = 0; startSeg <= segCount - neededSegments; startSeg++) {
-    const aStart = startSeg;
-    const aUsed = neededSegments;
-    let ok = true;
-    for (const p of plantings) {
-      if (excludePlantingId && p.id === excludePlantingId) continue;
-      if (p.garden_bed_id !== bed.id) continue;
-      const w = occupancyWindow(p);
-      if (!w.start || !w.end) continue;
-      if (!intervalsOverlap(s, e, w.start, w.end)) continue;
-      const bStart = p.start_segment ?? 0;
-      const bUsed = p.segments_used ?? 1;
-      if (segmentsOverlap(aStart, aUsed, bStart, bUsed)) { ok = false; break; }
-    }
-    if (ok) starts.push(startSeg);
-  }
-  return starts;
-}
-
-export function suggestWithinSameBedSameDate(offender: Planting, beds: GardenBed[], plantings: Planting[]): FitOption | null {
-  const bed = beds.find(b => b.id === offender.garden_bed_id);
-  const w = occupancyWindow(offender);
-  if (!bed || !w.start || !w.end) return null;
-  const needed = Math.max(1, offender.segments_used ?? 1);
-  const starts = freeStartsForInterval(bed, plantings, offender.planned_date!, offender.planned_harvest_end!, needed, offender.id);
-  if (starts.length === 0) return null;
-  // Prefer original start if still free, otherwise first free
-  const preferred = offender.start_segment ?? 0;
-  const start_segment = starts.includes(preferred) ? preferred : starts[0];
-  return { bed_id: bed.id, start_segment };
-}
-
-export function suggestOtherBedsSameDate(offender: Planting, beds: GardenBed[], plantings: Planting[]): FitOption[] {
-  const w = occupancyWindow(offender);
-  if (!w.start || !w.end) return [];
-  const needed = Math.max(1, offender.segments_used ?? 1);
-  const out: FitOption[] = [];
-  for (const bed of beds) {
-    if (bed.id === offender.garden_bed_id) continue;
-    const starts = freeStartsForInterval(bed, plantings, offender.planned_date!, offender.planned_harvest_end!, needed, offender.id);
-    if (starts.length > 0) out.push({ bed_id: bed.id, start_segment: starts[0] });
-  }
-  return out;
-}
-
-export function findEarliestFit(offender: Planting, beds: GardenBed[], plantings: Planting[], horizonDays = 365): EarliestFit | null {
-  const needed = Math.max(1, offender.segments_used ?? 1);
-  const startDate = parseISO(offender.planned_date!);
-  const endDate = parseISO(offender.planned_harvest_end!);
-  if (!startDate || !endDate) return null;
-  const durationDays = Math.round((+endDate - +startDate) / (1000*60*60*24));
-
-  const base = new Date(startDate);
-  for (let d = 0; d <= horizonDays; d++) {
-    const s = new Date(base); s.setDate(s.getDate() + d);
-    const e = new Date(s); e.setDate(e.getDate() + durationDays);
-    const sISO = s.toISOString().slice(0,10);
-    const eISO = e.toISOString().slice(0,10);
-    for (const bed of beds) {
-      const starts = freeStartsForInterval(bed, plantings, sISO, eISO, needed, offender.id);
-      if (starts.length > 0) {
-        return { dateISO: sISO, bed_id: bed.id, start_segment: starts[0] };
+  const available: number[] = [];
+  const seedsById = new Map(seeds.map(s => [s.id, s]));
+  
+  for (let seg = 0; seg <= bed.segments - segmentsNeeded; seg++) {
+    let occupied = false;
+    
+    for (const p of allPlantings) {
+      if (p.id === excludeId || p.garden_bed_id !== bed.id) continue;
+      
+      const seed = seedsById.get(p.seed_id);
+      const window = occupancyWindow(p, seed);
+      if (!window.start || !window.end) continue;
+      
+      // Check time overlap
+      if (startDate <= window.end && window.start <= endDate) {
+        // Check segment overlap
+        const pStart = p.start_segment ?? 0;
+        const pEnd = pStart + (p.segments_used ?? 1) - 1;
+        const segEnd = seg + segmentsNeeded - 1;
+        
+        if (seg <= pEnd && pStart <= segEnd) {
+          occupied = true;
+          break;
+        }
       }
     }
+    
+    if (!occupied) available.push(seg);
   }
+  
+  return available;
+}
+
+function findAlternativeBed(
+  beds: GardenBed[],
+  currentBedId: string,
+  startDate: Date,
+  endDate: Date,
+  segmentsNeeded: number,
+  allPlantings: Planting[],
+  seeds: Seed[],
+  seedInfo: Seed
+): { bed: GardenBed; segment: number } | null {
+  const seedsById = new Map(seeds.map(s => [s.id, s]));
+  
+  for (const bed of beds) {
+    if (bed.id === currentBedId) continue;
+    
+    // Check greenhouse compatibility
+    if (bed.is_greenhouse && !seedInfo.greenhouse_compatible) continue;
+    
+    const segments = findAvailableSegments(bed, startDate, endDate, segmentsNeeded, allPlantings, seeds, "");
+    if (segments.length > 0) {
+      return { bed, segment: segments[0] };
+    }
+  }
+  
   return null;
 }
 
-export function generateConflictDetails(plantings: Planting[], beds: GardenBed[]): ConflictDetail[] {
-  const offenders = pickOffenders(plantings);
-  // Augment with suggestions per the user's rules
-  return offenders.map(entry => {
-    const same = suggestWithinSameBedSameDate(entry.offender, beds, plantings);
-    const others = same ? [] : suggestOtherBedsSameDate(entry.offender, beds, plantings);
-    const earliest = (same || (others && others.length>0)) ? null : findEarliestFit(entry.offender, beds, plantings);
-    return { ...entry, sameBedOption: same ?? null, otherBedOptions: others, earliestFit: earliest ?? null };
-  });
+function findEarliestAvailableSlot(
+  beds: GardenBed[],
+  originalStart: Date,
+  originalEnd: Date,
+  segmentsNeeded: number,
+  allPlantings: Planting[],
+  seeds: Seed[],
+  seedInfo: Seed
+): { bed: GardenBed; segment: number; date: Date } | null {
+  const duration = Math.ceil((originalEnd.getTime() - originalStart.getTime()) / (1000 * 60 * 60 * 24));
+  const maxDaysForward = 90; // Search up to 90 days forward
+  
+  for (let daysOffset = 1; daysOffset <= maxDaysForward; daysOffset += 7) {
+    const testStart = new Date(originalStart);
+    testStart.setDate(testStart.getDate() + daysOffset);
+    
+    const testEnd = new Date(testStart);
+    testEnd.setDate(testEnd.getDate() + duration);
+    
+    for (const bed of beds) {
+      // Check greenhouse compatibility
+      if (bed.is_greenhouse && !seedInfo.greenhouse_compatible) continue;
+      
+      const segments = findAvailableSegments(bed, testStart, testEnd, segmentsNeeded, allPlantings, seeds, "");
+      if (segments.length > 0) {
+        return { bed, segment: segments[0], date: testStart };
+      }
+    }
+  }
+  
+  return null;
 }

@@ -1,94 +1,146 @@
 // src/lib/conflicts.ts
-import type { Planting, GardenBed } from "./types";
+import type { Planting, Seed } from "./types";
 
-// Day-inclusive interval overlap (YYYY-MM-DD dates treated as local dates)
-export function intervalsOverlap(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
+/** 
+ * Day-level overlap check for planting occupancy.
+ * A planting ending on Sunday and another starting on Monday should NOT overlap.
+ * Only overlaps if there's at least one shared day.
+ * Example: A ends Sunday, B starts Monday → aEnd < bStart → no overlap ✓
+ */
+function intervalsOverlapDayInclusive(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
+  // Overlaps only if: aStart <= bEnd AND bStart <= aEnd
+  // But for same-day adjacency (end = start), we want NO overlap
+  // So we use strict: aEnd >= bStart means last day of A >= first day of B
   return aStart <= bEnd && bStart <= aEnd;
 }
 
-// Segment overlap where segments are contiguous integers; adjacency is allowed.
-export function segmentsOverlap(aStartSeg: number, aUsed: number, bStartSeg: number, bUsed: number) {
-  const aEnd = aStartSeg + Math.max(1, aUsed) - 1;
-  const bEnd = bStartSeg + Math.max(1, bUsed) - 1;
+/** Segment-overlap (inclusief): [start, start+used-1] kruist */
+function segmentsOverlapInclusive(aStartSeg: number, aUsed: number, bStartSeg: number, bUsed: number) {
+  const aEnd = aStartSeg + aUsed - 1;
+  const bEnd = bStartSeg + bUsed - 1;
   return aStartSeg <= bEnd && bStartSeg <= aEnd;
 }
 
-export function parseISO(iso?: string | null): Date | null {
-  return iso ? new Date(iso) : null;
-}
+type Window = { start: Date | null; end: Date | null };
 
-export function occupancyWindow(p: Planting): { start: Date | null; end: Date | null } {
-  const start = parseISO(p.planned_date ?? undefined);
-  const end = parseISO(p.planned_harvest_end ?? undefined);
+/**
+ * Occupancy window:
+ * - Start = (actual_ground_date ?? calculated from actual_presow_date ?? planned_date)
+ * - End   = (actual_harvest_end ?? calculated from new ground date ?? planned_harvest_end)
+ * We nemen 'actual' voorkeur, berekenen indien nodig, en vallen terug op 'planned'.
+ */
+export function occupancyWindow(p: Planting, seed?: Seed): Window {
+  let startISO: string | null = null;
+  let endISO: string | null = null;
+
+  // Bepaal start datum
+  if (p.actual_ground_date) {
+    startISO = p.actual_ground_date;
+  } else if (p.actual_presow_date && seed?.presow_duration_weeks) {
+    // Bereken nieuwe ground date op basis van actual presow + duration
+    const actualPresowDate = new Date(p.actual_presow_date);
+    if (!isNaN(actualPresowDate.getTime())) {
+      const newGroundDate = new Date(actualPresowDate);
+      newGroundDate.setDate(newGroundDate.getDate() + (seed.presow_duration_weeks * 7));
+      startISO = newGroundDate.toISOString().split('T')[0];
+    }
+  } else {
+    startISO = p.planned_date;
+  }
+
+  // Bepaal eind datum
+  if (p.actual_harvest_end) {
+    endISO = p.actual_harvest_end;
+  } else if (startISO && seed && seed.grow_duration_weeks != null && seed.harvest_duration_weeks != null) {
+    // Recalculate harvest end from ground date using grow + harvest durations
+    const groundDate = new Date(startISO);
+    if (!isNaN(groundDate.getTime())) {
+      const end = new Date(groundDate);
+      end.setDate(end.getDate() + ((seed.grow_duration_weeks + seed.harvest_duration_weeks) * 7));
+      endISO = end.toISOString().split('T')[0];
+    }
+  } else {
+    endISO = p.planned_harvest_end;
+  }
+
+  if (!startISO || !endISO) return { start: null, end: null };
+
+  const start = new Date(startISO);
+  const end   = new Date(endISO);
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return { start: null, end: null };
+
+  // Normaliseer naar 00:00 zodat dag-inclusie overal hetzelfde werkt
+  start.setHours(0, 0, 0, 0);
+  end.setHours(0, 0, 0, 0);
   return { start, end };
 }
 
-/** Build conflict map: for each planting, list of other plantings that overlap in
- *  (bed, date interval, segments). We *only* consider planned_date..planned_harvest_end.
+function sameBed(a: Planting, b: Planting) {
+  return a.garden_bed_id && b.garden_bed_id && a.garden_bed_id === b.garden_bed_id;
+}
+
+function segStart(p: Planting) { return Math.max(0, p.start_segment ?? 0); }
+function segUsed(p: Planting)  { return Math.max(1, p.segments_used ?? 1); }
+
+/**
+ * Kern: geeft voor elk planting.id de lijst met andere plantingen waarmee een conflict bestaat.
+ * Een conflict = (zelfde bak) ∧ (datums overlappen dag-inclusief) ∧ (segmenten overlappen).
  */
-export function buildConflictsMap(plantings: Planting[]): Map<string, Planting[]> {
-  const byBed = new Map<string, Planting[]>();
-  for (const p of plantings) {
-    if (!p.garden_bed_id) continue;
-    if (!byBed.has(p.garden_bed_id)) byBed.set(p.garden_bed_id, []);
-    byBed.get(p.garden_bed_id)!.push(p);
+export function buildConflictsMap(plantings: Planting[], seeds: Seed[] = []): Map<string, Planting[]> {
+  const map = new Map<string, Planting[]>();
+  for (const p of plantings) map.set(p.id, []);
+
+  // Maak seed lookup map
+  const seedsById = new Map<string, Seed>();
+  for (const seed of seeds) {
+    seedsById.set(seed.id, seed);
   }
 
-  const result = new Map<string, Planting[]>();
-  for (const list of byBed.values()) {
-    // Compare all pairs within the same bed
-    for (let i = 0; i < list.length; i++) {
-      const a = list[i];
-      const aw = occupancyWindow(a);
-      if (!aw.start || !aw.end) continue;
-      const aSeg = a.start_segment ?? 0;
-      const aUsed = a.segments_used ?? 1;
-      for (let j = i + 1; j < list.length; j++) {
-        const b = list[j];
-        const bw = occupancyWindow(b);
-        if (!bw.start || !bw.end) continue;
-        const bSeg = b.start_segment ?? 0;
-        const bUsed = b.segments_used ?? 1;
-        if (!intervalsOverlap(aw.start, aw.end, bw.start, bw.end)) continue;
-        if (!segmentsOverlap(aSeg, aUsed, bSeg, bUsed)) continue;
-        // Mark conflict both ways
-        if (!result.has(a.id)) result.set(a.id, []);
-        if (!result.has(b.id)) result.set(b.id, []);
-        result.get(a.id)!.push(b);
-        result.get(b.id)!.push(a);
-      }
+  const n = plantings.length;
+  for (let i = 0; i < n; i++) {
+    const a = plantings[i];
+    const seedA = seedsById.get(a.seed_id);
+    const wa = occupancyWindow(a, seedA);
+    if (!wa.start || !wa.end) continue;
+
+    for (let j = i + 1; j < n; j++) {
+      const b = plantings[j];
+      if (!sameBed(a, b)) continue;
+
+      const seedB = seedsById.get(b.seed_id);
+      const wb = occupancyWindow(b, seedB);
+      if (!wb.start || !wb.end) continue;
+
+      // Datums overlappen?
+      if (!intervalsOverlapDayInclusive(wa.start, wa.end, wb.start, wb.end)) continue;
+
+      // Segmenten overlappen?
+      if (!segmentsOverlapInclusive(segStart(a), segUsed(a), segStart(b), segUsed(b))) continue;
+
+      // Conflict! Voeg tweezijdig toe
+      map.get(a.id)!.push(b);
+      map.get(b.id)!.push(a);
     }
   }
-  return result;
+
+  return map;
 }
 
-export function conflictsFor(plantingId: string, conflictsMap: Map<string, Planting[]>): Planting[] {
-  return conflictsMap.get(plantingId) ?? [];
-}
-
+/** Handig voor banners: tel unieke conflictparen (i<j) ipv dubbel tellen. */
 export function countUniqueConflicts(conflictsMap: Map<string, Planting[]>): number {
-  // Count each unordered pair once
+  // Verzamel paren in stringvorm om dubbelingen te vermijden
   const seen = new Set<string>();
-  let count = 0;
   for (const [id, arr] of conflictsMap) {
     for (const other of arr) {
-      const key = id < other.id ? id + "|" + other.id : other.id + "|" + id;
-      if (!seen.has(key)) {
-        seen.add(key);
-        count++;
-      }
+      const a = id < other.id ? id : other.id;
+      const b = id < other.id ? other.id : id;
+      seen.add(`${a}::${b}`);
     }
   }
-  return count;
+  return seen.size;
 }
 
-export function bedHasConflict(bedId: string, conflictsMap: Map<string, Planting[]>, plantings: Planting[]): boolean {
-  const idsInBed = new Set(plantings.filter(p => p.garden_bed_id === bedId).map(p => p.id));
-  for (const [pid, arr] of conflictsMap) {
-    if (!idsInBed.has(pid)) continue;
-    for (const other of arr) {
-      if (idsInBed.has(other.id)) return true;
-    }
-  }
-  return false;
+/** Voor on-demand: alle conflicten van één planting. */
+export function conflictsFor(plantingId: string, conflictsMap: Map<string, Planting[]>) {
+  return conflictsMap.get(plantingId) ?? [];
 }
