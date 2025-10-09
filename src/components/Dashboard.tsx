@@ -1,10 +1,12 @@
-// src/components/Dashboard.tsx
 import { useEffect, useMemo, useState } from "react";
 import type { Garden, GardenBed, Planting, Seed, Task } from "../lib/types";
 import { listBeds } from "../lib/api/beds";
 import { listPlantings, updatePlanting } from "../lib/api/plantings";
 import { listSeeds } from "../lib/api/seeds";
 import { listTasks, updateTask } from "../lib/api/tasks";
+import { buildConflictsMap, countUniqueConflicts } from "../lib/conflicts";
+import { ConflictWarning } from "./ConflictWarning";
+import { useConflictFlags } from "../hooks/useConflictFlags";
 
 /* ---------- helpers ---------- */
 function toISO(d: Date) { return d.toISOString().slice(0, 10); }
@@ -20,54 +22,64 @@ function fmtDMY(iso?: string | null) {
   return `${dd}-${mm}-${yyyy}`;
 }
 
-/** Recompute planned_* fields given an anchor (presow/ground/harvest_start/harvest_end). */
+/** Volledig deterministische herleiding vanaf een gekozen anker. */
 function computePlanFromAnchor(params: {
   method: "direct" | "presow";
   seed: Seed;
   anchorType: "presow" | "ground" | "harvest_start" | "harvest_end";
   anchorISO: string;
-  prev: Pick<Planting, "planned_date" | "planned_presow_date" | "planned_harvest_start" | "planned_harvest_end">;
 }) {
-  const { method, seed, anchorType, anchorISO, prev } = params;
-  const presowW = seed.presow_duration_weeks ?? null;
+  const { method, seed, anchorType, anchorISO } = params;
+  const presowW = seed.presow_duration_weeks ?? 0;
   const growW = seed.grow_duration_weeks ?? null;
   const harvestW = seed.harvest_duration_weeks ?? null;
 
-  let planned_date = prev.planned_date || anchorISO;
-  let planned_presow_date = prev.planned_presow_date || null;
-  let planned_harvest_start = prev.planned_harvest_start || null;
-  let planned_harvest_end = prev.planned_harvest_end || null;
+  let planned_date: string | null = null;
+  let planned_presow_date: string | null = null;
+  let planned_harvest_start: string | null = null;
+  let planned_harvest_end: string | null = null;
 
   const A = new Date(anchorISO);
 
   if (anchorType === "presow") {
     planned_presow_date = anchorISO;
-    if (presowW != null) planned_date = toISO(addWeeks(A, presowW));
-    if (growW != null) planned_harvest_start = toISO(addWeeks(new Date(planned_date), growW));
-    if (harvestW != null && planned_harvest_start) planned_harvest_end = toISO(addWeeks(new Date(planned_harvest_start), harvestW));
+    const ground = addWeeks(A, presowW);
+    planned_date = toISO(ground);
+
+    if (growW != null) {
+      const hs = addWeeks(ground, growW);
+      planned_harvest_start = toISO(hs);
+      if (harvestW != null) planned_harvest_end = toISO(addWeeks(hs, harvestW));
+    }
   } else if (anchorType === "ground") {
     planned_date = anchorISO;
-    if (method === "direct") planned_presow_date = null;
-    else if (method === "presow" && presowW != null) planned_presow_date = toISO(addWeeks(new Date(planned_date), -presowW));
-    if (growW != null) planned_harvest_start = toISO(addWeeks(new Date(planned_date), growW));
-    if (harvestW != null && planned_harvest_start) planned_harvest_end = toISO(addWeeks(new Date(planned_harvest_start), harvestW));
+    planned_presow_date = method === "presow" ? toISO(addWeeks(new Date(anchorISO), -presowW)) : null;
+
+    if (growW != null) {
+      const hs = addWeeks(new Date(anchorISO), growW);
+      planned_harvest_start = toISO(hs);
+      if (harvestW != null) planned_harvest_end = toISO(addWeeks(hs, harvestW));
+    }
   } else if (anchorType === "harvest_start") {
     planned_harvest_start = anchorISO;
+
     if (harvestW != null) planned_harvest_end = toISO(addWeeks(A, harvestW));
+
     if (growW != null) {
-      planned_date = toISO(addWeeks(A, -growW));
-      if (method === "presow" && presowW != null) planned_presow_date = toISO(addWeeks(new Date(planned_date), -presowW));
-      if (method === "direct") planned_presow_date = null;
+      const ground = addWeeks(A, -growW);
+      planned_date = toISO(ground);
+      planned_presow_date = method === "presow" ? toISO(addWeeks(ground, -presowW)) : null;
     }
   } else if (anchorType === "harvest_end") {
     planned_harvest_end = anchorISO;
+
     if (harvestW != null) {
       const hs = addWeeks(A, -harvestW);
       planned_harvest_start = toISO(hs);
       if (growW != null) {
-        planned_date = toISO(addWeeks(hs, -growW));
-        if (method === "presow" && presowW != null) planned_presow_date = toISO(addWeeks(new Date(planned_date), -presowW));
-        if (method === "direct") planned_presow_date = null;
+        const ground = addWeeks(hs, -growW);
+        planned_date = toISO(ground);
+        planned_presow_date = method === "presow" ? toISO(addWeeks(ground, -presowW)) : null;
       }
     }
   }
@@ -117,6 +129,13 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const bedsById = useMemo(() => Object.fromEntries(beds.map(b => [b.id, b])), [beds]);
   const seedsById = useMemo(() => Object.fromEntries(seeds.map(s => [s.id, s])), [seeds]);
   const plantingsById = useMemo(() => Object.fromEntries(plantings.map(p => [p.id, p])), [plantings]);
+
+  /* ---------- conflicts ---------- */
+  const conflictsMap = useMemo(() => buildConflictsMap(plantings, seeds), [plantings, seeds]);
+  const totalConflicts = useMemo(() => countUniqueConflicts(conflictsMap), [conflictsMap]);
+  
+  // Update conflict flags consistently
+  useConflictFlags(totalConflicts);
 
   /* ---------- indexeer tasks per planting & type ---------- */
   const tasksIndex = useMemo(() => {
@@ -247,16 +266,28 @@ export function Dashboard({ garden }: { garden: Garden }) {
     return filtered.map(x => x.p);
   }, [plantings, showAll]);
 
-  /* ---------- planner flag helper ---------- */
-  function flagPlannerConflict(plantingId: string, fromISO?: string | null, toISO?: string | null) {
+  /* ---------- planner ping helper ---------- */
+  function pingPlannerConflict(plantingId: string) {
     try {
       localStorage.setItem("plannerNeedsAttention", "1");
       localStorage.setItem("plannerOpenTab", "conflicts");
       localStorage.setItem("plannerConflictFocusId", plantingId);
-      if (fromISO) localStorage.setItem("plannerFlashFrom", fromISO);
-      if (toISO)   localStorage.setItem("plannerFlashTo", toISO);
       localStorage.setItem("plannerFlashAt", String(Date.now()));
     } catch {}
+  }
+
+  // Update conflict flags in localStorage consistently
+  useEffect(() => {
+    try {
+      localStorage.setItem("plannerHasConflicts", totalConflicts > 0 ? "1" : "0");
+      localStorage.setItem("plannerConflictCount", String(totalConflicts));
+    } catch {}
+  }, [totalConflicts]);
+
+  async function reloadAll() {
+    const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);
+    setPlantings(p); setTasks(t);
+    return { p, t };
   }
 
   /* ---------- mapping helpers ---------- */
@@ -285,41 +316,41 @@ export function Dashboard({ garden }: { garden: Garden }) {
 
       const field = actualFieldFor(task, pl);
 
-      // 1) schrijf actual_* (server)
+      // 1) actual_* altijd opslaan
       await updatePlanting(task.planting_id, { [field]: performedISO } as any);
 
-      // 1b) Optimistisch groen + task done
+      // Optimistisch UI bijwerken
       setPlantings(prev => prev.map(x => x.id === task.planting_id ? { ...x, [field]: performedISO } as any : x));
       setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: "done" } : t));
 
-      // 2) planned_* herberekenen vanaf deze actual (anker) — *kritiek* voor voorzaaien!
+      // 2) Vanaf deze actual de hele keten opnieuw herleiden (incl. plantdatum bij presow)
       const anchorType = anchorTypeFor(task, pl);
       const plan = computePlanFromAnchor({
         method: (pl.method as "direct"|"presow"),
         seed,
         anchorType,
         anchorISO: performedISO,
-        prev: {
-          planned_date: pl.planned_date,
-          planned_presow_date: pl.planned_presow_date,
-          planned_harvest_start: pl.planned_harvest_start,
-          planned_harvest_end: pl.planned_harvest_end,
-        },
       });
 
       try {
         await updatePlanting(task.planting_id, plan as any);
-      } catch (e: any) {
-        // conflict bij plannen → actual blijft staan; geen auto-popup; flag alleen planner
-        flagPlannerConflict(task.planting_id, pl.planned_date, plan.planned_date);
+      } catch (e) {
+        // Plan past niet → oké; we tonen het conflict zo.
+        console.warn("Plan update gaf fout (waarschijnlijk overlap):", e);
       }
 
-      // 3) taak afronden
+      // 3) taak afronden (best-effort)
       try { await updateTask(task.id, { status: "done" }); } catch {}
 
-      // 4) resync
-      const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);
-      setPlantings(p); setTasks(t);
+      // 4) herladen en conflicts checken; ping Planner bij conflict
+      const { p } = await reloadAll();
+      const cmap = buildConflictsMap(p, seeds);
+      const conflicts = cmap.get(task.planting_id) ?? [];
+      
+      // Just ping planner if conflicts exist - no popup
+      if (conflicts.length > 0) {
+        pingPlannerConflict(task.planting_id);
+      }
     } catch (e: any) {
       alert("Kon actie niet opslaan: " + (e?.message ?? e));
     } finally {
@@ -328,6 +359,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
     }
   }
 
+  /* ---------- acties: actual leegmaken ---------- */
   async function clearActual(task: Task) {
     setBusyId(task.id);
     try {
@@ -335,17 +367,13 @@ export function Dashboard({ garden }: { garden: Garden }) {
       if (!pl) throw new Error("Planting niet gevonden");
       const field = actualFieldFor(task, pl);
 
-      // 1) actual verwijderen
       await updatePlanting(task.planting_id, { [field]: null } as any);
       setPlantings(prev => prev.map(x => x.id === task.planting_id ? { ...x, [field]: null } as any : x));
 
-      // 2) taak terug naar pending
       await updateTask(task.id, { status: "pending" });
       setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: "pending" } : t));
 
-      // 3) resync
-      const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);
-      setPlantings(p); setTasks(t);
+      await reloadAll();
     } catch (e: any) {
       alert("Kon datum niet leegmaken: " + (e?.message ?? e));
     } finally {
@@ -390,6 +418,20 @@ export function Dashboard({ garden }: { garden: Garden }) {
         </button>
       </div>
 
+      {/* Duidelijke warning bovenaan */}
+      <ConflictWarning
+        conflictCount={totalConflicts}
+        onResolveAll={() => {
+          // Redirect to planner conflicts tab
+          try {
+            localStorage.setItem("plannerNeedsAttention", "1");
+            localStorage.setItem("plannerOpenTab", "conflicts");
+            window.location.hash = "#planner";
+          } catch {}
+        }}
+        onDismiss={undefined}
+      />
+
       <section className="space-y-3">
         {plantingsSorted.length === 0 ? (
           <p className="text-sm text-muted-foreground">
@@ -404,6 +446,9 @@ export function Dashboard({ garden }: { garden: Garden }) {
             const { start, end } = rangeForRow(p);
             const nextLabel = next ? `${next.ms.label} • ${fmtDMY(next.whenISO)}` : null;
 
+            const conflictCount = conflictsMap.get(p.id)?.length ?? 0;
+            const hasConflict = conflictCount > 0;
+
             return (
               <div key={p.id} className="border rounded-lg p-3 bg-card">
                 <div className="grid grid-cols-12 gap-3 items-center">
@@ -416,7 +461,14 @@ export function Dashboard({ garden }: { garden: Garden }) {
                         aria-hidden
                       />
                       <div className="min-w-0">
-                        <div className="font-medium truncate">{seed?.name ?? "Onbekend gewas"}</div>
+                        <div className="font-medium truncate flex items-center gap-2">
+                          <span className="truncate">{seed?.name ?? "Onbekend gewas"}</span>
+                          {hasConflict && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] rounded bg-red-100 text-red-800 border border-red-200">
+                              ⚠️ Conflict
+                            </span>
+                          )}
+                        </div>
                         <div className="text-xs text-muted-foreground truncate">{bed?.name ?? "Onbekende bak"}</div>
                       </div>
                     </div>
@@ -433,65 +485,47 @@ export function Dashboard({ garden }: { garden: Garden }) {
                     </div>
                   </div>
 
-                  {/* midden: timeline */}
+                  {/* midden: milestones lijst i.p.v. overlappende tijdlijn */}
                   <div className="col-span-12 md:col-span-8">
-                    <div className="relative h-12">
-                      <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[6px] rounded bg-muted" />
-                      <div className="absolute top-0 bottom-0 w-[2px] bg-primary/60"
-                           style={{ left: `${pctInRange(todayDate, start, end)}%` }} title="Vandaag" />
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                       {ms.map((m, idx) => {
-                        const baseISO = m.actualISO ?? m.task?.due_date ?? m.plannedISO;
-                        if (!baseISO) return null;
-                        const d = new Date(baseISO);
-                        const pct = pctInRange(d, start, end);
-                        const isDone = m.status === "done"; // groen zodra actual of task done
+                        const isDone = m.status === "done";
                         const isNext = next && idx === next.index && !isDone;
-                        const isLatePending = isNext && m.task?.due_date && new Date(m.task.due_date) < todayDate;
-
-                        const canFill = isDone || isNext; // done mag editen/legen; alleen next open is invulbaar
-                        const dotClasses = [
-                          "absolute -translate-x-1/2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border shadow",
-                          canFill ? "cursor-pointer" : "cursor-not-allowed opacity-60",
-                          isDone ? "bg-green-500 border-green-600"
-                                 : isNext ? "bg-yellow-400 border-yellow-500"
-                                          : "bg-gray-300 border-gray-400",
-                          isLatePending ? "ring-2 ring-red-400" : "",
-                        ].join(" ");
-                        const title =
-                          `${m.label}` +
+                        const isPending = !isDone && !isNext;
+                        const baseISO = m.actualISO ?? m.task?.due_date ?? m.plannedISO;
+                        const title = `${m.label}` +
                           (m.actualISO ? ` • uitgevoerd: ${fmtDMY(m.actualISO)}` :
                            m.task?.due_date ? ` • gepland: ${fmtDMY(m.task.due_date)}` :
                            m.plannedISO ? ` • gepland: ${fmtDMY(m.plannedISO)}` : "");
-
+                        const bulletCls = isDone
+                          ? "bg-green-500 border-green-600"
+                          : isNext
+                          ? "bg-yellow-400 border-yellow-500"
+                          : "bg-gray-300 border-gray-400";
+                        const canClick = isDone || isNext;
                         return (
-                          <div key={m.id}>
-                            <div
-                              className={dotClasses}
-                              style={{ left: `${pct}%` }}
-                              title={canFill ? title : "Je kunt alleen de eerstvolgende actie invullen"}
-                              onClick={() => {
-                                if (!canFill) return;
-                                const t = m.task; if (!t) return;
-                                const defaultISO = (m.actualISO || toISO(new Date()));
-                                setDialog({ task: t, dateISO: defaultISO, hasActual: !!m.actualISO });
-                              }}
-                            >
-                              {isDone && <span className="text-[10px] text-white grid place-items-center w-full h-full">✓</span>}
-                            </div>
-                            {/* datumlabel onder de dot */}
-                            <div
-                              className="absolute -translate-x-1/2 top-[calc(50%+14px)] text-[10px] text-muted-foreground"
-                              style={{ left: `${pct}%` }}
-                            >
-                              {fmtDMY(m.actualISO ?? m.plannedISO ?? m.task?.due_date ?? null)}
-                            </div>
-                          </div>
+                          <button
+                            key={m.id}
+                            type="button"
+                            className={`flex items-center gap-2 p-2 rounded border bg-background text-left ${canClick?"hover:bg-muted cursor-pointer":"opacity-60 cursor-not-allowed"}`}
+                            title={canClick ? title : "Je kunt alleen de eerstvolgende actie invullen"}
+                            onClick={() => {
+                              if (!canClick) return;
+                              const t = m.task; if (!t) return;
+                              const defaultISO = (m.actualISO || toISO(new Date()));
+                              setDialog({ task: t, dateISO: defaultISO, hasActual: !!m.actualISO });
+                            }}
+                          >
+                            <span className={`inline-flex w-4 h-4 rounded-full border shadow ${bulletCls}`} />
+                            <span className="text-xs flex-1 min-w-0">
+                              <span className="block font-medium truncate">{m.label}</span>
+                              <span className="block text-muted-foreground truncate">
+                                {baseISO ? fmtDMY(baseISO) : "—"}
+                              </span>
+                            </span>
+                          </button>
                         );
                       })}
-                      <div className="absolute left-0 right-0 -bottom-1.5 flex justify-between text-[10px] text-muted-foreground">
-                        <span>{fmtDMY(toISO(start))}</span>
-                        <span>{fmtDMY(toISO(end))}</span>
-                      </div>
                     </div>
                   </div>
                 </div>
