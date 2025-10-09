@@ -1,167 +1,136 @@
-import { useEffect, useState } from 'react';
-import type { GardenBed, Planting, Seed, UUID } from '../lib/types';
-import { listSeeds } from '../lib/api/seeds';
-import { listBeds } from '../lib/api/beds';
-import { createPlanting, updatePlanting } from '../lib/api/plantings';
+// src/components/PlantingEditor.tsx
+import { useEffect, useMemo, useState } from "react";
+import type { GardenBed, Planting, Seed } from "../lib/types";
+import { updatePlanting, deletePlanting } from "../lib/api/plantings";
+import { freeStartsForInterval } from "../lib/conflictResolution";
 
-type Props = {
-  gardenId: UUID;
-  planting?: Planting | null;
+interface Props {
+  beds: GardenBed[];
+  seeds: Seed[];
+  plantings: Planting[]; // all plantings for availability checks
+  planting: Planting;
   onClose: () => void;
-  onSaved: (p: Planting) => void;
-};
+  onSaved: () => Promise<void>;
+}
 
-export default function PlantingEditor({ gardenId, planting, onClose, onSaved }: Props) {
-  const editing = !!planting;
-  const [seeds, setSeeds] = useState<Seed[]>([]);
-  const [beds, setBeds] = useState<GardenBed[]>([]);
+export default function PlantingEditor({ beds, seeds, plantings, planting, onClose, onSaved }: Props) {
+  const [saving, setSaving] = useState(false);
+  const [state, setState] = useState<Planting>(() => ({ ...planting }));
 
-  const [seedId, setSeedId] = useState<string>(planting?.seed_id ?? '');
-  const [bedId, setBedId] = useState<string>(planting?.garden_bed_id ?? '');
-  const [method, setMethod] = useState<'direct'|'presow'>( (planting?.method as any) ?? 'direct');
+  const seed = seeds.find(s => s.id === state.seed_id);
+  const neededSegs = Math.max(1, state.segments_used ?? 1);
 
-  const [sowDate, setSowDate] = useState<string>(planting?.planned_presow_date ?? '');
-  const [plantDate, setPlantDate] = useState<string>(planting?.planned_date ?? '');
-  const [harvestStart, setHarvestStart] = useState<string>(planting?.planned_harvest_start ?? '');
-  const [harvestEnd, setHarvestEnd] = useState<string>(planting?.planned_harvest_end ?? '');
-
-  const [rows, setRows] = useState<number>(planting?.rows ?? 1);
-  const [plantsPerRow, setPlantsPerRow] = useState<number>(planting?.plants_per_row ?? 1);
-  const [status, setStatus] = useState<Planting['status']>(planting?.status ?? 'planned');
-  const [notes, setNotes] = useState<string>(planting?.notes ?? '');
-
-  useEffect(() => {
-    Promise.all([listSeeds(gardenId), listBeds(gardenId)]).then(([s,b])=>{ setSeeds(s); setBeds(b); });
-  }, [gardenId]);
-
-  async function handleSave() {
-    const pd = method === 'presow' ? (plantDate || sowDate) : (sowDate || plantDate);
-
-    const payloadUpdate: Partial<Planting> = {
-      method,
-      planned_date: pd || null,
-      planned_harvest_start: harvestStart || null,
-      planned_harvest_end: harvestEnd || null,
-      rows,
-      plants_per_row: plantsPerRow,
-      status,
-      notes: notes || null,
-      garden_bed_id: bedId || undefined,
-    };
-
-    if (editing) {
-      const saved = await updatePlanting(planting!.id, payloadUpdate as any);
-      onSaved(saved);
-      return;
+  // Compute available beds (only those that can fit this planting on current dates)
+  const availableBeds = useMemo(() => {
+    const out: { bed: GardenBed; starts: number[] }[] = [];
+    if (!state.planned_date || !state.planned_harvest_end) return out;
+    for (const bed of beds) {
+      const starts = freeStartsForInterval(
+        bed,
+        plantings,
+        state.planned_date,
+        state.planned_harvest_end,
+        neededSegs,
+        state.id
+      );
+      if (starts.length > 0) out.push({ bed, starts });
     }
+    return out;
+  }, [beds, plantings, state.planned_date, state.planned_harvest_end, neededSegs, state.id]);
 
-    const today = new Date().toISOString().slice(0,10);
-    const baseDate = pd || today;
+  // Ensure start_segment remains valid when bed changes
+  useEffect(() => {
+    const current = availableBeds.find(x => x.bed.id === state.garden_bed_id);
+    if (!current) return;
+    if (!current.starts.includes(state.start_segment ?? 0)) {
+      setState(s => ({ ...s, start_segment: current.starts[0] }));
+    }
+  }, [state.garden_bed_id, availableBeds]);
 
-    const payloadCreate = {
-      seed_id: seedId,
-      garden_id: gardenId,
-      garden_bed_id: bedId,
-      method,
-      planned_date: baseDate,
-      planned_harvest_start: harvestStart || baseDate,
-      planned_harvest_end:   harvestEnd   || harvestStart || baseDate,
-      start_segment: 0,
-      segments_used: 1,
-      color: null,
-      status,
-    } as const;
-
-    const saved = await createPlanting(payloadCreate as any);
-    onSaved(saved);
+  async function save() {
+    setSaving(true);
+    try {
+      await updatePlanting(state.id, {
+        garden_bed_id: state.garden_bed_id,
+        start_segment: state.start_segment ?? 0,
+        segments_used: neededSegs,
+        planned_date: state.planned_date,
+        planned_harvest_start: state.planned_harvest_start,
+        planned_harvest_end: state.planned_harvest_end,
+        color: state.color,
+      } as any);
+      await onSaved();
+      onClose();
+    } catch (e: any) {
+      alert("Kon planting niet opslaan: " + (e?.message ?? e));
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4">
-      <div className="w-full max-w-2xl bg-card text-card-foreground border border-border rounded-xl shadow-xl p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-lg font-semibold">{editing ? 'Teelt bewerken' : 'Nieuwe teelt'}</h3>
-          <button onClick={onClose} className="text-sm text-muted-foreground hover:underline">Sluiten</button>
-        </div>
+    <div className="fixed inset-0 bg-black/40 grid place-items-center z-50" onClick={onClose}>
+      <div className="bg-card w-full max-w-lg rounded-lg shadow-lg p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-lg font-semibold">Planting bewerken</h3>
 
-        <div className="grid md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="text-sm">Gewas</label>
-            <select 
-              className="w-full rounded-md border border-input bg-background px-3 py-2" 
-              value={seedId} 
-              onChange={e=>setSeedId(e.target.value)}
-              disabled={editing}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2">
+            <label className="block text-sm font-medium">Bak</label>
+            <select
+              className="mt-1 w-full border rounded-md px-2 py-1 text-sm"
+              value={state.garden_bed_id}
+              onChange={(e) => {
+                const nextBed = e.target.value;
+                const starts = availableBeds.find(x => x.bed.id === nextBed)?.starts ?? [0];
+                setState(s => ({ ...s, garden_bed_id: nextBed, start_segment: starts[0] }));
+              }}
             >
-              <option value="">Kies gewas</option>
-              {seeds.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-
-            <label className="text-sm font-medium">Bak {editing && <span className="text-xs text-muted-foreground">(kan worden aangepast)</span>}</label>
-            <select 
-              className="w-full rounded-md border-2 border-input bg-card px-3 py-2.5 text-foreground hover:border-primary focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors cursor-pointer relative z-50" 
-              value={bedId} 
-              onChange={e=>setBedId(e.target.value)}
-            >
-              <option value="">Kies bak</option>
-              {beds.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-
-            <div>
-              <div className="text-sm mb-1">Methode</div>
-              <div className="flex gap-3 text-sm">
-                {(['direct','presow'] as const).map(opt => (
-                  <label key={opt} className="inline-flex items-center gap-2">
-                    <input type="radio" checked={method===opt} onChange={()=>setMethod(opt)} />
-                    {opt === 'direct' ? 'Direct zaaien' : 'Voorzaaien'}
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-sm">Rijen</label>
-                <input type="number" className="w-full rounded-md border border-input bg-background px-3 py-2" value={rows} onChange={e=>setRows(Number(e.target.value)||1)} />
-              </div>
-              <div>
-                <label className="text-sm">Planten per rij</label>
-                <input type="number" className="w-full rounded-md border border-input bg-background px-3 py-2" value={plantsPerRow} onChange={e=>setPlantsPerRow(Number(e.target.value)||1)} />
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm">Plan: Zaaien</label>
-            <input type="date" className="w-full rounded-md border border-input bg-background px-3 py-2" value={sowDate} onChange={e=>setSowDate(e.target.value)} />
-
-            <label className="text-sm">Plan: Uitplanten (optioneel)</label>
-            <input type="date" className="w-full rounded-md border border-input bg-background px-3 py-2" value={plantDate} onChange={e=>setPlantDate(e.target.value)} />
-
-            <label className="text-sm">Plan: Oogst start (optioneel)</label>
-            <input type="date" className="w-full rounded-md border border-input bg-background px-3 py-2" value={harvestStart} onChange={e=>setHarvestStart(e.target.value)} />
-
-            <label className="text-sm">Plan: Oogst einde (optioneel)</label>
-            <input type="date" className="w-full rounded-md border border-input bg-background px-3 py-2" value={harvestEnd} onChange={e=>setHarvestEnd(e.target.value)} />
-
-            <label className="text-sm">Status</label>
-            <select className="w-full rounded-md border border-input bg-background px-3 py-2" value={status} onChange={e=>setStatus(e.target.value as any)}>
-              {(['planned','sown','planted','growing','harvesting','completed'] as const).map(s => (
-                <option key={s} value={s}>{s}</option>
+              {availableBeds.map(({ bed }) => (
+                <option key={bed.id} value={bed.id}>{bed.name}</option>
               ))}
             </select>
+            {availableBeds.length === 0 && (
+              <p className="text-xs text-red-600 mt-1">
+                Geen enkele bak heeft vrije segmenten op deze data. Pas de datum of segmenten aan.
+              </p>
+            )}
+          </div>
 
-            <label className="text-sm">Notities</label>
-            <textarea className="w-full rounded-md border border-input bg-background px-3 py-2 min-h-[80px]" value={notes} onChange={e=>setNotes(e.target.value)} />
+          <div>
+            <label className="block text-sm font-medium">Start segment</label>
+            <select
+              className="mt-1 w-full border rounded-md px-2 py-1 text-sm"
+              value={state.start_segment ?? 0}
+              onChange={(e) => setState(s => ({ ...s, start_segment: Number(e.target.value) }))}
+            >
+              {(availableBeds.find(x => x.bed.id === state.garden_bed_id)?.starts ?? [state.start_segment ?? 0])
+                .map(start => (
+                  <option key={start} value={start}>Segment {start + 1}</option>
+                ))
+              }
+            </select>
+            <p className="text-[11px] text-muted-foreground mt-1">Bezet {neededSegs} segment{neededSegs!==1?'en':''}.</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium">Kleur</label>
+            <input
+              type="color"
+              className="mt-1 w-full border rounded-md px-2 py-1 h-9"
+              value={state.color || "#22c55e"}
+              onChange={(e) => setState(s => ({ ...s, color: e.target.value }))}
+            />
           </div>
         </div>
 
-        <div className="mt-4 flex justify-end gap-2">
-          <button onClick={onClose} className="inline-flex items-center rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 px-3 py-2">
-            Annuleren
-          </button>
-          <button onClick={handleSave} className="inline-flex items-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-2">
-            {editing ? 'Opslaan' : 'Toevoegen'}
+        <div className="flex justify-end gap-2 pt-2">
+          <button className="px-3 py-1.5 rounded-md border" onClick={onClose}>Annuleren</button>
+          <button
+            className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
+            disabled={saving || availableBeds.length === 0}
+            onClick={save}
+          >
+            {saving ? "Opslaan…" : "Opslaan"}
           </button>
         </div>
       </div>
