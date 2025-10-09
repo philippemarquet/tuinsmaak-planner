@@ -1,16 +1,8 @@
 // src/lib/conflicts.ts
 import type { Planting, Seed } from "./types";
 
-/** 
- * Day-level overlap check for planting occupancy.
- * A planting ending on Sunday and another starting on Monday should NOT overlap.
- * Only overlaps if there's at least one shared day.
- * Example: A ends Sunday, B starts Monday → aEnd < bStart → no overlap ✓
- */
+/** Day-level overlap (inclusief laatste dag). */
 function intervalsOverlapDayInclusive(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
-  // Overlaps only if: aStart <= bEnd AND bStart <= aEnd
-  // But for same-day adjacency (end = start), we want NO overlap
-  // So we use strict: aEnd >= bStart means last day of A >= first day of B
   return aStart <= bEnd && bStart <= aEnd;
 }
 
@@ -23,101 +15,87 @@ function segmentsOverlapInclusive(aStartSeg: number, aUsed: number, bStartSeg: n
 
 type Window = { start: Date | null; end: Date | null };
 
+function normaliseDay(d: Date) {
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 /**
- * Occupancy window:
- * - Start = (actual_ground_date ?? calculated from actual_presow_date ?? planned_date)
- * - End   = (actual_harvest_end ?? calculated from new ground date ?? planned_harvest_end)
- * We nemen 'actual' voorkeur, berekenen indien nodig, en vallen terug op 'planned'.
+ * Bezettingswindow:
+ * - Start: actual_ground óf (actual_presow + presow-weken) óf planned_date
+ * - Eind : actual_harvest_end óf (start + grow+harvest weken) óf planned_harvest_end
  */
 export function occupancyWindow(p: Planting, seed?: Seed): Window {
   let startISO: string | null = null;
   let endISO: string | null = null;
 
-  // Bepaal start datum
+  // START
   if (p.actual_ground_date) {
     startISO = p.actual_ground_date;
   } else if (p.actual_presow_date && seed?.presow_duration_weeks) {
-    // Bereken nieuwe ground date op basis van actual presow + duration
-    const actualPresowDate = new Date(p.actual_presow_date);
-    if (!isNaN(actualPresowDate.getTime())) {
-      const newGroundDate = new Date(actualPresowDate);
-      newGroundDate.setDate(newGroundDate.getDate() + (seed.presow_duration_weeks * 7));
-      startISO = newGroundDate.toISOString().split('T')[0];
+    const base = new Date(p.actual_presow_date);
+    if (!isNaN(base.getTime())) {
+      const g = new Date(base);
+      g.setDate(g.getDate() + seed.presow_duration_weeks * 7);
+      startISO = g.toISOString().slice(0, 10);
     }
   } else {
-    startISO = p.planned_date;
+    startISO = p.planned_date ?? null;
   }
 
-  // Bepaal eind datum
+  // END
   if (p.actual_harvest_end) {
     endISO = p.actual_harvest_end;
   } else if (startISO && seed && seed.grow_duration_weeks != null && seed.harvest_duration_weeks != null) {
-    // Recalculate harvest end from ground date using grow + harvest durations
-    const groundDate = new Date(startISO);
-    if (!isNaN(groundDate.getTime())) {
-      const end = new Date(groundDate);
-      end.setDate(end.getDate() + ((seed.grow_duration_weeks + seed.harvest_duration_weeks) * 7));
-      endISO = end.toISOString().split('T')[0];
+    const g = new Date(startISO);
+    if (!isNaN(g.getTime())) {
+      const e = new Date(g);
+      e.setDate(e.getDate() + (seed.grow_duration_weeks + seed.harvest_duration_weeks) * 7);
+      endISO = e.toISOString().slice(0, 10);
     }
   } else {
-    endISO = p.planned_harvest_end;
+    endISO = p.planned_harvest_end ?? null;
   }
 
   if (!startISO || !endISO) return { start: null, end: null };
 
-  const start = new Date(startISO);
-  const end   = new Date(endISO);
-  if (isNaN(start.getTime()) || isNaN(end.getTime())) return { start: null, end: null };
+  const s = normaliseDay(new Date(startISO));
+  const e = normaliseDay(new Date(endISO));
+  if (isNaN(s.getTime()) || isNaN(e.getTime())) return { start: null, end: null };
 
-  // Normaliseer naar 00:00 zodat dag-inclusie overal hetzelfde werkt
-  start.setHours(0, 0, 0, 0);
-  end.setHours(0, 0, 0, 0);
-  return { start, end };
+  return { start: s, end: e };
 }
 
 function sameBed(a: Planting, b: Planting) {
   return a.garden_bed_id && b.garden_bed_id && a.garden_bed_id === b.garden_bed_id;
 }
-
 function segStart(p: Planting) { return Math.max(0, p.start_segment ?? 0); }
 function segUsed(p: Planting)  { return Math.max(1, p.segments_used ?? 1); }
 
 /**
- * Kern: geeft voor elk planting.id de lijst met andere plantingen waarmee een conflict bestaat.
- * Een conflict = (zelfde bak) ∧ (datums overlappen dag-inclusief) ∧ (segmenten overlappen).
+ * Kaart: plantingId → lijst conflicterende plantingen
  */
 export function buildConflictsMap(plantings: Planting[], seeds: Seed[] = []): Map<string, Planting[]> {
   const map = new Map<string, Planting[]>();
   for (const p of plantings) map.set(p.id, []);
 
-  // Maak seed lookup map
-  const seedsById = new Map<string, Seed>();
-  for (const seed of seeds) {
-    seedsById.set(seed.id, seed);
-  }
+  const seedById = new Map(seeds.map(s => [s.id, s]));
 
-  const n = plantings.length;
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < plantings.length; i++) {
     const a = plantings[i];
-    const seedA = seedsById.get(a.seed_id);
-    const wa = occupancyWindow(a, seedA);
+    const wa = occupancyWindow(a, seedById.get(a.seed_id));
     if (!wa.start || !wa.end) continue;
 
-    for (let j = i + 1; j < n; j++) {
+    for (let j = i + 1; j < plantings.length; j++) {
       const b = plantings[j];
       if (!sameBed(a, b)) continue;
 
-      const seedB = seedsById.get(b.seed_id);
-      const wb = occupancyWindow(b, seedB);
+      const wb = occupancyWindow(b, seedById.get(b.seed_id));
       if (!wb.start || !wb.end) continue;
 
-      // Datums overlappen?
       if (!intervalsOverlapDayInclusive(wa.start, wa.end, wb.start, wb.end)) continue;
-
-      // Segmenten overlappen?
       if (!segmentsOverlapInclusive(segStart(a), segUsed(a), segStart(b), segUsed(b))) continue;
 
-      // Conflict! Voeg tweezijdig toe
       map.get(a.id)!.push(b);
       map.get(b.id)!.push(a);
     }
@@ -126,9 +104,8 @@ export function buildConflictsMap(plantings: Planting[], seeds: Seed[] = []): Ma
   return map;
 }
 
-/** Handig voor banners: tel unieke conflictparen (i<j) ipv dubbel tellen. */
+/** Unieke paren tellen (i<j). */
 export function countUniqueConflicts(conflictsMap: Map<string, Planting[]>): number {
-  // Verzamel paren in stringvorm om dubbelingen te vermijden
   const seen = new Set<string>();
   for (const [id, arr] of conflictsMap) {
     for (const other of arr) {
@@ -140,7 +117,70 @@ export function countUniqueConflicts(conflictsMap: Map<string, Planting[]>): num
   return seen.size;
 }
 
-/** Voor on-demand: alle conflicten van één planting. */
-export function conflictsFor(plantingId: string, conflictsMap: Map<string, Planting[]>) {
-  return conflictsMap.get(plantingId) ?? [];
+/** Alle conflicten voor één planting. */
+export function conflictsFor(plantingId: string, map: Map<string, Planting[]>) {
+  return map.get(plantingId) ?? [];
+}
+
+/* =================== NIEUW: ‘wie moet worden aangepast?’ =================== */
+
+function hasAnyActual(p: Planting) {
+  return !!(p.actual_presow_date || p.actual_ground_date || p.actual_harvest_start || p.actual_harvest_end);
+}
+function timeOf(iso?: string | null): number | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : d.getTime();
+}
+
+/**
+ * Bepaal voor een conflict-paar welke ‘target’ (de “nieuwe”) moet worden aangepast:
+ * 1) Als één van de twee actuals heeft en de ander niet → die zonder actual = target.
+ * 2) Anders → de teelt met de latere planned_date = target.
+ * Retourneer {source (blijft), target (aanpassen)}.
+ */
+function chooseSourceTarget(a: Planting, b: Planting): { source: Planting; target: Planting } {
+  const aHas = hasAnyActual(a);
+  const bHas = hasAnyActual(b);
+  if (aHas && !bHas) return { source: a, target: b };
+  if (bHas && !aHas) return { source: b, target: a };
+
+  const ta = timeOf(a.planned_date) ?? -Infinity;
+  const tb = timeOf(b.planned_date) ?? -Infinity;
+  if (ta === tb) {
+    // arbitrair maar stabiel: id-orde
+    return a.id < b.id ? ({ source: a, target: b }) : ({ source: b, target: a });
+  }
+  return ta < tb ? ({ source: a, target: b }) : ({ source: b, target: a });
+}
+
+/**
+ * Bouw een lijst met *aanpassingen*: één item per uniek conflict-paar waarbij alleen de "target"
+ * (teelt die jij moet verplaatsen) straks in de UI getoond wordt.
+ */
+export function buildConflictAdjustments(
+  plantings: Planting[],
+  conflictsMap: Map<string, Planting[]>
+): Array<{ source: Planting; target: Planting }> {
+  const byId = new Map(plantings.map(p => [p.id, p]));
+  const seen = new Set<string>();
+  const out: Array<{ source: Planting; target: Planting }> = [];
+
+  for (const [id, arr] of conflictsMap) {
+    const a = byId.get(id);
+    if (!a) continue;
+    for (const b of arr) {
+      const key = id < b.id ? `${id}::${b.id}` : `${b.id}::${id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const pA = byId.get(id);
+      const pB = byId.get(b.id);
+      if (!pA || !pB) continue;
+
+      const pair = chooseSourceTarget(pA, pB);
+      out.push(pair);
+    }
+  }
+  return out;
 }
