@@ -270,6 +270,7 @@ export type Database = {
           direct_plant_months: number[]
           garden_id: string | null
           greenhouse_compatible: boolean | null
+          greenhouse_months: number[] | null
           grow_duration_weeks: number | null
           harvest_duration_weeks: number | null
           harvest_months: number[] | null
@@ -292,6 +293,7 @@ export type Database = {
           direct_plant_months?: number[]
           garden_id?: string | null
           greenhouse_compatible?: boolean | null
+          greenhouse_months?: number[] | null
           grow_duration_weeks?: number | null
           harvest_duration_weeks?: number | null
           harvest_months?: number[] | null
@@ -314,6 +316,7 @@ export type Database = {
           direct_plant_months?: number[]
           garden_id?: string | null
           greenhouse_compatible?: boolean | null
+          greenhouse_months?: number[] | null
           grow_duration_weeks?: number | null
           harvest_duration_weeks?: number | null
           harvest_months?: number[] | null

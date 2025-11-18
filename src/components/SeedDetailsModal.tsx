@@ -113,6 +113,12 @@ export function SeedDetailsModal({ seed, cropTypes, onClose }: SeedDetailsModalP
             <span className="font-medium text-muted-foreground">Voorzaai maanden:</span>
             <div>{monthsToString(seed.presow_months)}</div>
           </div>
+          {seed.greenhouse_compatible && (seed as any).greenhouse_months && (
+            <div>
+              <span className="font-medium text-muted-foreground">Kas maanden:</span>
+              <div>{monthsToString((seed as any).greenhouse_months)}</div>
+            </div>
+          )}
           <div>
             <span className="font-medium text-muted-foreground">Direct plant maanden:</span>
             <div>{monthsToString(seed.direct_plant_months)}</div>
