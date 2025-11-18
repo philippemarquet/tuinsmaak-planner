@@ -1,20 +1,27 @@
 import { supabase } from '../supabaseClient';
-import type { BedOccupancyWeek, UUID } from '../types';
+import type { UUID } from '../types';
+
+interface BedOccupancyRow {
+  garden_bed_id: string;
+  planting_id: string;
+  segments_used: number;
+  start_segment: number;
+  week_start: string;
+}
 
 export async function occupancyBetween(
   gardenId: UUID,
   fromISO: string,
   toISO: string
-): Promise<BedOccupancyWeek[]> {
+): Promise<BedOccupancyRow[]> {
   const { data, error } = await supabase
     .from('bed_occupancy_by_week')
     .select('*')
-    .eq('garden_id', gardenId)
     .gte('week_start', fromISO)
     .lte('week_start', toISO)
     .order('week_start');
   if (error) throw error;
-  return data as BedOccupancyWeek[];
+  return data as BedOccupancyRow[];
 }
 
 export async function occupancyCurrentWeeks(gardenId: UUID, weeks = 8) {
