@@ -164,28 +164,21 @@ export default function SeedEditor({ seed, onClose, onSaved }: Props) {
           </div>
         </div>
 
-        {/* Kas-geschikt checkbox */}
-        <label className="inline-flex items-center gap-2">
-          <input type="checkbox" checked={greenhouse} onChange={e => setGreenhouse(e.target.checked)} />
-          <span className="text-sm font-medium">Geschikt voor kas</span>
-        </label>
-
-        {/* Zaaien/Planten in de kas (alleen zichtbaar als kas-geschikt aangevinkt staat) */}
-        {greenhouse && (
-          <div>
-            <div className="text-sm font-medium mb-1">Zaaien/Planten in de kas</div>
-            <div className="flex flex-wrap gap-1">
-              {MONTHS.map(m => (
-                <ToggleMonth
-                  key={m.v}
-                  value={m.v}
-                  selected={greenhouseMonths}
-                  onChange={setGreenhouseMonths}
-                />
-              ))}
-            </div>
+        {/* Zaaien/Planten in de kas */}
+        <div>
+          <div className="text-sm font-medium mb-1">Zaaien/Planten in de kas</div>
+          <div className="flex flex-wrap gap-1">
+            {MONTHS.map(m => (
+              <ToggleMonth
+                key={m.v}
+                value={m.v}
+                selected={greenhouseMonths}
+                onChange={setGreenhouseMonths}
+                disabled={!greenhouse}
+              />
+            ))}
           </div>
-        )}
+        </div>
 
         {/* Direct/Plant maanden (altijd zichtbaar, want dit is de grond-datumlogica) */}
         <div>
@@ -240,6 +233,12 @@ export default function SeedEditor({ seed, onClose, onSaved }: Props) {
             />
           </label>
         </div>
+
+        {/* Overig */}
+        <label className="inline-flex items-center gap-2">
+          <input type="checkbox" checked={greenhouse} onChange={e => setGreenhouse(e.target.checked)} />
+          Kas-geschikt
+        </label>
 
         <label className="grid gap-1">
           <span className="text-sm font-medium">Kleur (HEX of rgb())</span>
