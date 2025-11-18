@@ -242,7 +242,7 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
           disabled={!form.greenhouse_compatible}
         />
         <MonthSelector
-          label="Direct/Plant"
+          label="In volle grond"
           value={(form.direct_plant_months ?? []) as number[]}
           onChange={(val) => handleChange("direct_plant_months", val)}
         />
