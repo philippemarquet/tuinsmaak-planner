@@ -10,8 +10,11 @@ import { supabase } from "../lib/supabaseClient";
 import { TimelineView } from "./TimelineView";
 import { buildConflictsMap, countUniqueConflicts } from "../lib/conflicts";
 import { ConflictWarning } from "./ConflictWarning";
-import { Edit3, Trash2 } from "lucide-react";
+import { Edit3, Trash2, ChevronDown } from "lucide-react";
 import { useConflictFlags } from "../hooks/useConflictFlags";
+import { SeedDetailsModal } from "./SeedDetailsModal";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { Checkbox } from "./ui/checkbox";
 
 /* ===== helpers ===== */
 const toISO = (d: Date) => d.toISOString().slice(0, 10);
@@ -167,8 +170,15 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   const [inStockOnly, setInStockOnly] = useState(localStorage.getItem("plannerInStock") === "1");
   const [inPlanner, setInPlanner] = useState<InPlanner>((localStorage.getItem("plannerInPlanner") as InPlanner) ?? "all");
   const [greenhouseOnly, setGreenhouseOnly] = useState(localStorage.getItem("plannerGHOnly") === "1");
-  const [selectedMonth, setSelectedMonth] = useState<string>(localStorage.getItem("plannerMonth") ?? "all");
-  const [cropTypeFilter, setCropTypeFilter] = useState<string>(localStorage.getItem("plannerCropType") ?? "all");
+  const [selectedMonths, setSelectedMonths] = useState<number[]>(() => {
+    const saved = localStorage.getItem("plannerMonths");
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [cropTypeFilters, setCropTypeFilters] = useState<string[]>(() => {
+    const saved = localStorage.getItem("plannerCropTypes");
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [seedDetailsModal, setSeedDetailsModal] = useState<Seed | null>(null);
 
   const [showGhosts, setShowGhosts] = useState(localStorage.getItem("plannerShowGhosts") === "0" ? false : true);
   const [currentWeek, setCurrentWeek] = useState<Date>(() => {
@@ -249,11 +259,11 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     localStorage.setItem("plannerWeekISO", toISO(currentWeek));
   }, [currentWeek]);
   useEffect(() => {
-    localStorage.setItem("plannerMonth", selectedMonth);
-  }, [selectedMonth]);
+    localStorage.setItem("plannerMonths", JSON.stringify(selectedMonths));
+  }, [selectedMonths]);
   useEffect(() => {
-    localStorage.setItem("plannerCropType", cropTypeFilter);
-  }, [cropTypeFilter]);
+    localStorage.setItem("plannerCropTypes", JSON.stringify(cropTypeFilters));
+  }, [cropTypeFilters]);
 
   // Focus vanuit dashboard
   const [focusId, setFocusId] = useState<string | null>(localStorage.getItem("plannerConflictFocusId"));
@@ -318,25 +328,27 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       arr = arr.filter((s) => (inPlanner === "planned" ? seedHasPlanned(s.id) : !seedHasPlanned(s.id)));
     }
 
-    // categorie
-    if (cropTypeFilter !== "all") {
-      arr = arr.filter((s) => (cropTypeFilter === "__none__" ? !s.crop_type_id : s.crop_type_id === cropTypeFilter));
+    // categorie (multi-select)
+    if (cropTypeFilters.length > 0) {
+      arr = arr.filter((s) => {
+        if (cropTypeFilters.includes("__none__") && !s.crop_type_id) return true;
+        return cropTypeFilters.includes(s.crop_type_id ?? "");
+      });
     }
 
-    // maand (direct/plant maanden)
-    if (selectedMonth !== "all") {
-      const m = Number(selectedMonth);
+    // maand (multi-select)
+    if (selectedMonths.length > 0) {
       arr = arr.filter((s: any) => {
         const months: number[] =
           (s as any).direct_plant_months ??
           (s as any).direct_sow_months ??
           [];
-        return Array.isArray(months) && months.includes(m);
+        return Array.isArray(months) && months.some((m) => selectedMonths.includes(m));
       });
     }
 
     return arr;
-  }, [seeds, q, inStockOnly, inPlanner, greenhouseOnly, plantings, selectedMonth, cropTypeFilter]);
+  }, [seeds, q, inStockOnly, inPlanner, greenhouseOnly, plantings, selectedMonths, cropTypeFilters]);
 
   /* ===== UI: header & tabs ===== */
   const gotoPrevWeek = () => setCurrentWeek(addDays(currentWeek, -7));
@@ -467,46 +479,120 @@ export function PlannerPage({ garden }: { garden: Garden }) {
             ))}
           </div>
 
-          {/* Categorie */}
+          {/* Categorie (multi-select met popover) */}
           <div>
             <label className="block text-xs mb-1">Categorie</label>
-            <select
-              className="w-full border rounded px-2 py-1"
-              value={cropTypeFilter}
-              onChange={(e) => setCropTypeFilter(e.target.value)}
-            >
-              <option value="all">Alle gewastypen</option>
-              {cropTypes.map((ct) => (
-                <option key={ct.id} value={ct.id}>
-                  {ct.name}
-                </option>
-              ))}
-              <option value="__none__">Overig (geen soort)</option>
-            </select>
+            <Popover>
+              <PopoverTrigger asChild>
+                <button className="w-full border rounded px-2 py-1 text-left text-sm flex justify-between items-center bg-card hover:bg-muted/50">
+                  <span className="truncate">
+                    {cropTypeFilters.length === 0
+                      ? "Alle gewastypen"
+                      : cropTypeFilters.length === 1
+                      ? cropTypes.find((ct) => ct.id === cropTypeFilters[0])?.name || "Overig"
+                      : `${cropTypeFilters.length} geselecteerd`}
+                  </span>
+                  <ChevronDown className="h-4 w-4 ml-2 flex-shrink-0" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-3 max-h-64 overflow-y-auto bg-popover z-50">
+                <div className="space-y-2">
+                  {cropTypeFilters.length > 0 && (
+                    <button
+                      onClick={() => setCropTypeFilters([])}
+                      className="text-xs text-primary hover:underline mb-2"
+                    >
+                      Wis selectie
+                    </button>
+                  )}
+                  {cropTypes.map((ct) => (
+                    <label key={ct.id} className="flex items-center gap-2 cursor-pointer">
+                      <Checkbox
+                        checked={cropTypeFilters.includes(ct.id)}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setCropTypeFilters([...cropTypeFilters, ct.id]);
+                          } else {
+                            setCropTypeFilters(cropTypeFilters.filter((id) => id !== ct.id));
+                          }
+                        }}
+                      />
+                      <span className="text-sm">{ct.name}</span>
+                    </label>
+                  ))}
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <Checkbox
+                      checked={cropTypeFilters.includes("__none__")}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setCropTypeFilters([...cropTypeFilters, "__none__"]);
+                        } else {
+                          setCropTypeFilters(cropTypeFilters.filter((id) => id !== "__none__"));
+                        }
+                      }}
+                    />
+                    <span className="text-sm">Overig (geen soort)</span>
+                  </label>
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
 
-          {/* Direct/Plant-maand */}
+          {/* Direct/Plant-maand (multi-select met popover) */}
           <div>
             <label className="block text-xs mb-1">Direct/Plant maand</label>
-            <select
-              className="w-full border rounded px-2 py-1"
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-            >
-              <option value="all">Alle maanden</option>
-              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                <option key={m} value={m}>
-                  {new Date(2000, m - 1, 1).toLocaleString("nl-NL", { month: "long" })}
-                </option>
-              ))}
-            </select>
+            <Popover>
+              <PopoverTrigger asChild>
+                <button className="w-full border rounded px-2 py-1 text-left text-sm flex justify-between items-center bg-card hover:bg-muted/50">
+                  <span className="truncate">
+                    {selectedMonths.length === 0
+                      ? "Alle maanden"
+                      : selectedMonths.length === 1
+                      ? new Date(2000, selectedMonths[0] - 1, 1).toLocaleString("nl-NL", { month: "long" })
+                      : `${selectedMonths.length} geselecteerd`}
+                  </span>
+                  <ChevronDown className="h-4 w-4 ml-2 flex-shrink-0" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-3 max-h-64 overflow-y-auto bg-popover z-50">
+                <div className="space-y-2">
+                  {selectedMonths.length > 0 && (
+                    <button
+                      onClick={() => setSelectedMonths([])}
+                      className="text-xs text-primary hover:underline mb-2"
+                    >
+                      Wis selectie
+                    </button>
+                  )}
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                    <label key={m} className="flex items-center gap-2 cursor-pointer">
+                      <Checkbox
+                        checked={selectedMonths.includes(m)}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setSelectedMonths([...selectedMonths, m].sort((a, b) => a - b));
+                          } else {
+                            setSelectedMonths(selectedMonths.filter((month) => month !== m));
+                          }
+                        }}
+                      />
+                      <span className="text-sm">
+                        {new Date(2000, m - 1, 1).toLocaleString("nl-NL", { month: "long" })}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
         </div>
 
         <h3 className="text-base font-semibold mt-2">Zaden</h3>
         <div className="space-y-1.5">
           {filteredSeeds.map((seed) => (
-            <DraggableSeed key={seed.id} seed={seed} isDragging={activeDragId === `seed-${seed.id}`} />
+            <div key={seed.id} onClick={() => setSeedDetailsModal(seed)} className="cursor-pointer">
+              <DraggableSeed seed={seed} isDragging={activeDragId === `seed-${seed.id}`} />
+            </div>
           ))}
           {filteredSeeds.length === 0 && <p className="text-xs text-muted-foreground">Geen zaden gevonden.</p>}
         </div>
@@ -1017,6 +1103,15 @@ export function PlannerPage({ garden }: { garden: Garden }) {
         >
           {toast.msg}
         </div>
+      )}
+
+      {/* Seed Details Modal */}
+      {seedDetailsModal && (
+        <SeedDetailsModal
+          seed={seedDetailsModal}
+          cropTypes={cropTypes}
+          onClose={() => setSeedDetailsModal(null)}
+        />
       )}
     </div>
   );

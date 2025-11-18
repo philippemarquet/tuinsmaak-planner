@@ -140,10 +140,11 @@ export type Database = {
       }
       plantings: {
         Row: {
+          actual_date: string | null
+          actual_ground_date: string | null
           actual_harvest_end: string | null
           actual_harvest_start: string | null
-          actual_plant_date: string | null
-          actual_sow_date: string | null
+          actual_presow_date: string | null
           color: string | null
           created_at: string
           garden_bed_id: string | null
@@ -151,10 +152,10 @@ export type Database = {
           id: string
           method: string | null
           notes: string | null
+          planned_date: string
           planned_harvest_end: string | null
           planned_harvest_start: string | null
-          planned_plant_date: string | null
-          planned_sow_date: string | null
+          planned_presow_date: string | null
           plants_per_row: number | null
           rows: number | null
           seed_id: string | null
@@ -164,10 +165,11 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          actual_date?: string | null
+          actual_ground_date?: string | null
           actual_harvest_end?: string | null
           actual_harvest_start?: string | null
-          actual_plant_date?: string | null
-          actual_sow_date?: string | null
+          actual_presow_date?: string | null
           color?: string | null
           created_at?: string
           garden_bed_id?: string | null
@@ -175,10 +177,10 @@ export type Database = {
           id?: string
           method?: string | null
           notes?: string | null
+          planned_date: string
           planned_harvest_end?: string | null
           planned_harvest_start?: string | null
-          planned_plant_date?: string | null
-          planned_sow_date?: string | null
+          planned_presow_date?: string | null
           plants_per_row?: number | null
           rows?: number | null
           seed_id?: string | null
@@ -188,10 +190,11 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          actual_date?: string | null
+          actual_ground_date?: string | null
           actual_harvest_end?: string | null
           actual_harvest_start?: string | null
-          actual_plant_date?: string | null
-          actual_sow_date?: string | null
+          actual_presow_date?: string | null
           color?: string | null
           created_at?: string
           garden_bed_id?: string | null
@@ -199,10 +202,10 @@ export type Database = {
           id?: string
           method?: string | null
           notes?: string | null
+          planned_date?: string
           planned_harvest_end?: string | null
           planned_harvest_start?: string | null
-          planned_plant_date?: string | null
-          planned_sow_date?: string | null
+          planned_presow_date?: string | null
           plants_per_row?: number | null
           rows?: number | null
           seed_id?: string | null
@@ -212,13 +215,6 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "plantings_garden_bed_id_fkey"
-            columns: ["garden_bed_id"]
-            isOneToOne: false
-            referencedRelation: "bed_occupancy_by_week"
-            referencedColumns: ["garden_bed_id"]
-          },
           {
             foreignKeyName: "plantings_garden_bed_id_fkey"
             columns: ["garden_bed_id"]
@@ -271,72 +267,66 @@ export type Database = {
           created_at: string
           crop_type_id: string | null
           default_color: string | null
-          direct_sow_months: number[] | null
+          direct_plant_months: number[]
           garden_id: string | null
           greenhouse_compatible: boolean | null
           grow_duration_weeks: number | null
           harvest_duration_weeks: number | null
           harvest_months: number[] | null
           id: string
+          in_stock: boolean
           name: string
           notes: string | null
-          plant_months: number[] | null
           plant_spacing_cm: number | null
           presow_duration_weeks: number | null
           presow_months: number[] | null
           purchase_date: string | null
           row_spacing_cm: number | null
           sowing_type: string | null
-          stock_quantity: number | null
-          stock_status: string | null
           updated_at: string
         }
         Insert: {
           created_at?: string
           crop_type_id?: string | null
           default_color?: string | null
-          direct_sow_months?: number[] | null
+          direct_plant_months?: number[]
           garden_id?: string | null
           greenhouse_compatible?: boolean | null
           grow_duration_weeks?: number | null
           harvest_duration_weeks?: number | null
           harvest_months?: number[] | null
           id?: string
+          in_stock?: boolean
           name: string
           notes?: string | null
-          plant_months?: number[] | null
           plant_spacing_cm?: number | null
           presow_duration_weeks?: number | null
           presow_months?: number[] | null
           purchase_date?: string | null
           row_spacing_cm?: number | null
           sowing_type?: string | null
-          stock_quantity?: number | null
-          stock_status?: string | null
           updated_at?: string
         }
         Update: {
           created_at?: string
           crop_type_id?: string | null
           default_color?: string | null
-          direct_sow_months?: number[] | null
+          direct_plant_months?: number[]
           garden_id?: string | null
           greenhouse_compatible?: boolean | null
           grow_duration_weeks?: number | null
           harvest_duration_weeks?: number | null
           harvest_months?: number[] | null
           id?: string
+          in_stock?: boolean
           name?: string
           notes?: string | null
-          plant_months?: number[] | null
           plant_spacing_cm?: number | null
           presow_duration_weeks?: number | null
           presow_months?: number[] | null
           purchase_date?: string | null
           row_spacing_cm?: number | null
           sowing_type?: string | null
-          stock_quantity?: number | null
-          stock_status?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -359,6 +349,7 @@ export type Database = {
       tasks: {
         Row: {
           assignee_user_id: string | null
+          completed_at: string | null
           created_at: string
           due_date: string
           garden_id: string | null
@@ -371,6 +362,7 @@ export type Database = {
         }
         Insert: {
           assignee_user_id?: string | null
+          completed_at?: string | null
           created_at?: string
           due_date: string
           garden_id?: string | null
@@ -383,6 +375,7 @@ export type Database = {
         }
         Update: {
           assignee_user_id?: string | null
+          completed_at?: string | null
           created_at?: string
           due_date?: string
           garden_id?: string | null
@@ -405,15 +398,15 @@ export type Database = {
             foreignKeyName: "tasks_planting_id_fkey"
             columns: ["planting_id"]
             isOneToOne: false
-            referencedRelation: "planting_status"
-            referencedColumns: ["id"]
+            referencedRelation: "bed_occupancy_by_week"
+            referencedColumns: ["planting_id"]
           },
           {
             foreignKeyName: "tasks_planting_id_fkey"
             columns: ["planting_id"]
             isOneToOne: false
-            referencedRelation: "planting_timeline"
-            referencedColumns: ["id"]
+            referencedRelation: "planting_status"
+            referencedColumns: ["planting_id"]
           },
           {
             foreignKeyName: "tasks_planting_id_fkey"
@@ -464,38 +457,39 @@ export type Database = {
       bed_occupancy_by_week: {
         Row: {
           garden_bed_id: string | null
-          garden_id: string | null
-          occupancy_pct: number | null
+          planting_id: string | null
+          segments_used: number | null
+          start_segment: number | null
           week_start: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "garden_beds_garden_id_fkey"
-            columns: ["garden_id"]
+            foreignKeyName: "plantings_garden_bed_id_fkey"
+            columns: ["garden_bed_id"]
             isOneToOne: false
-            referencedRelation: "gardens"
+            referencedRelation: "garden_beds"
             referencedColumns: ["id"]
           },
         ]
       }
       planting_status: {
         Row: {
+          actual_ground_date: string | null
           actual_harvest_end: string | null
           actual_harvest_start: string | null
-          actual_plant_date: string | null
-          actual_sow_date: string | null
+          actual_presow_date: string | null
           color: string | null
           created_at: string | null
-          current_phase: string | null
           garden_bed_id: string | null
           garden_id: string | null
-          id: string | null
           method: string | null
           notes: string | null
+          phase: string | null
+          planned_date: string | null
           planned_harvest_end: string | null
           planned_harvest_start: string | null
-          planned_plant_date: string | null
-          planned_sow_date: string | null
+          planned_presow_date: string | null
+          planting_id: string | null
           plants_per_row: number | null
           rows: number | null
           seed_id: string | null
@@ -505,22 +499,22 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          actual_ground_date?: string | null
           actual_harvest_end?: string | null
           actual_harvest_start?: string | null
-          actual_plant_date?: string | null
-          actual_sow_date?: string | null
+          actual_presow_date?: string | null
           color?: string | null
           created_at?: string | null
-          current_phase?: never
           garden_bed_id?: string | null
           garden_id?: string | null
-          id?: string | null
           method?: string | null
           notes?: string | null
+          phase?: never
+          planned_date?: string | null
           planned_harvest_end?: string | null
           planned_harvest_start?: string | null
-          planned_plant_date?: string | null
-          planned_sow_date?: string | null
+          planned_presow_date?: string | null
+          planting_id?: string | null
           plants_per_row?: number | null
           rows?: number | null
           seed_id?: string | null
@@ -530,22 +524,22 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          actual_ground_date?: string | null
           actual_harvest_end?: string | null
           actual_harvest_start?: string | null
-          actual_plant_date?: string | null
-          actual_sow_date?: string | null
+          actual_presow_date?: string | null
           color?: string | null
           created_at?: string | null
-          current_phase?: never
           garden_bed_id?: string | null
           garden_id?: string | null
-          id?: string | null
           method?: string | null
           notes?: string | null
+          phase?: never
+          planned_date?: string | null
           planned_harvest_end?: string | null
           planned_harvest_start?: string | null
-          planned_plant_date?: string | null
-          planned_sow_date?: string | null
+          planned_presow_date?: string | null
+          planting_id?: string | null
           plants_per_row?: number | null
           rows?: number | null
           seed_id?: string | null
@@ -555,13 +549,6 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "plantings_garden_bed_id_fkey"
-            columns: ["garden_bed_id"]
-            isOneToOne: false
-            referencedRelation: "bed_occupancy_by_week"
-            referencedColumns: ["garden_bed_id"]
-          },
           {
             foreignKeyName: "plantings_garden_bed_id_fkey"
             columns: ["garden_bed_id"]
@@ -587,65 +574,50 @@ export type Database = {
       }
       planting_timeline: {
         Row: {
-          color: string | null
-          end_date: string | null
-          garden_bed_id: string | null
-          id: string | null
-          seed_id: string | null
-          segments_used: number | null
-          start_date: string | null
-          start_segment: number | null
+          due_date: string | null
+          garden_id: string | null
+          planting_id: string | null
+          type: string | null
         }
-        Insert: {
-          color?: string | null
-          end_date?: never
-          garden_bed_id?: string | null
-          id?: string | null
-          seed_id?: string | null
-          segments_used?: number | null
-          start_date?: never
-          start_segment?: number | null
-        }
-        Update: {
-          color?: string | null
-          end_date?: never
-          garden_bed_id?: string | null
-          id?: string | null
-          seed_id?: string | null
-          segments_used?: number | null
-          start_date?: never
-          start_segment?: number | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "plantings_garden_bed_id_fkey"
-            columns: ["garden_bed_id"]
-            isOneToOne: false
-            referencedRelation: "bed_occupancy_by_week"
-            referencedColumns: ["garden_bed_id"]
-          },
-          {
-            foreignKeyName: "plantings_garden_bed_id_fkey"
-            columns: ["garden_bed_id"]
-            isOneToOne: false
-            referencedRelation: "garden_beds"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "plantings_seed_id_fkey"
-            columns: ["seed_id"]
-            isOneToOne: false
-            referencedRelation: "seeds"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
     }
     Functions: {
-      join_garden_by_code: {
-        Args: { join_code: string }
-        Returns: string
+      complete_task: {
+        Args: { p_done_date?: string; p_task_id: string }
+        Returns: {
+          assignee_user_id: string | null
+          completed_at: string | null
+          created_at: string
+          due_date: string
+          garden_id: string | null
+          id: string
+          notes: string | null
+          planting_id: string | null
+          status: string | null
+          type: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "tasks"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
+      fn_generate_tasks_for_planting: {
+        Args: { p_planting_id: string }
+        Returns: undefined
+      }
+      fn_recalc_planting_schedule: {
+        Args: { p_planting_id: string }
+        Returns: undefined
+      }
+      fn_upsert_tasks_for_planting: {
+        Args: { p_planting_id: string }
+        Returns: undefined
+      }
+      join_garden_by_code: { Args: { join_code: string }; Returns: string }
       plantings_for_week: {
         Args: { p_garden_id: string; p_week_start: string }
         Returns: {
@@ -659,6 +631,8 @@ export type Database = {
           start_segment: number
         }[]
       }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
       [_ in never]: never
