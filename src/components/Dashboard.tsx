@@ -6,6 +6,7 @@ import { listSeeds } from "../lib/api/seeds";
 import { listTasks, updateTask } from "../lib/api/tasks";
 import { buildConflictsMap, countUniqueConflicts } from "../lib/conflicts";
 import { useConflictFlags } from "../hooks/useConflictFlags";
+import { useIsMobile } from "../hooks/use-mobile";
 
 /* ---------- helpers ---------- */
 function toISO(d: Date) { return d.toISOString().slice(0, 10); }
@@ -100,6 +101,8 @@ type Milestone = {
 
 /* ---------- hoofdcomponent ---------- */
 export function Dashboard({ garden }: { garden: Garden }) {
+  const isMobile = useIsMobile();
+  
   const [beds, setBeds] = useState<GardenBed[]>([]);
   const [plantings, setPlantings] = useState<Planting[]>([]);
   const [seeds, setSeeds] = useState<Seed[]>([]);
@@ -453,83 +456,75 @@ export function Dashboard({ garden }: { garden: Garden }) {
             const hasConflict = conflictCount > 0;
 
             return (
-              <div key={p.id} className="border rounded-lg p-3 bg-card">
-                <div className="grid grid-cols-12 gap-3 items-center">
-                  {/* links: label + volgende actie */}
-                  <div className="col-span-12 md:col-span-4">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="inline-block w-3 h-3 rounded"
-                        style={{ background: p.color && (p.color.startsWith("#") || p.color.startsWith("rgb")) ? p.color : "#22c55e" }}
-                        aria-hidden
-                      />
-                      <div className="min-w-0">
-                        <div className="font-medium truncate flex items-center gap-2">
-                          <span className="truncate">{seed?.name ?? "Onbekend gewas"}</span>
-                          {hasConflict && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] rounded bg-red-100 text-red-800 border border-red-200">
-                              ⚠️ Conflict
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-xs text-muted-foreground truncate">{bed?.name ?? "Onbekende bak"}</div>
+              <div key={p.id} className={`border rounded-lg ${isMobile ? 'p-3' : 'p-3'} bg-card`}>
+                <div className="space-y-3">
+                  {/* Header: label + volgende actie */}
+                  <div className="flex items-start gap-2">
+                    <span
+                      className={`inline-block ${isMobile ? 'w-4 h-4 mt-0.5' : 'w-3 h-3 mt-1'} rounded flex-shrink-0`}
+                      style={{ background: p.color && (p.color.startsWith("#") || p.color.startsWith("rgb")) ? p.color : "#22c55e" }}
+                      aria-hidden
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className={`${isMobile ? 'text-base' : 'text-sm'} font-medium flex items-center gap-2 flex-wrap`}>
+                        <span>{seed?.name ?? "Onbekend gewas"}</span>
+                        {hasConflict && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] rounded bg-red-100 text-red-800 border border-red-200">
+                            ⚠️ Conflict
+                          </span>
+                        )}
                       </div>
-                    </div>
-
-                    <div className="mt-1.5 text-xs flex items-center gap-2 text-muted-foreground">
-                      {nextLabel ? (
-                        <>
-                          <span className="inline-block w-2 h-2 rounded-full bg-yellow-400" />
-                          <span className="truncate">Volgende: {nextLabel}</span>
-                        </>
-                      ) : (
-                        <span className="truncate">Alle acties afgerond</span>
+                      <div className={`${isMobile ? 'text-sm' : 'text-xs'} text-muted-foreground`}>{bed?.name ?? "Onbekende bak"}</div>
+                      
+                      {nextLabel && (
+                        <div className={`${isMobile ? 'mt-2 text-sm' : 'mt-1.5 text-xs'} flex items-center gap-2`}>
+                          <span className={`inline-block ${isMobile ? 'w-2.5 h-2.5' : 'w-2 h-2'} rounded-full bg-yellow-400 flex-shrink-0`} />
+                          <span className="text-muted-foreground">Volgende: {nextLabel}</span>
+                        </div>
                       )}
                     </div>
                   </div>
 
-                  {/* midden: milestones lijst */}
-                  <div className="col-span-12 md:col-span-8">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                      {ms.map((m, idx) => {
-                        const isDone = m.status === "done";
-                        const isNext = next && idx === next.index && !isDone;
-                        const isPending = !isDone && !isNext;
-                        const baseISO = m.actualISO ?? m.task?.due_date ?? m.plannedISO;
-                        const title = `${m.label}` +
-                          (m.actualISO ? ` • uitgevoerd: ${fmtDMY(m.actualISO)}` :
-                           m.task?.due_date ? ` • gepland: ${fmtDMY(m.task.due_date)}` :
-                           m.plannedISO ? ` • gepland: ${fmtDMY(m.plannedISO)}` : "");
-                        const bulletCls = isDone
-                          ? "bg-green-500 border-green-600"
-                          : isNext
-                          ? "bg-yellow-400 border-yellow-500"
-                          : "bg-gray-300 border-gray-400";
-                        const canClick = isDone || isNext;
-                        return (
-                          <button
-                            key={m.id}
-                            type="button"
-                            className={`flex items-center gap-2 p-2 rounded border bg-background text-left ${canClick?"hover:bg-muted cursor-pointer":"opacity-60 cursor-not-allowed"}`}
-                            title={canClick ? title : "Je kunt alleen de eerstvolgende actie invullen"}
-                            onClick={() => {
-                              if (!canClick) return;
-                              const t = m.task; if (!t) return;
-                              const defaultISO = (m.actualISO || toISO(new Date()));
-                              setDialog({ task: t, dateISO: defaultISO, hasActual: !!m.actualISO });
-                            }}
-                          >
-                            <span className={`inline-flex w-4 h-4 rounded-full border shadow ${bulletCls}`} />
-                            <span className="text-xs flex-1 min-w-0">
-                              <span className="block font-medium truncate">{m.label}</span>
-                              <span className="block text-muted-foreground truncate">
-                                {baseISO ? fmtDMY(baseISO) : "—"}
-                              </span>
+                  {/* Milestones */}
+                  <div className={`grid ${isMobile ? 'grid-cols-1 gap-2' : 'grid-cols-2 md:grid-cols-4 gap-2'}`}>
+                    {ms.map((m, idx) => {
+                      const isDone = m.status === "done";
+                      const isNext = next && idx === next.index && !isDone;
+                      const isPending = !isDone && !isNext;
+                      const baseISO = m.actualISO ?? m.task?.due_date ?? m.plannedISO;
+                      const title = `${m.label}` +
+                        (m.actualISO ? ` • uitgevoerd: ${fmtDMY(m.actualISO)}` :
+                         m.task?.due_date ? ` • gepland: ${fmtDMY(m.task.due_date)}` :
+                         m.plannedISO ? ` • gepland: ${fmtDMY(m.plannedISO)}` : "");
+                      const bulletCls = isDone
+                        ? "bg-green-500 border-green-600"
+                        : isNext
+                        ? "bg-yellow-400 border-yellow-500"
+                        : "bg-gray-300 border-gray-400";
+                      const canClick = isDone || isNext;
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          className={`flex items-center gap-3 ${isMobile ? 'p-3' : 'p-2'} rounded border bg-background text-left ${canClick?"hover:bg-muted cursor-pointer active:bg-muted/80":"opacity-60 cursor-not-allowed"}`}
+                          title={canClick ? title : "Je kunt alleen de eerstvolgende actie invullen"}
+                          onClick={() => {
+                            if (!canClick) return;
+                            const t = m.task; if (!t) return;
+                            const defaultISO = (m.actualISO || toISO(new Date()));
+                            setDialog({ task: t, dateISO: defaultISO, hasActual: !!m.actualISO });
+                          }}
+                        >
+                          <span className={`inline-flex ${isMobile ? 'w-5 h-5' : 'w-4 h-4'} rounded-full border shadow ${bulletCls} flex-shrink-0`} />
+                          <span className={`${isMobile ? 'text-sm' : 'text-xs'} flex-1 min-w-0`}>
+                            <span className="block font-medium">{m.label}</span>
+                            <span className="block text-muted-foreground">
+                              {baseISO ? fmtDMY(baseISO) : "—"}
                             </span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -540,29 +535,34 @@ export function Dashboard({ garden }: { garden: Garden }) {
 
       {/* Dialog: actie uitvoeren / bewerken of leegmaken */}
       {dialog && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setDialog(null)}>
-          <div className="bg-card w-full max-w-sm rounded-lg shadow-lg p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h4 className="text-lg font-semibold">Actie {dialog.hasActual ? "bewerken" : "uitvoeren"}</h4>
-            <p className="text-sm">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setDialog(null)}>
+          <div className={`bg-card w-full ${isMobile ? 'max-w-full' : 'max-w-sm'} rounded-lg shadow-lg ${isMobile ? 'p-6' : 'p-5'} space-y-4`} onClick={(e) => e.stopPropagation()}>
+            <h4 className={`${isMobile ? 'text-xl' : 'text-lg'} font-semibold`}>Actie {dialog.hasActual ? "bewerken" : "uitvoeren"}</h4>
+            <p className={`${isMobile ? 'text-base' : 'text-sm'}`}>
               {(() => {
                 const p = plantingsById[dialog.task.planting_id];
                 return `${labelForType(dialog.task.type, p?.method)} • ${seedNameFor(dialog.task)} • ${bedNameFor(dialog.task)}`;
               })()}
             </p>
-            <label className="block text-sm">
+            <label className={`block ${isMobile ? 'text-base' : 'text-sm'}`}>
               Datum
               <input
                 type="date"
                 value={dialog.dateISO}
                 onChange={(e) => setDialog(d => d ? { ...d, dateISO: e.target.value } : d)}
-                className="mt-1 w-full border rounded-md px-2 py-1"
+                className={`mt-2 w-full border border-input bg-background rounded-md ${isMobile ? 'px-4 py-3 text-base' : 'px-2 py-1'}`}
               />
             </label>
-            <div className="flex justify-end gap-2">
-              <button className="px-3 py-1.5 rounded-md border" onClick={() => setDialog(null)}>Annuleren</button>
+            <div className={`flex ${isMobile ? 'flex-col' : 'justify-end'} gap-2`}>
+              <button 
+                className={`${isMobile ? 'w-full py-3 text-base' : 'px-3 py-1.5'} rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80`} 
+                onClick={() => setDialog(null)}
+              >
+                Annuleren
+              </button>
               {dialog.hasActual && (
                 <button
-                  className="px-3 py-1.5 rounded-md border"
+                  className={`${isMobile ? 'w-full py-3 text-base' : 'px-3 py-1.5'} rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50`}
                   onClick={() => clearActual(dialog.task)}
                   disabled={busyId === dialog.task.id}
                 >
@@ -570,7 +570,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
                 </button>
               )}
               <button
-                className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
+                className={`${isMobile ? 'w-full py-3 text-base' : 'px-3 py-1.5'} rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50`}
                 onClick={() => applyActual(dialog.task, dialog.dateISO)}
                 disabled={busyId === dialog.task.id}
               >

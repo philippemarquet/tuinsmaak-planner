@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 
 import { TopNav } from "./components/TopNav";
+import { useIsMobile } from "./hooks/use-mobile";
 
 import { Dashboard } from "./components/Dashboard";
 import { BedsPage } from "./components/BedsPage";
@@ -26,6 +27,8 @@ const TABS: { key: TabKey; label: string }[] = [
 ];
 
 export default function App() {
+  const isMobile = useIsMobile();
+  
   const [activeTab, setActiveTab] = useState<TabKey>(() => {
     const saved = localStorage.getItem("activeTab") as TabKey | null;
     return saved ?? "dashboard";
@@ -104,7 +107,7 @@ export default function App() {
         <div className="border-b border-border bg-card">
           <div className="max-w-6xl mx-auto px-4">
             <nav className="flex flex-wrap gap-2">
-              {TABS.map((t) => {
+              {TABS.filter(t => !isMobile || t.key === 'dashboard').map((t) => {
                 const active = activeTab === t.key;
                 return (
                   <button
