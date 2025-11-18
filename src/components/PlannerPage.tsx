@@ -348,14 +348,19 @@ export function PlannerPage({ garden }: { garden: Garden }) {
       });
     }
 
-    // maand (multi-select)
+    // maand (multi-select) - filtert op zowel kas-maanden als direct/plant maanden
     if (selectedMonths.length > 0) {
       arr = arr.filter((s: any) => {
-        const months: number[] =
+        const directPlantMonths: number[] =
           (s as any).direct_plant_months ??
           (s as any).direct_sow_months ??
           [];
-        return Array.isArray(months) && months.some((m) => selectedMonths.includes(m));
+        const greenhouseMonths: number[] = (s as any).greenhouse_months ?? [];
+        
+        const hasDirectPlantMatch = Array.isArray(directPlantMonths) && directPlantMonths.some((m) => selectedMonths.includes(m));
+        const hasGreenhouseMatch = Array.isArray(greenhouseMonths) && greenhouseMonths.some((m) => selectedMonths.includes(m));
+        
+        return hasDirectPlantMatch || hasGreenhouseMatch;
       });
     }
 
