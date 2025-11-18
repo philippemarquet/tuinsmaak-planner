@@ -236,7 +236,7 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
           disabled={form.sowing_type === 'direct'}
         />
         <MonthSelector
-          label="Zaaien/Planten in de kas"
+          label="In de kas"
           value={((form as any).greenhouse_months ?? []) as number[]}
           onChange={(val) => handleChange("greenhouse_months", val)}
           disabled={!form.greenhouse_compatible}
