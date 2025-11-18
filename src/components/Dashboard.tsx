@@ -474,7 +474,12 @@ export function Dashboard({ garden }: { garden: Garden }) {
                           </span>
                         )}
                       </div>
-                      <div className={`${isMobile ? 'text-sm' : 'text-xs'} text-muted-foreground`}>{bed?.name ?? "Onbekende bak"}</div>
+                      <div className={`${isMobile ? 'text-sm' : 'text-xs'} text-muted-foreground`}>
+                        {bed?.name ?? "Onbekende bak"}
+                        {p.start_segment != null && (
+                          <> • Segment {p.start_segment + 1}{p.segments_used > 1 ? `-${p.start_segment + p.segments_used}` : ''}</>
+                        )}
+                      </div>
                       
                       {nextLabel && (
                         <div className={`${isMobile ? 'mt-2 text-sm' : 'mt-1.5 text-xs'} flex items-center gap-2`}>
