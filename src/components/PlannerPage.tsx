@@ -12,7 +12,7 @@ import { buildConflictsMap, countUniqueConflicts } from "../lib/conflicts";
 import { ConflictWarning } from "./ConflictWarning";
 import { Edit3, Trash2, ChevronDown, Info } from "lucide-react";
 import { useConflictFlags } from "../hooks/useConflictFlags";
-import { SeedDetailsModal } from "./SeedDetailsModal";
+import { SeedModal } from "./SeedModal";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Checkbox } from "./ui/checkbox";
 
@@ -1127,10 +1127,14 @@ export function PlannerPage({ garden }: { garden: Garden }) {
 
       {/* Seed Details Modal */}
       {seedDetailsModal && (
-        <SeedDetailsModal
+        <SeedModal
+          gardenId={garden.id}
           seed={seedDetailsModal}
-          cropTypes={cropTypes}
           onClose={() => setSeedDetailsModal(null)}
+          onSaved={(updatedSeed) => {
+            listSeeds(garden.id).then(setSeeds).catch(console.error);
+            setSeedDetailsModal(null);
+          }}
         />
       )}
     </div>
