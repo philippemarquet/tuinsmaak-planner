@@ -1,8 +1,10 @@
 import { signOut } from "../lib/auth";
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { useIsMobile } from "../hooks/use-mobile";
 
 export function TopNav() {
+  const isMobile = useIsMobile();
   const [email, setEmail] = useState<string | null>(null);
   const [hasConflicts, setHasConflicts] = useState(false);
   const [conflictCount, setConflictCount] = useState(0);
@@ -52,40 +54,39 @@ export function TopNav() {
   };
 
   return (
-    <header className="flex items-center justify-between border-b border-border bg-background px-4 py-3 shadow-sm">
+    <header className={`flex items-center justify-between border-b border-border bg-background ${isMobile ? 'px-3 py-2' : 'px-4 py-3'} shadow-sm`}>
       {/* Left side: logo + title */}
       <div className="flex items-center gap-2">
-        {/* Je kunt dit later vervangen door een echt logo-image */}
-        <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground font-bold">
+        <div className={`${isMobile ? 'h-7 w-7' : 'h-8 w-8'} rounded-full bg-primary flex items-center justify-center text-primary-foreground font-bold`}>
           B
         </div>
-        <span className="font-semibold text-lg">Bosgoedt Planner</span>
+        {!isMobile && <span className="font-semibold text-lg">Bosgoedt Planner</span>}
       </div>
 
       {/* Center: Conflict warning only when there are conflicts */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 md:gap-4 flex-1 justify-center">
         {hasConflicts && (
           <button
             onClick={handlePlannerClick}
-            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-md border bg-red-50 text-red-700 border-red-200 hover:bg-red-100 transition-colors"
+            className={`inline-flex items-center gap-2 ${isMobile ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-sm'} rounded-md border bg-red-50 text-red-700 border-red-200 hover:bg-red-100 transition-colors`}
           >
-            <span>⚠️ {conflictCount} conflict{conflictCount !== 1 ? 'en' : ''} - Ga naar planner</span>
+            <span>{isMobile ? `⚠️ ${conflictCount}` : `⚠️ ${conflictCount} conflict${conflictCount !== 1 ? 'en' : ''} - Ga naar planner`}</span>
           </button>
         )}
       </div>
 
       {/* Right side: user info + logout */}
-      <div className="flex items-center gap-3">
-        {email && (
+      <div className="flex items-center gap-2 md:gap-3">
+        {email && !isMobile && (
           <span className="text-sm text-muted-foreground hidden sm:block">
             {email}
           </span>
         )}
         <button
           onClick={() => signOut()}
-          className="inline-flex items-center rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 px-3 py-1.5 text-sm"
+          className={`inline-flex items-center rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 ${isMobile ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-sm'}`}
         >
-          Uitloggen
+          {isMobile ? 'Uit' : 'Uitloggen'}
         </button>
       </div>
     </header>
