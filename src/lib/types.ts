@@ -55,6 +55,7 @@ export interface Seed {
   harvest_duration_weeks: number | null;
 
   presow_months: number[] | null;
+  greenhouse_months: number[] | null;
   direct_plant_months: number[] | null; // ✅ samengevoegd veld
   harvest_months: number[] | null;
 

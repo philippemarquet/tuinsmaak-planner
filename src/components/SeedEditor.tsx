@@ -60,6 +60,9 @@ export default function SeedEditor({ seed, onClose, onSaved }: Props) {
   const [harvestMonths, setHarvestMonths] = useState<number[]>(
     seed.harvest_months ?? []
   );
+  const [greenhouseMonths, setGreenhouseMonths] = useState<number[]>(
+    (seed as any).greenhouse_months ?? []
+  );
 
   const [growWeeks, setGrowWeeks] = useState<number | null>(seed.grow_duration_weeks ?? null);
   const [harvestWeeks, setHarvestWeeks] = useState<number | null>(seed.harvest_duration_weeks ?? null);
@@ -85,6 +88,7 @@ export default function SeedEditor({ seed, onClose, onSaved }: Props) {
       presow_months: sowingType === "presow" ? presowMonths : [],
       direct_plant_months: directPlantMonths,
       harvest_months: harvestMonths,
+      greenhouse_months: greenhouse ? greenhouseMonths : [],
       grow_duration_weeks: growWeeks,
       harvest_duration_weeks: harvestWeeks,
       greenhouse_compatible: greenhouse,
@@ -159,6 +163,23 @@ export default function SeedEditor({ seed, onClose, onSaved }: Props) {
             </div>
           </div>
         </div>
+
+        {/* Zaaien/Planten in de kas (alleen zichtbaar als kas-geschikt aangevinkt staat) */}
+        {greenhouse && (
+          <div>
+            <div className="text-sm font-medium mb-1">Zaaien/Planten in de kas</div>
+            <div className="flex flex-wrap gap-1">
+              {MONTHS.map(m => (
+                <ToggleMonth
+                  key={m.v}
+                  value={m.v}
+                  selected={greenhouseMonths}
+                  onChange={setGreenhouseMonths}
+                />
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Direct/Plant maanden (altijd zichtbaar, want dit is de grond-datumlogica) */}
         <div>
