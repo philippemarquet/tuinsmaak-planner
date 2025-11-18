@@ -33,6 +33,7 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
     harvest_duration_weeks: seed.harvest_duration_weeks ?? null,
 
     presow_months: seed.presow_months ?? [],
+    greenhouse_months: (seed as any).greenhouse_months ?? [],
     direct_plant_months: (seed as any).direct_plant_months ?? (seed as any).direct_sow_months ?? [],
     harvest_months: seed.harvest_months ?? [],
 
@@ -68,6 +69,7 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
         presow_duration_weeks: !form.presow_duration_weeks || String(form.presow_duration_weeks) === "" ? null : Number(form.presow_duration_weeks),
         grow_duration_weeks: !form.grow_duration_weeks || String(form.grow_duration_weeks) === "" ? null : Number(form.grow_duration_weeks),
         harvest_duration_weeks: !form.harvest_duration_weeks || String(form.harvest_duration_weeks) === "" ? null : Number(form.harvest_duration_weeks),
+        greenhouse_months: form.greenhouse_compatible ? ((form as any).greenhouse_months ?? []) : [],
         notes: form.notes || null,
         // greenhouse_compatible + in_stock gaan al mee via ...form
         // default_color verwacht #hex (ColorField regelt conversie)
@@ -232,6 +234,12 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
           value={(form.presow_months ?? []) as number[]}
           onChange={(val) => handleChange("presow_months", val)}
           disabled={form.sowing_type === 'direct'}
+        />
+        <MonthSelector
+          label="Zaaien/Planten in de kas"
+          value={((form as any).greenhouse_months ?? []) as number[]}
+          onChange={(val) => handleChange("greenhouse_months", val)}
+          disabled={!form.greenhouse_compatible}
         />
         <MonthSelector
           label="Direct/Plant"
