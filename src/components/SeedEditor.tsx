@@ -164,6 +164,12 @@ export default function SeedEditor({ seed, onClose, onSaved }: Props) {
           </div>
         </div>
 
+        {/* Kas-geschikt checkbox */}
+        <label className="inline-flex items-center gap-2">
+          <input type="checkbox" checked={greenhouse} onChange={e => setGreenhouse(e.target.checked)} />
+          <span className="text-sm font-medium">Geschikt voor kas</span>
+        </label>
+
         {/* Zaaien/Planten in de kas (alleen zichtbaar als kas-geschikt aangevinkt staat) */}
         {greenhouse && (
           <div>
@@ -234,12 +240,6 @@ export default function SeedEditor({ seed, onClose, onSaved }: Props) {
             />
           </label>
         </div>
-
-        {/* Overig */}
-        <label className="inline-flex items-center gap-2">
-          <input type="checkbox" checked={greenhouse} onChange={e => setGreenhouse(e.target.checked)} />
-          Kas-geschikt
-        </label>
 
         <label className="grid gap-1">
           <span className="text-sm font-medium">Kleur (HEX of rgb())</span>
