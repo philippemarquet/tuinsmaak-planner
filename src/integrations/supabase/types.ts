@@ -32,6 +32,48 @@ export type Database = {
         }
         Relationships: []
       }
+      email_logs: {
+        Row: {
+          created_at: string
+          email_type: string
+          error_message: string | null
+          id: string
+          overdue_count: number | null
+          recipient_email: string
+          sent_at: string
+          status: string
+          subject: string
+          tasks_count: number | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email_type: string
+          error_message?: string | null
+          id?: string
+          overdue_count?: number | null
+          recipient_email: string
+          sent_at?: string
+          status?: string
+          subject: string
+          tasks_count?: number | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email_type?: string
+          error_message?: string | null
+          id?: string
+          overdue_count?: number | null
+          recipient_email?: string
+          sent_at?: string
+          status?: string
+          subject?: string
+          tasks_count?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       garden_beds: {
         Row: {
           created_at: string
