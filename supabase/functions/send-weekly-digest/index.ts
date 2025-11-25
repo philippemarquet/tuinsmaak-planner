@@ -173,6 +173,7 @@ const handler = async (req: Request): Promise<Response> => {
             overdueTasks,
             upcomingTasks,
             appUrl: supabaseUrl.replace('.supabase.co', '.lovable.app') || 'https://your-app.lovable.app',
+            template: prefs?.email_template || {},
           })
         );
 

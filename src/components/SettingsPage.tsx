@@ -10,6 +10,18 @@ type Prefs = {
   digest_time: string; // HH:MM format
 };
 
+type EmailTemplate = {
+  header: string;
+  greeting: string;
+  intro: string;
+  overdueHeader: string;
+  overdueSubtext: string;
+  upcomingHeader: string;
+  upcomingSubtext: string;
+  noTasksMessage: string;
+  footer: string;
+};
+
 type EmailLog = {
   id: string;
   email_type: string;
@@ -29,11 +41,22 @@ export function SettingsPage({ garden }: { garden: Garden }) {
     digest_day: 1, // Maandag
     digest_time: '08:00',
   });
+  const [template, setTemplate] = useState<EmailTemplate>({
+    header: '🌱 Wekelijkse Tuinagenda',
+    greeting: 'Hallo {naam},',
+    intro: 'Hier is je overzicht voor de komende week:',
+    overdueHeader: '⚠️ Achterstallige acties',
+    overdueSubtext: 'Deze acties hadden al gedaan moeten zijn:',
+    upcomingHeader: '📅 Aankomende acties',
+    upcomingSubtext: 'Deze acties staan gepland voor de komende 7 dagen:',
+    noTasksMessage: '✨ Je hebt geen openstaande taken! Geniet van je tuin.',
+    footer: 'Deze wekelijkse samenvatting is verstuurd omdat je dit hebt ingeschakeld in je instellingen.',
+  });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [logs, setLogs] = useState<EmailLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'settings' | 'logs'>('settings');
+  const [activeTab, setActiveTab] = useState<'settings' | 'logs' | 'template'>('settings');
   const [testingSend, setTestingSend] = useState(false);
 
   useEffect(() => {
@@ -47,6 +70,19 @@ export function SettingsPage({ garden }: { garden: Garden }) {
             digest_day: savedPrefs.digest_day ?? 1,
             digest_time: savedPrefs.digest_time ?? '08:00',
           });
+          if (savedPrefs.email_template) {
+            setTemplate({
+              header: savedPrefs.email_template.header ?? '🌱 Wekelijkse Tuinagenda',
+              greeting: savedPrefs.email_template.greeting ?? 'Hallo {naam},',
+              intro: savedPrefs.email_template.intro ?? 'Hier is je overzicht voor de komende week:',
+              overdueHeader: savedPrefs.email_template.overdueHeader ?? '⚠️ Achterstallige acties',
+              overdueSubtext: savedPrefs.email_template.overdueSubtext ?? 'Deze acties hadden al gedaan moeten zijn:',
+              upcomingHeader: savedPrefs.email_template.upcomingHeader ?? '📅 Aankomende acties',
+              upcomingSubtext: savedPrefs.email_template.upcomingSubtext ?? 'Deze acties staan gepland voor de komende 7 dagen:',
+              noTasksMessage: savedPrefs.email_template.noTasksMessage ?? '✨ Je hebt geen openstaande taken! Geniet van je tuin.',
+              footer: savedPrefs.email_template.footer ?? 'Deze wekelijkse samenvatting is verstuurd omdat je dit hebt ingeschakeld in je instellingen.',
+            });
+          }
         }
       })
       .finally(() => setLoading(false));
@@ -86,6 +122,7 @@ export function SettingsPage({ garden }: { garden: Garden }) {
         notification_prefs: {
           ...prefs,
           email_notifications: prefs.weekly_digest, // Auto-enable als digest aan staat
+          email_template: activeTab === 'template' ? template : undefined,
         },
       });
       setProfile(newProfile);
@@ -146,6 +183,16 @@ export function SettingsPage({ garden }: { garden: Garden }) {
               }`}
             >
               Email log
+            </button>
+            <button
+              onClick={() => setActiveTab('template')}
+              className={`px-4 py-2 font-medium text-sm transition-colors ${
+                activeTab === 'template'
+                  ? 'border-b-2 border-primary text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Email template
             </button>
           </div>
 
@@ -315,6 +362,127 @@ export function SettingsPage({ garden }: { garden: Garden }) {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {activeTab === 'template' && (
+            <div className="space-y-4">
+              <div className="bg-card text-card-foreground border border-border rounded-xl p-4 shadow-sm">
+                <h3 className="text-lg font-semibold mb-2">Email template aanpassen</h3>
+                <p className="text-sm text-muted-foreground mb-6">
+                  Pas de teksten van je wekelijkse digest email aan. Gebruik {'{naam}'} om de naam van de gebruiker in te voegen.
+                </p>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Header titel</label>
+                    <input 
+                      type="text"
+                      className="w-full p-2 border border-border rounded-lg bg-background"
+                      value={template.header}
+                      onChange={(e) => setTemplate({ ...template, header: e.target.value })}
+                      placeholder="Bijv. 🌱 Wekelijkse Tuinagenda"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Begroeting</label>
+                    <input 
+                      type="text"
+                      className="w-full p-2 border border-border rounded-lg bg-background"
+                      value={template.greeting}
+                      onChange={(e) => setTemplate({ ...template, greeting: e.target.value })}
+                      placeholder="Bijv. Hallo {naam},"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Intro tekst</label>
+                    <textarea 
+                      className="w-full p-2 border border-border rounded-lg bg-background"
+                      rows={2}
+                      value={template.intro}
+                      onChange={(e) => setTemplate({ ...template, intro: e.target.value })}
+                      placeholder="Intro tekst voor de email"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Achterstallige acties - Koptekst</label>
+                    <input 
+                      type="text"
+                      className="w-full p-2 border border-border rounded-lg bg-background"
+                      value={template.overdueHeader}
+                      onChange={(e) => setTemplate({ ...template, overdueHeader: e.target.value })}
+                      placeholder="Koptekst voor achterstallige taken"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Achterstallige acties - Subtekst</label>
+                    <input 
+                      type="text"
+                      className="w-full p-2 border border-border rounded-lg bg-background"
+                      value={template.overdueSubtext}
+                      onChange={(e) => setTemplate({ ...template, overdueSubtext: e.target.value })}
+                      placeholder="Subtekst voor achterstallige taken"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Aankomende acties - Koptekst</label>
+                    <input 
+                      type="text"
+                      className="w-full p-2 border border-border rounded-lg bg-background"
+                      value={template.upcomingHeader}
+                      onChange={(e) => setTemplate({ ...template, upcomingHeader: e.target.value })}
+                      placeholder="Koptekst voor aankomende taken"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Aankomende acties - Subtekst</label>
+                    <input 
+                      type="text"
+                      className="w-full p-2 border border-border rounded-lg bg-background"
+                      value={template.upcomingSubtext}
+                      onChange={(e) => setTemplate({ ...template, upcomingSubtext: e.target.value })}
+                      placeholder="Subtekst voor aankomende taken"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Geen taken bericht</label>
+                    <input 
+                      type="text"
+                      className="w-full p-2 border border-border rounded-lg bg-background"
+                      value={template.noTasksMessage}
+                      onChange={(e) => setTemplate({ ...template, noTasksMessage: e.target.value })}
+                      placeholder="Tekst wanneer er geen taken zijn"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Footer tekst</label>
+                    <textarea 
+                      className="w-full p-2 border border-border rounded-lg bg-background"
+                      rows={2}
+                      value={template.footer}
+                      onChange={(e) => setTemplate({ ...template, footer: e.target.value })}
+                      placeholder="Footer tekst onderaan de email"
+                    />
+                  </div>
+
+                  <div className="bg-muted/30 rounded-lg p-3 text-xs text-muted-foreground">
+                    <p className="font-medium mb-1">Tip:</p>
+                    <p>Gebruik {'{naam}'} om de naam van de ontvanger dynamisch in te voegen in de tekst.</p>
+                  </div>
+
+                  <Button onClick={save} disabled={saving} className="w-full">
+                    {saving ? 'Opslaan…' : 'Template opslaan'}
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
         </>

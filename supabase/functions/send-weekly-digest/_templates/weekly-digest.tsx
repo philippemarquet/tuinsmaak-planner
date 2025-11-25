@@ -25,6 +25,17 @@ interface WeeklyDigestEmailProps {
   overdueTasks: WeeklyTask[];
   upcomingTasks: WeeklyTask[];
   appUrl: string;
+  template?: {
+    header?: string;
+    greeting?: string;
+    intro?: string;
+    overdueHeader?: string;
+    overdueSubtext?: string;
+    upcomingHeader?: string;
+    upcomingSubtext?: string;
+    noTasksMessage?: string;
+    footer?: string;
+  };
 }
 
 export const WeeklyDigestEmail = ({
@@ -32,22 +43,32 @@ export const WeeklyDigestEmail = ({
   overdueTasks,
   upcomingTasks,
   appUrl,
-}: WeeklyDigestEmailProps) => (
+  template = {},
+}: WeeklyDigestEmailProps) => {
+  const header = template.header || '🌱 Wekelijkse Tuinagenda';
+  const greeting = (template.greeting || 'Hallo {naam},').replace('{naam}', userName);
+  const intro = template.intro || 'Hier is je overzicht voor de komende week:';
+  const overdueHeader = template.overdueHeader || '⚠️ Achterstallige acties';
+  const overdueSubtext = template.overdueSubtext || 'Deze acties hadden al gedaan moeten zijn:';
+  const upcomingHeader = template.upcomingHeader || '📅 Aankomende acties';
+  const upcomingSubtext = template.upcomingSubtext || 'Deze acties staan gepland voor de komende 7 dagen:';
+  const noTasksMessage = template.noTasksMessage || '✨ Je hebt geen openstaande taken! Geniet van je tuin.';
+  const footer = template.footer || 'Deze wekelijkse samenvatting is verstuurd omdat je dit hebt ingeschakeld in je instellingen.';
+
+  return (
   <Html>
     <Head />
     <Preview>Je wekelijkse tuinagenda: {overdueTasks.length} achterstallig, {upcomingTasks.length} aankomend</Preview>
     <Body style={main}>
       <Container style={container}>
-        <Heading style={h1}>🌱 Wekelijkse Tuinagenda</Heading>
-        <Text style={text}>Hallo {userName},</Text>
-        <Text style={text}>
-          Hier is je overzicht voor de komende week:
-        </Text>
+        <Heading style={h1}>{header}</Heading>
+        <Text style={text}>{greeting}</Text>
+        <Text style={text}>{intro}</Text>
 
         {overdueTasks.length > 0 && (
           <>
-            <Heading style={h2}>⚠️ Achterstallige acties ({overdueTasks.length})</Heading>
-            <Text style={subText}>Deze acties hadden al gedaan moeten zijn:</Text>
+            <Heading style={h2}>{overdueHeader} ({overdueTasks.length})</Heading>
+            <Text style={subText}>{overdueSubtext}</Text>
             <Section style={taskBox}>
               {overdueTasks.map((task, idx) => (
                 <div key={idx} style={taskItem}>
@@ -70,8 +91,8 @@ export const WeeklyDigestEmail = ({
 
         {upcomingTasks.length > 0 && (
           <>
-            <Heading style={h2}>📅 Aankomende acties ({upcomingTasks.length})</Heading>
-            <Text style={subText}>Deze acties staan gepland voor de komende 7 dagen:</Text>
+            <Heading style={h2}>{upcomingHeader} ({upcomingTasks.length})</Heading>
+            <Text style={subText}>{upcomingSubtext}</Text>
             <Section style={taskBox}>
               {upcomingTasks.map((task, idx) => (
                 <div key={idx} style={taskItem}>
@@ -95,25 +116,19 @@ export const WeeklyDigestEmail = ({
         {overdueTasks.length === 0 && upcomingTasks.length === 0 && (
           <Section style={taskBox}>
             <Text style={{ ...text, textAlign: 'center' as const, color: '#16a34a' }}>
-              ✨ Je hebt geen openstaande taken! Geniet van je tuin.
+              {noTasksMessage}
             </Text>
           </Section>
         )}
 
-        <Link
-          href={appUrl}
-          target="_blank"
-          style={button}
-        >
-          Open Dashboard
-        </Link>
         <Text style={footer}>
-          Deze wekelijkse samenvatting is verstuurd omdat je dit hebt ingeschakeld in je instellingen.
+          {footer}
         </Text>
       </Container>
     </Body>
   </Html>
-);
+)};
+
 
 export default WeeklyDigestEmail;
 
@@ -127,6 +142,7 @@ const container = {
   margin: '0 auto',
   padding: '20px 0 48px',
   marginBottom: '64px',
+  maxWidth: '600px',
 };
 
 const h1 = {
@@ -190,19 +206,6 @@ const divider = {
   border: 'none',
   borderTop: '1px solid #e5e7eb',
   margin: '16px 0',
-};
-
-const button = {
-  backgroundColor: '#16a34a',
-  borderRadius: '6px',
-  color: '#fff',
-  fontSize: '16px',
-  textDecoration: 'none',
-  textAlign: 'center' as const,
-  display: 'block',
-  width: '200px',
-  padding: '12px 0',
-  margin: '24px 48px',
 };
 
 const footer = {
