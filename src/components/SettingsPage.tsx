@@ -6,22 +6,18 @@ import { toast } from 'sonner';
 
 type Prefs = {
   email_notifications: boolean;
-  remind_sow: boolean;
-  remind_plant: boolean;
-  remind_harvest: boolean;
-  conflict_alerts: boolean;
-  daily_digest: boolean;
+  weekly_digest: boolean;
+  digest_day: number; // 0-6, 0=zondag
+  digest_time: string; // HH:MM format
 };
 
 export function SettingsPage({ garden }: { garden: Garden }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [prefs, setPrefs] = useState<Prefs>({
     email_notifications: true,
-    remind_sow: true,
-    remind_plant: true,
-    remind_harvest: true,
-    conflict_alerts: true,
-    daily_digest: false,
+    weekly_digest: true,
+    digest_day: 1, // Maandag
+    digest_time: '08:00',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -89,104 +85,79 @@ export function SettingsPage({ garden }: { garden: Garden }) {
             </label>
           </div>
 
-          {/* Notification Preferences */}
+          {/* Weekly Digest */}
           <div className="bg-card text-card-foreground border border-border rounded-xl p-4 shadow-sm space-y-4">
-            <h3 className="text-lg font-semibold">Notificatie voorkeuren</h3>
-            <p className="text-sm text-muted-foreground">
-              Kies voor welke acties je herinneringen wilt ontvangen.
-            </p>
-
-            <div className="space-y-3">
-              <label className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors">
-                <input
-                  type="checkbox"
-                  checked={prefs.remind_sow}
-                  onChange={(e) =>
-                    setPrefs({ ...prefs, remind_sow: e.target.checked })
-                  }
-                  disabled={!prefs.email_notifications}
-                  className="w-4 h-4"
-                />
-                <div className="flex-1">
-                  <div className="font-medium text-sm">Zaaien / Voorzaaien</div>
-                  <div className="text-xs text-muted-foreground">
-                    Herinnering wanneer het tijd is om te zaaien
-                  </div>
-                </div>
-              </label>
-
-              <label className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors">
-                <input
-                  type="checkbox"
-                  checked={prefs.remind_plant}
-                  onChange={(e) =>
-                    setPrefs({ ...prefs, remind_plant: e.target.checked })
-                  }
-                  disabled={!prefs.email_notifications}
-                  className="w-4 h-4"
-                />
-                <div className="flex-1">
-                  <div className="font-medium text-sm">Uitplanten</div>
-                  <div className="text-xs text-muted-foreground">
-                    Herinnering wanneer je moet uitplanten
-                  </div>
-                </div>
-              </label>
-
-              <label className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors">
-                <input
-                  type="checkbox"
-                  checked={prefs.remind_harvest}
-                  onChange={(e) =>
-                    setPrefs({ ...prefs, remind_harvest: e.target.checked })
-                  }
-                  disabled={!prefs.email_notifications}
-                  className="w-4 h-4"
-                />
-                <div className="flex-1">
-                  <div className="font-medium text-sm">Oogsten</div>
-                  <div className="text-xs text-muted-foreground">
-                    Herinnering voor oogstmomenten
-                  </div>
-                </div>
-              </label>
-
-              <label className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors">
-                <input
-                  type="checkbox"
-                  checked={prefs.conflict_alerts}
-                  onChange={(e) =>
-                    setPrefs({ ...prefs, conflict_alerts: e.target.checked })
-                  }
-                  disabled={!prefs.email_notifications}
-                  className="w-4 h-4"
-                />
-                <div className="flex-1">
-                  <div className="font-medium text-sm">Conflict waarschuwingen</div>
-                  <div className="text-xs text-muted-foreground">
-                    Melding bij planning conflicten
-                  </div>
-                </div>
-              </label>
-
-              <label className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors">
-                <input
-                  type="checkbox"
-                  checked={prefs.daily_digest}
-                  onChange={(e) =>
-                    setPrefs({ ...prefs, daily_digest: e.target.checked })
-                  }
-                  disabled={!prefs.email_notifications}
-                  className="w-4 h-4"
-                />
-                <div className="flex-1">
-                  <div className="font-medium text-sm">Dagelijkse samenvatting</div>
-                  <div className="text-xs text-muted-foreground">
-                    Ontvang elke ochtend een overzicht van je taken
-                  </div>
-                </div>
-              </label>
+            <div className="space-y-2">
+              <h3 className="text-lg font-semibold">Wekelijkse samenvatting</h3>
+              <p className="text-sm text-muted-foreground">
+                Ontvang één keer per week een overzicht van al je tuintaken.
+              </p>
             </div>
+
+            <label className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+              <input
+                type="checkbox"
+                checked={prefs.weekly_digest}
+                onChange={(e) =>
+                  setPrefs({ ...prefs, weekly_digest: e.target.checked })
+                }
+                disabled={!prefs.email_notifications}
+                className="w-4 h-4"
+              />
+              <div className="flex-1">
+                <div className="font-medium text-sm">Wekelijkse samenvatting inschakelen</div>
+                <div className="text-xs text-muted-foreground">
+                  Inclusief achterstallige en aankomende acties
+                </div>
+              </div>
+            </label>
+
+            {prefs.weekly_digest && prefs.email_notifications && (
+              <div className="space-y-4 pt-2">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Dag van de week</label>
+                  <select
+                    value={prefs.digest_day}
+                    onChange={(e) =>
+                      setPrefs({ ...prefs, digest_day: parseInt(e.target.value) })
+                    }
+                    className="w-full p-2 border border-border rounded-lg bg-background"
+                  >
+                    <option value="0">Zondag</option>
+                    <option value="1">Maandag</option>
+                    <option value="2">Dinsdag</option>
+                    <option value="3">Woensdag</option>
+                    <option value="4">Donderdag</option>
+                    <option value="5">Vrijdag</option>
+                    <option value="6">Zaterdag</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-2">Tijdstip</label>
+                  <input
+                    type="time"
+                    value={prefs.digest_time}
+                    onChange={(e) =>
+                      setPrefs({ ...prefs, digest_time: e.target.value })
+                    }
+                    className="w-full p-2 border border-border rounded-lg bg-background"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    De mail wordt verstuurd op het gekozen tijdstip
+                  </p>
+                </div>
+
+                <div className="bg-muted/30 rounded-lg p-3 text-xs space-y-2">
+                  <p className="font-medium">De wekelijkse mail bevat:</p>
+                  <ul className="space-y-1 ml-4 list-disc text-muted-foreground">
+                    <li>Achterstallige acties die je nog moet doen</li>
+                    <li>Alle acties voor de komende 7 dagen</li>
+                    <li>Per actie: gewas, bak, en geplande datum</li>
+                  </ul>
+                </div>
+              </div>
+            )}
 
             <Button onClick={save} disabled={saving} className="w-full">
               {saving ? 'Opslaan…' : 'Voorkeuren opslaan'}
