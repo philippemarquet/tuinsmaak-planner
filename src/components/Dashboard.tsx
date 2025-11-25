@@ -494,7 +494,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
           onClick={() => setShowAll(s => !s)}
           className="px-3 py-1.5 rounded-md border text-sm"
         >
-          {showAll ? "Komende 2 weken" : "Alle plantingen"}
+          {showAll ? "Komende 2 weken" : "Alle acties"}
         </button>
       </div>
 
