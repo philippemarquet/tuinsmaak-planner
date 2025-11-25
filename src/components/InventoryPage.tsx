@@ -125,6 +125,8 @@ export function InventoryPage({ garden }: { garden: Garden }) {
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [cropTypes, setCropTypes] = useState<CropType[]>([]);
   const [editorOpen, setEditorOpen] = useState<{ seed: Seed | null } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // filters
   const [inStockOnly, setInStockOnly] = useState<boolean>(false);
@@ -133,10 +135,20 @@ export function InventoryPage({ garden }: { garden: Garden }) {
 
   useEffect(() => {
     (async () => {
-      const [ss, cts] = await Promise.all([listSeeds(garden.id), listCropTypes()]);
-      setSeeds(ss);
-      setCropTypes(cts);
-    })().catch(console.error);
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const [ss, cts] = await Promise.all([listSeeds(garden.id), listCropTypes()]);
+        setSeeds(ss);
+        setCropTypes(cts);
+        setLoadError(null);
+      } catch (err) {
+        console.error('Voorraad load error:', err);
+        setLoadError('Kon voorraad niet laden. Probeer de pagina te verversen.');
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, [garden.id]);
 
   useEffect(() => {
@@ -237,6 +249,33 @@ export function InventoryPage({ garden }: { garden: Garden }) {
 
     return out;
   }, [filtered, cropTypes]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center space-y-2">
+          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto" />
+          <p className="text-sm text-muted-foreground">Voorraad laden...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center space-y-4 max-w-md">
+          <p className="text-destructive">{loadError}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+          >
+            Pagina verversen
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">

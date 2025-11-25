@@ -108,6 +108,8 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [showAll, setShowAll] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [dialog, setDialog] = useState<{
     task: Task;
@@ -118,14 +120,26 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
+    setLoading(true);
+    setLoadError(null);
     Promise.all([
       listBeds(garden.id),
       listPlantings(garden.id),
       listSeeds(garden.id),
       listTasks(garden.id),
     ])
-      .then(([b, p, s, t]) => { setBeds(b); setPlantings(p); setSeeds(s); setTasks(t); })
-      .catch(console.error);
+      .then(([b, p, s, t]) => { 
+        setBeds(b); 
+        setPlantings(p); 
+        setSeeds(s); 
+        setTasks(t);
+        setLoadError(null);
+      })
+      .catch((err) => {
+        console.error('Dashboard load error:', err);
+        setLoadError('Kon gegevens niet laden. Probeer de pagina te verversen.');
+      })
+      .finally(() => setLoading(false));
   }, [garden.id]);
 
   const bedsById = useMemo(() => Object.fromEntries(beds.map(b => [b.id, b])), [beds]);
@@ -486,6 +500,33 @@ export function Dashboard({ garden }: { garden: Garden }) {
   };
 
   /* ---------- render ---------- */
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center space-y-2">
+          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto" />
+          <p className="text-sm text-muted-foreground">Gegevens laden...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center space-y-4 max-w-md">
+          <p className="text-destructive">{loadError}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+          >
+            Pagina verversen
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
