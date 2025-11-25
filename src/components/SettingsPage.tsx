@@ -1,27 +1,30 @@
 import { useEffect, useState } from 'react';
 import type { Garden, Profile } from '../lib/types';
 import { getMyProfile, updateMyProfile } from '../lib/api/profile';
-import { subscribeToPushNotifications, unsubscribeFromPushNotifications, isPushNotificationSubscribed } from '../lib/pushNotifications';
 import { Button } from './ui/button';
 import { toast } from 'sonner';
 
 type Prefs = {
+  email_notifications: boolean;
   remind_sow: boolean;
   remind_plant: boolean;
   remind_harvest: boolean;
+  conflict_alerts: boolean;
+  daily_digest: boolean;
 };
 
 export function SettingsPage({ garden }: { garden: Garden }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [prefs, setPrefs] = useState<Prefs>({
+    email_notifications: true,
     remind_sow: true,
     remind_plant: true,
     remind_harvest: true,
+    conflict_alerts: true,
+    daily_digest: false,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [pushEnabled, setPushEnabled] = useState(false);
-  const [checkingPush, setCheckingPush] = useState(true);
 
   useEffect(() => {
     getMyProfile()
@@ -32,11 +35,6 @@ export function SettingsPage({ garden }: { garden: Garden }) {
         }
       })
       .finally(() => setLoading(false));
-    
-    // Check push notification status
-    isPushNotificationSubscribed()
-      .then(setPushEnabled)
-      .finally(() => setCheckingPush(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -56,27 +54,6 @@ export function SettingsPage({ garden }: { garden: Garden }) {
     }
   }
 
-  async function handleEnablePush() {
-    try {
-      await subscribeToPushNotifications();
-      setPushEnabled(true);
-      toast.success('Push notificaties ingeschakeld');
-    } catch (e: any) {
-      console.error('Push subscription error:', e);
-      toast.error('Kon push notificaties niet inschakelen: ' + e.message);
-    }
-  }
-
-  async function handleDisablePush() {
-    try {
-      await unsubscribeFromPushNotifications();
-      setPushEnabled(false);
-      toast.success('Push notificaties uitgeschakeld');
-    } catch (e: any) {
-      toast.error('Kon push notificaties niet uitschakelen: ' + e.message);
-    }
-  }
-
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-semibold">Instellingen — {garden.name}</h2>
@@ -85,68 +62,134 @@ export function SettingsPage({ garden }: { garden: Garden }) {
         <p className="text-sm text-muted-foreground">Laden…</p>
       ) : (
         <div className="space-y-6">
-          {/* Push Notifications */}
+          {/* Email Notifications */}
           <div className="bg-card text-card-foreground border border-border rounded-xl p-4 shadow-sm space-y-4">
-            <h3 className="text-lg font-semibold">Push Notificaties</h3>
-            <p className="text-sm text-muted-foreground">
-              Ontvang meldingen op je telefoon, zelfs als de app gesloten is.
-            </p>
-            
-            {checkingPush ? (
-              <p className="text-sm text-muted-foreground">Controleren...</p>
-            ) : pushEnabled ? (
-              <div className="space-y-2">
-                <p className="text-sm text-green-600">✅ Push notificaties zijn ingeschakeld</p>
-                <Button onClick={handleDisablePush} variant="outline" size="sm">
-                  Uitschakelen
-                </Button>
+            <div className="space-y-2">
+              <h3 className="text-lg font-semibold">Email Notificaties</h3>
+              <p className="text-sm text-muted-foreground">
+                Ontvang herinneringen en updates per email.
+              </p>
+            </div>
+
+            <label className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+              <input
+                type="checkbox"
+                checked={prefs.email_notifications}
+                onChange={(e) =>
+                  setPrefs({ ...prefs, email_notifications: e.target.checked })
+                }
+                className="w-4 h-4"
+              />
+              <div className="flex-1">
+                <div className="font-medium text-sm">Email notificaties inschakelen</div>
+                <div className="text-xs text-muted-foreground">
+                  Schakel alle email notificaties in of uit
+                </div>
               </div>
-            ) : (
-              <Button onClick={handleEnablePush} size="sm">
-                Notificaties inschakelen
-              </Button>
-            )}
+            </label>
           </div>
 
           {/* Notification Preferences */}
           <div className="bg-card text-card-foreground border border-border rounded-xl p-4 shadow-sm space-y-4">
             <h3 className="text-lg font-semibold">Notificatie voorkeuren</h3>
+            <p className="text-sm text-muted-foreground">
+              Kies voor welke acties je herinneringen wilt ontvangen.
+            </p>
 
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={prefs.remind_sow}
-                onChange={(e) =>
-                  setPrefs({ ...prefs, remind_sow: e.target.checked })
-                }
-              />
-              Herinnering voor zaaien / voorzaaien
-            </label>
+            <div className="space-y-3">
+              <label className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors">
+                <input
+                  type="checkbox"
+                  checked={prefs.remind_sow}
+                  onChange={(e) =>
+                    setPrefs({ ...prefs, remind_sow: e.target.checked })
+                  }
+                  disabled={!prefs.email_notifications}
+                  className="w-4 h-4"
+                />
+                <div className="flex-1">
+                  <div className="font-medium text-sm">Zaaien / Voorzaaien</div>
+                  <div className="text-xs text-muted-foreground">
+                    Herinnering wanneer het tijd is om te zaaien
+                  </div>
+                </div>
+              </label>
 
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={prefs.remind_plant}
-                onChange={(e) =>
-                  setPrefs({ ...prefs, remind_plant: e.target.checked })
-                }
-              />
-              Herinnering voor uitplanten
-            </label>
+              <label className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors">
+                <input
+                  type="checkbox"
+                  checked={prefs.remind_plant}
+                  onChange={(e) =>
+                    setPrefs({ ...prefs, remind_plant: e.target.checked })
+                  }
+                  disabled={!prefs.email_notifications}
+                  className="w-4 h-4"
+                />
+                <div className="flex-1">
+                  <div className="font-medium text-sm">Uitplanten</div>
+                  <div className="text-xs text-muted-foreground">
+                    Herinnering wanneer je moet uitplanten
+                  </div>
+                </div>
+              </label>
 
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={prefs.remind_harvest}
-                onChange={(e) =>
-                  setPrefs({ ...prefs, remind_harvest: e.target.checked })
-                }
-              />
-              Herinnering voor oogsten
-            </label>
+              <label className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors">
+                <input
+                  type="checkbox"
+                  checked={prefs.remind_harvest}
+                  onChange={(e) =>
+                    setPrefs({ ...prefs, remind_harvest: e.target.checked })
+                  }
+                  disabled={!prefs.email_notifications}
+                  className="w-4 h-4"
+                />
+                <div className="flex-1">
+                  <div className="font-medium text-sm">Oogsten</div>
+                  <div className="text-xs text-muted-foreground">
+                    Herinnering voor oogstmomenten
+                  </div>
+                </div>
+              </label>
 
-            <Button onClick={save} disabled={saving}>
-              {saving ? 'Opslaan…' : 'Opslaan'}
+              <label className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors">
+                <input
+                  type="checkbox"
+                  checked={prefs.conflict_alerts}
+                  onChange={(e) =>
+                    setPrefs({ ...prefs, conflict_alerts: e.target.checked })
+                  }
+                  disabled={!prefs.email_notifications}
+                  className="w-4 h-4"
+                />
+                <div className="flex-1">
+                  <div className="font-medium text-sm">Conflict waarschuwingen</div>
+                  <div className="text-xs text-muted-foreground">
+                    Melding bij planning conflicten
+                  </div>
+                </div>
+              </label>
+
+              <label className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors">
+                <input
+                  type="checkbox"
+                  checked={prefs.daily_digest}
+                  onChange={(e) =>
+                    setPrefs({ ...prefs, daily_digest: e.target.checked })
+                  }
+                  disabled={!prefs.email_notifications}
+                  className="w-4 h-4"
+                />
+                <div className="flex-1">
+                  <div className="font-medium text-sm">Dagelijkse samenvatting</div>
+                  <div className="text-xs text-muted-foreground">
+                    Ontvang elke ochtend een overzicht van je taken
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            <Button onClick={save} disabled={saving} className="w-full">
+              {saving ? 'Opslaan…' : 'Voorkeuren opslaan'}
             </Button>
           </div>
         </div>
