@@ -397,15 +397,17 @@ export function Dashboard({ garden }: { garden: Garden }) {
     const bed = bedsById[p.garden_bed_id];
     const ms = milestonesFor(p);
     const next = firstOpenMilestone(p);
-    const nextLabel = next ? `${next.ms.label} • ${fmtDMY(next.whenISO)}` : null;
 
     const conflictCount = conflictsMap.get(p.id)?.length ?? 0;
     const hasConflict = conflictCount > 0;
 
+    // Vind de eerste openstaande milestone index
+    const firstOpenIndex = next ? next.index : -1;
+
     return (
       <div key={p.id} className={`border rounded-lg ${isMobile ? 'p-3' : 'p-3'} bg-card`}>
         <div className="space-y-3">
-          {/* Header: label + volgende actie */}
+          {/* Header */}
           <div className="flex items-start gap-2">
             <span
               className={`inline-block ${isMobile ? 'w-4 h-4 mt-0.5' : 'w-3 h-3 mt-1'} rounded flex-shrink-0`}
@@ -427,13 +429,6 @@ export function Dashboard({ garden }: { garden: Garden }) {
                   <> • Segment {p.start_segment + 1}{p.segments_used > 1 ? `-${p.start_segment + p.segments_used}` : ''}</>
                 )}
               </div>
-              
-              {nextLabel && (
-                <div className={`${isMobile ? 'mt-2 text-sm' : 'mt-1.5 text-xs'} flex items-center gap-2`}>
-                  <span className={`inline-block ${isMobile ? 'w-2.5 h-2.5' : 'w-2 h-2'} rounded-full bg-yellow-400 flex-shrink-0`} />
-                  <span className="text-muted-foreground">Volgende: {nextLabel}</span>
-                </div>
-              )}
             </div>
           </div>
 
@@ -446,6 +441,11 @@ export function Dashboard({ garden }: { garden: Garden }) {
               const isLast = idx === ms.length - 1;
               const statusIcon = isDone ? "✔" : isPending ? "→" : "—";
               const baseISO = m.actualISO ?? m.plannedISO;
+              
+              // Alleen de eerste openstaande actie is clickable
+              const isClickable = isDone || idx === firstOpenIndex;
+              const isGrayedOut = !isDone && idx !== firstOpenIndex;
+              
               const borderColor = isDone ? "border-green-500" : isPending ? "border-yellow-500" : "border-border";
               const borderRad = isMobile
                 ? "rounded-md"
@@ -458,14 +458,14 @@ export function Dashboard({ garden }: { garden: Garden }) {
               return (
                 <button
                   key={idx}
-                  disabled={!m.task}
+                  disabled={!isClickable || !m.task}
                   onClick={() => {
-                    if (!m.task) return;
+                    if (!m.task || !isClickable) return;
                     const chosenDate = m.actualISO ?? m.task.due_date ?? m.plannedISO ?? "";
                     setDialog({ task: m.task, dateISO: chosenDate, hasActual: !!m.actualISO });
                   }}
-                  className={`${borderRad} border ${borderColor} p-2 text-left hover:bg-muted transition-colors disabled:cursor-not-allowed ${isMobile ? 'text-sm' : 'text-xs'}`}
-                  title={m.task ? "Klik om datum te bewerken" : "Geen taak"}
+                  className={`${borderRad} border ${borderColor} p-2 text-left transition-colors disabled:cursor-not-allowed ${isMobile ? 'text-sm' : 'text-xs'} ${isGrayedOut ? 'opacity-40' : ''} ${isClickable && !isDone ? 'hover:bg-muted' : ''}`}
+                  title={isClickable && m.task ? "Klik om datum te bewerken" : isGrayedOut ? "Voer eerst de vorige actie uit" : "Geen taak"}
                 >
                   <span className="flex items-center gap-1.5">
                     <span className={isDone ? "text-green-600" : isPending ? "text-yellow-600" : "text-muted-foreground"}>
