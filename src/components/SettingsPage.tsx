@@ -102,7 +102,7 @@ export function SettingsPage({ garden }: { garden: Garden }) {
     try {
       const { supabase } = await import('@/integrations/supabase/client');
       const { error } = await supabase.functions.invoke('send-weekly-digest', {
-        body: {},
+        body: { forceTest: true },
       });
       
       if (error) throw error;
