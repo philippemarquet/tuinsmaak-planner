@@ -234,20 +234,32 @@ export function SettingsPage({ garden }: { garden: Garden }) {
 
           {activeTab === 'logs' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-semibold">Email verzendlog</h3>
                   <p className="text-sm text-muted-foreground">
                     Overzicht van alle verstuurde emails
                   </p>
                 </div>
-                <Button 
-                  onClick={testSendDigest} 
-                  disabled={testingSend}
-                  className="flex items-center gap-2"
-                >
-                  {testingSend ? 'Versturen…' : '✉️ Test email versturen'}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button 
+                    onClick={loadLogs} 
+                    disabled={logsLoading}
+                    variant="outline"
+                    size="sm"
+                    className="flex items-center gap-2"
+                  >
+                    {logsLoading ? 'Laden...' : '🔄 Verversen'}
+                  </Button>
+                  <Button 
+                    onClick={testSendDigest} 
+                    disabled={testingSend}
+                    size="sm"
+                    className="flex items-center gap-2"
+                  >
+                    {testingSend ? 'Versturen…' : '✉️ Test email'}
+                  </Button>
+                </div>
               </div>
 
               {logsLoading ? (
