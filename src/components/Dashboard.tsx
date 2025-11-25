@@ -534,9 +534,14 @@ export function Dashboard({ garden }: { garden: Garden }) {
           <p className="text-sm text-muted-foreground">
             {showAll ? "Geen plantingen gevonden." : "Geen acties in de komende 2 weken."}
           </p>
-        ) : (
-          upcomingPlantings.map(renderPlantingCard)
-        )}
+        ) : upcomingPlantings.length > 0 ? (
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground">
+              Huidige acties ({upcomingPlantings.length})
+            </h3>
+            {upcomingPlantings.map(renderPlantingCard)}
+          </div>
+        ) : null}
       </section>
 
       {/* Dialog: actie uitvoeren / bewerken of leegmaken */}
