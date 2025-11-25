@@ -43,7 +43,35 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
   });
 
   useEffect(() => {
-    listCropTypes().then(setCropTypes).catch(console.error);
+    // Haal cropTypes op en sla ze op in localStorage als backup
+    const fetchCropTypes = async () => {
+      try {
+        const types = await listCropTypes();
+        setCropTypes(types);
+        localStorage.setItem('cached_crop_types', JSON.stringify(types));
+      } catch (err) {
+        console.error('Failed to fetch crop types:', err);
+        // Gebruik cached data als fallback
+        const cached = localStorage.getItem('cached_crop_types');
+        if (cached) {
+          setCropTypes(JSON.parse(cached));
+        }
+      }
+    };
+
+    fetchCropTypes();
+
+    // Herlaad cropTypes wanneer de tab weer actief wordt
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchCropTypes();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, []);
 
   function handleChange<K extends keyof Seed>(field: K, value: Seed[K] | any) {
