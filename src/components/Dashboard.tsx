@@ -7,6 +7,7 @@ import { listTasks, updateTask } from "../lib/api/tasks";
 import { buildConflictsMap, countUniqueConflicts } from "../lib/conflicts";
 import { useConflictFlags } from "../hooks/useConflictFlags";
 import { useIsMobile } from "../hooks/use-mobile";
+import { getCached, setCache } from "../lib/dataCache";
 
 /* ---------- helpers ---------- */
 function toISO(d: Date) { return d.toISOString().slice(0, 10); }
@@ -103,10 +104,10 @@ type Milestone = {
 export function Dashboard({ garden }: { garden: Garden }) {
   const isMobile = useIsMobile();
   
-  const [beds, setBeds] = useState<GardenBed[]>([]);
-  const [plantings, setPlantings] = useState<Planting[]>([]);
-  const [seeds, setSeeds] = useState<Seed[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [beds, setBeds] = useState<GardenBed[]>(() => getCached('dashboard_beds') ?? []);
+  const [plantings, setPlantings] = useState<Planting[]>(() => getCached('dashboard_plantings') ?? []);
+  const [seeds, setSeeds] = useState<Seed[]>(() => getCached('dashboard_seeds') ?? []);
+  const [tasks, setTasks] = useState<Task[]>(() => getCached('dashboard_tasks') ?? []);
   const [showAll, setShowAll] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -120,10 +121,12 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
-    // Alleen loading tonen als er nog geen data is
-    if (beds.length === 0 && plantings.length === 0) {
-      setLoading(true);
+    // Alleen laden als er nog geen data is
+    if (beds.length > 0 && plantings.length > 0 && seeds.length > 0 && tasks.length > 0) {
+      return;
     }
+
+    setLoading(true);
     setLoadError(null);
     
     Promise.all([
@@ -137,6 +140,10 @@ export function Dashboard({ garden }: { garden: Garden }) {
         setPlantings(p); 
         setSeeds(s); 
         setTasks(t);
+        setCache('dashboard_beds', b);
+        setCache('dashboard_plantings', p);
+        setCache('dashboard_seeds', s);
+        setCache('dashboard_tasks', t);
         setLoadError(null);
       })
       .catch((err) => {

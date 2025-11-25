@@ -4,22 +4,27 @@ import { listBeds, deleteBed, updateBed, createBed } from "../lib/api/beds";
 import { BedModal } from "./BedModal";
 import { Pencil, Trash2, Map as MapIcon, PlusCircle, ZoomIn, ZoomOut, Maximize2, Copy, GripVertical } from "lucide-react";
 import { DndContext, DragEndEvent, useDraggable, useDroppable } from "@dnd-kit/core";
+import { getCached, setCache } from "../lib/dataCache";
 
 export function BedsPage({ garden }: { garden: Garden }) {
-  const [beds, setBeds] = useState<GardenBed[]>([]);
+  const [beds, setBeds] = useState<GardenBed[]>(() => getCached('beds_list') ?? []);
   const [upsertOpen, setUpsertOpen] = useState<null | Partial<GardenBed>>(null);
   const [layoutMode, setLayoutMode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Alleen loading tonen als er nog geen data is
-    if (beds.length === 0) {
-      setLoading(true);
+    // Alleen laden als er nog geen data is
+    if (beds.length > 0) {
+      return;
     }
+    setLoading(true);
     setLoadError(null);
     listBeds(garden.id)
-      .then(setBeds)
+      .then((b) => {
+        setBeds(b);
+        setCache('beds_list', b);
+      })
       .catch((err) => {
         console.error('Bakken load error:', err);
         setLoadError('Kon bakken niet laden. Probeer de pagina te verversen.');

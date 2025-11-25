@@ -4,6 +4,7 @@ import { listSeeds, createSeed, updateSeed, deleteSeed } from "../lib/api/seeds"
 import { listCropTypes } from "../lib/api/cropTypes";
 import { Pencil, Trash2, Copy, PlusCircle } from "lucide-react";
 import { SeedModal } from "./SeedModal";
+import { getCached, setCache } from "../lib/dataCache";
 
 /* ---------- helpers ---------- */
 
@@ -122,8 +123,8 @@ function SeedCard({
 type CropType = { id: string; name: string };
 
 export function InventoryPage({ garden }: { garden: Garden }) {
-  const [seeds, setSeeds] = useState<Seed[]>([]);
-  const [cropTypes, setCropTypes] = useState<CropType[]>([]);
+  const [seeds, setSeeds] = useState<Seed[]>(() => getCached('inventory_seeds') ?? []);
+  const [cropTypes, setCropTypes] = useState<CropType[]>(() => getCached('inventory_croptypes') ?? []);
   const [editorOpen, setEditorOpen] = useState<{ seed: Seed | null } | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -135,15 +136,18 @@ export function InventoryPage({ garden }: { garden: Garden }) {
 
   useEffect(() => {
     (async () => {
-      // Alleen loading tonen als er nog geen data is
-      if (seeds.length === 0) {
-        setLoading(true);
+      // Alleen laden als er nog geen data is
+      if (seeds.length > 0 && cropTypes.length > 0) {
+        return;
       }
+      setLoading(true);
       setLoadError(null);
       try {
         const [ss, cts] = await Promise.all([listSeeds(garden.id), listCropTypes()]);
         setSeeds(ss);
         setCropTypes(cts);
+        setCache('inventory_seeds', ss);
+        setCache('inventory_croptypes', cts);
         setLoadError(null);
       } catch (err) {
         console.error('Voorraad load error:', err);
