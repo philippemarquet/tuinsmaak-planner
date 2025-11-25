@@ -250,22 +250,31 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const today = new Date(); today.setHours(0,0,0,0);
   const horizon = addDays(today, 14);
 
-  const plantingsSorted = useMemo(() => {
+  const { overduePlantings, upcomingPlantings } = useMemo(() => {
     const withKeys = plantings.map(p => {
       const nxt = firstOpenMilestone(p);
       const keyDate = nxt?.whenISO ? new Date(nxt.whenISO) : (p.planned_harvest_end ? new Date(p.planned_harvest_end) : addDays(today, 365));
-      return { p, nxt, keyDate };
+      const isOverdue = nxt && new Date(nxt.whenISO) < today;
+      return { p, nxt, keyDate, isOverdue };
     });
 
-    const filtered = showAll
-      ? withKeys
-      : withKeys.filter(x => x.nxt && (() => {
+    // Verlopen acties: altijd tonen
+    const overdue = withKeys.filter(x => x.isOverdue);
+    overdue.sort((a,b) => a.keyDate.getTime() - b.keyDate.getTime());
+
+    // Niet-verlopen acties: filter op basis van showAll
+    const upcoming = showAll
+      ? withKeys.filter(x => !x.isOverdue)
+      : withKeys.filter(x => !x.isOverdue && x.nxt && (() => {
           const d = new Date(x.nxt!.whenISO);
           return d >= today && d <= horizon;
         })());
+    upcoming.sort((a,b) => a.keyDate.getTime() - b.keyDate.getTime());
 
-    filtered.sort((a,b) => a.keyDate.getTime() - b.keyDate.getTime());
-    return filtered.map(x => x.p);
+    return {
+      overduePlantings: overdue.map(x => x.p),
+      upcomingPlantings: upcoming.map(x => x.p)
+    };
   }, [plantings, showAll]);
 
   /* ---------- planner ping helper ---------- */
@@ -438,103 +447,283 @@ export function Dashboard({ garden }: { garden: Garden }) {
         </div>
       )}
 
-      <section className="space-y-3">
-        {plantingsSorted.length === 0 ? (
+      <section className="space-y-6">
+        {overduePlantings.length === 0 && upcomingPlantings.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             {showAll ? "Geen plantingen gevonden." : "Geen acties in de komende 2 weken."}
           </p>
         ) : (
-          plantingsSorted.map((p) => {
-            const seed = seedsById[p.seed_id];
-            const bed = bedsById[p.garden_bed_id];
-            const ms = milestonesFor(p);
-            const next = firstOpenMilestone(p);
-            const { start, end } = rangeForRow(p);
-            const nextLabel = next ? `${next.ms.label} • ${fmtDMY(next.whenISO)}` : null;
-
-            const conflictCount = conflictsMap.get(p.id)?.length ?? 0;
-            const hasConflict = conflictCount > 0;
-
-            return (
-              <div key={p.id} className={`border rounded-lg ${isMobile ? 'p-3' : 'p-3'} bg-card`}>
+          <>
+            {/* Verlopen acties sectie */}
+            {overduePlantings.length > 0 && (
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold text-destructive uppercase tracking-wide">
+                  Verlopen acties ({overduePlantings.length})
+                </h3>
                 <div className="space-y-3">
-                  {/* Header: label + volgende actie */}
-                  <div className="flex items-start gap-2">
-                    <span
-                      className={`inline-block ${isMobile ? 'w-4 h-4 mt-0.5' : 'w-3 h-3 mt-1'} rounded flex-shrink-0`}
-                      style={{ background: p.color && (p.color.startsWith("#") || p.color.startsWith("rgb")) ? p.color : "#22c55e" }}
-                      aria-hidden
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className={`${isMobile ? 'text-base' : 'text-sm'} font-medium flex items-center gap-2 flex-wrap`}>
-                        <span>{seed?.name ?? "Onbekend gewas"}</span>
-                        {hasConflict && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] rounded bg-red-100 text-red-800 border border-red-200">
-                            ⚠️ Conflict
-                          </span>
-                        )}
-                      </div>
-                      <div className={`${isMobile ? 'text-sm' : 'text-xs'} text-muted-foreground`}>
-                        {bed?.name ?? "Onbekende bak"}
-                        {p.start_segment != null && (
-                          <> • Segment {p.start_segment + 1}{p.segments_used > 1 ? `-${p.start_segment + p.segments_used}` : ''}</>
-                        )}
-                      </div>
-                      
-                      {nextLabel && (
-                        <div className={`${isMobile ? 'mt-2 text-sm' : 'mt-1.5 text-xs'} flex items-center gap-2`}>
-                          <span className={`inline-block ${isMobile ? 'w-2.5 h-2.5' : 'w-2 h-2'} rounded-full bg-yellow-400 flex-shrink-0`} />
-                          <span className="text-muted-foreground">Volgende: {nextLabel}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  {overduePlantings.map((p) => {
+                    const seed = seedsById[p.seed_id];
+                    const bed = bedsById[p.garden_bed_id];
+                    const ms = milestonesFor(p);
+                    const next = firstOpenMilestone(p);
+                    const { start, end } = rangeForRow(p);
+                    const nextLabel = next ? `${next.ms.label} • ${fmtDMY(next.whenISO)}` : null;
 
-                  {/* Milestones */}
-                  <div className={`grid ${isMobile ? 'grid-cols-1 gap-2' : 'grid-cols-2 md:grid-cols-4 gap-2'}`}>
-                    {ms.map((m, idx) => {
-                      const isDone = m.status === "done";
-                      const isNext = next && idx === next.index && !isDone;
-                      const isPending = !isDone && !isNext;
-                      const baseISO = m.actualISO ?? m.task?.due_date ?? m.plannedISO;
-                      const title = `${m.label}` +
-                        (m.actualISO ? ` • uitgevoerd: ${fmtDMY(m.actualISO)}` :
-                         m.task?.due_date ? ` • gepland: ${fmtDMY(m.task.due_date)}` :
-                         m.plannedISO ? ` • gepland: ${fmtDMY(m.plannedISO)}` : "");
-                      const bulletCls = isDone
-                        ? "bg-green-500 border-green-600"
-                        : isNext
-                        ? "bg-yellow-400 border-yellow-500"
-                        : "bg-gray-300 border-gray-400";
-                      const canClick = isDone || isNext;
-                      return (
-                        <button
-                          key={m.id}
-                          type="button"
-                          className={`flex items-center gap-3 ${isMobile ? 'p-3' : 'p-2'} rounded border bg-background text-left ${canClick?"hover:bg-muted cursor-pointer active:bg-muted/80":"opacity-60 cursor-not-allowed"}`}
-                          title={canClick ? title : "Je kunt alleen de eerstvolgende actie invullen"}
-                          onClick={() => {
-                            if (!canClick) return;
-                            const t = m.task; if (!t) return;
-                            const defaultISO = (m.actualISO || toISO(new Date()));
-                            setDialog({ task: t, dateISO: defaultISO, hasActual: !!m.actualISO });
-                          }}
-                        >
-                          <span className={`inline-flex ${isMobile ? 'w-5 h-5' : 'w-4 h-4'} rounded-full border shadow ${bulletCls} flex-shrink-0`} />
-                          <span className={`${isMobile ? 'text-sm' : 'text-xs'} flex-1 min-w-0`}>
-                            <span className="block font-medium">{m.label}</span>
-                            <span className="block text-muted-foreground">
-                              {baseISO ? fmtDMY(baseISO) : "—"}
-                            </span>
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                    const conflictCount = conflictsMap.get(p.id)?.length ?? 0;
+                    const hasConflict = conflictCount > 0;
+
+                    return (
+                      <div key={p.id} className={`border rounded-lg ${isMobile ? 'p-3' : 'p-3'} bg-card border-destructive/30`}>
+                        <div className="space-y-3">
+                          {/* Header: label + volgende actie */}
+                          <div className="flex items-start gap-2">
+                            <span
+                              className={`inline-block ${isMobile ? 'w-4 h-4 mt-0.5' : 'w-3 h-3 mt-1'} rounded flex-shrink-0`}
+                              style={{ background: p.color && (p.color.startsWith("#") || p.color.startsWith("rgb")) ? p.color : "#22c55e" }}
+                              aria-hidden
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className={`${isMobile ? 'text-base' : 'text-sm'} font-medium flex items-center gap-2 flex-wrap`}>
+                                <span>{seed?.name ?? "Onbekend gewas"}</span>
+                                {hasConflict && (
+                                  <button
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 text-xs"
+                                    onClick={(e) => { e.stopPropagation(); pingPlannerConflict(p.id); }}
+                                    title={`${conflictCount} conflict${conflictCount !== 1 ? "en" : ""}`}
+                                  >
+                                    ⚠️ {conflictCount}
+                                  </button>
+                                )}
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-0.5">{bed?.name ?? "Onbekende bak"}</div>
+                            </div>
+                          </div>
+
+                          {nextLabel && (
+                            <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+                              <span>Volgende: {nextLabel}</span>
+                            </div>
+                          )}
+
+                          {/* Timeline */}
+                          <div className="relative h-10 border rounded bg-muted/30">
+                            {ms.map((m, i) => {
+                              const mainDate = m.actualISO ? new Date(m.actualISO) : (m.plannedISO ? new Date(m.plannedISO) : null);
+                              if (!mainDate) return null;
+                              const pct = pctInRange(mainDate, start, end);
+                              const isDone = m.status === "done";
+                              const isPending = m.status === "pending";
+                              const isSkipped = m.status === "skipped";
+                              const baseColor = isDone ? "bg-green-500" : isPending ? "bg-blue-400" : "bg-gray-300";
+                              const mark = isDone ? "✔" : isPending ? "⦿" : "✗";
+
+                              return (
+                                <div
+                                  key={i}
+                                  className={`absolute top-0 bottom-0 flex items-center justify-center ${baseColor} border ${isDone ? "border-green-600" : isPending ? "border-blue-500" : "border-gray-400"} text-white text-xs font-bold`}
+                                  style={{ left: `${pct}%`, width: "2rem", marginLeft: "-1rem" }}
+                                  title={m.label}
+                                >
+                                  {mark}
+                                </div>
+                              );
+                            })}
+                            {(() => {
+                              const pctT = pctInRange(todayDate, start, end);
+                              if (pctT < 0 || pctT > 100) return null;
+                              return (
+                                <div
+                                  className="absolute top-0 bottom-0 w-0.5 bg-red-500"
+                                  style={{ left: `${pctT}%` }}
+                                  title="Vandaag"
+                                />
+                              );
+                            })()}
+                          </div>
+
+                          {/* Milestone buttons */}
+                          <div className={`grid ${isMobile ? 'grid-cols-2' : 'grid-cols-4'} gap-2`}>
+                            {ms.map((m, idx) => {
+                              const isFirst = idx === 0;
+                              const isLast = idx === ms.length - 1;
+                              const labelLine = m.label;
+                              const whenLine = m.actualISO
+                                ? `Gedaan: ${fmtDMY(m.actualISO)}`
+                                : m.plannedISO
+                                  ? `Gepland: ${fmtDMY(m.plannedISO)}`
+                                  : "Geen datum";
+
+                              const isDone = m.status === "done";
+                              const isPending = m.status === "pending";
+                              const opacity = isPending || isDone ? "opacity-100" : "opacity-40";
+                              const borderRad = isFirst
+                                ? `${isMobile ? "rounded-tl-md rounded-bl-md" : "rounded-l-md"}`
+                                : isLast
+                                  ? `${isMobile ? "rounded-tr-md rounded-br-md" : "rounded-r-md"}`
+                                  : "";
+
+                              return (
+                                <button
+                                  key={idx}
+                                  disabled={!m.task}
+                                  onClick={() => {
+                                    if (!m.task) return;
+                                    const chosenDate = m.actualISO ?? m.task.due_date ?? m.plannedISO ?? "";
+                                    setDialog({ task: m.task, dateISO: chosenDate, hasActual: !!m.actualISO });
+                                  }}
+                                  className={`${borderRad} ${opacity} border p-2 text-left text-xs hover:bg-muted transition-colors disabled:cursor-not-allowed`}
+                                  title={m.task ? "Klik om datum te bewerken" : "Geen taak"}
+                                >
+                                  <div className="font-medium">{labelLine}</div>
+                                  <div className="text-muted-foreground mt-0.5">{whenLine}</div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-            );
-          })
+            )}
+
+            {/* Komende acties sectie */}
+            {upcomingPlantings.length > 0 && (
+              <div className="space-y-3">
+                {overduePlantings.length > 0 && (
+                  <h3 className="text-sm font-semibold text-foreground uppercase tracking-wide">
+                    Komende acties
+                  </h3>
+                )}
+                <div className="space-y-3">
+                  {upcomingPlantings.map((p) => {
+                    const seed = seedsById[p.seed_id];
+                    const bed = bedsById[p.garden_bed_id];
+                    const ms = milestonesFor(p);
+                    const next = firstOpenMilestone(p);
+                    const { start, end } = rangeForRow(p);
+                    const nextLabel = next ? `${next.ms.label} • ${fmtDMY(next.whenISO)}` : null;
+
+                    const conflictCount = conflictsMap.get(p.id)?.length ?? 0;
+                    const hasConflict = conflictCount > 0;
+
+                    return (
+                      <div key={p.id} className={`border rounded-lg ${isMobile ? 'p-3' : 'p-3'} bg-card`}>
+                        <div className="space-y-3">
+                          {/* Header: label + volgende actie */}
+                          <div className="flex items-start gap-2">
+                            <span
+                              className={`inline-block ${isMobile ? 'w-4 h-4 mt-0.5' : 'w-3 h-3 mt-1'} rounded flex-shrink-0`}
+                              style={{ background: p.color && (p.color.startsWith("#") || p.color.startsWith("rgb")) ? p.color : "#22c55e" }}
+                              aria-hidden
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className={`${isMobile ? 'text-base' : 'text-sm'} font-medium flex items-center gap-2 flex-wrap`}>
+                                <span>{seed?.name ?? "Onbekend gewas"}</span>
+                                {hasConflict && (
+                                  <button
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 text-xs"
+                                    onClick={(e) => { e.stopPropagation(); pingPlannerConflict(p.id); }}
+                                    title={`${conflictCount} conflict${conflictCount !== 1 ? "en" : ""}`}
+                                  >
+                                    ⚠️ {conflictCount}
+                                  </button>
+                                )}
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-0.5">{bed?.name ?? "Onbekende bak"}</div>
+                            </div>
+                          </div>
+
+                          {nextLabel && (
+                            <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+                              <span>Volgende: {nextLabel}</span>
+                            </div>
+                          )}
+
+                          {/* Timeline */}
+                          <div className="relative h-10 border rounded bg-muted/30">
+                            {ms.map((m, i) => {
+                              const mainDate = m.actualISO ? new Date(m.actualISO) : (m.plannedISO ? new Date(m.plannedISO) : null);
+                              if (!mainDate) return null;
+                              const pct = pctInRange(mainDate, start, end);
+                              const isDone = m.status === "done";
+                              const isPending = m.status === "pending";
+                              const isSkipped = m.status === "skipped";
+                              const baseColor = isDone ? "bg-green-500" : isPending ? "bg-blue-400" : "bg-gray-300";
+                              const mark = isDone ? "✔" : isPending ? "⦿" : "✗";
+
+                              return (
+                                <div
+                                  key={i}
+                                  className={`absolute top-0 bottom-0 flex items-center justify-center ${baseColor} border ${isDone ? "border-green-600" : isPending ? "border-blue-500" : "border-gray-400"} text-white text-xs font-bold`}
+                                  style={{ left: `${pct}%`, width: "2rem", marginLeft: "-1rem" }}
+                                  title={m.label}
+                                >
+                                  {mark}
+                                </div>
+                              );
+                            })}
+                            {(() => {
+                              const pctT = pctInRange(todayDate, start, end);
+                              if (pctT < 0 || pctT > 100) return null;
+                              return (
+                                <div
+                                  className="absolute top-0 bottom-0 w-0.5 bg-red-500"
+                                  style={{ left: `${pctT}%` }}
+                                  title="Vandaag"
+                                />
+                              );
+                            })()}
+                          </div>
+
+                          {/* Milestone buttons */}
+                          <div className={`grid ${isMobile ? 'grid-cols-2' : 'grid-cols-4'} gap-2`}>
+                            {ms.map((m, idx) => {
+                              const isFirst = idx === 0;
+                              const isLast = idx === ms.length - 1;
+                              const labelLine = m.label;
+                              const whenLine = m.actualISO
+                                ? `Gedaan: ${fmtDMY(m.actualISO)}`
+                                : m.plannedISO
+                                  ? `Gepland: ${fmtDMY(m.plannedISO)}`
+                                  : "Geen datum";
+
+                              const isDone = m.status === "done";
+                              const isPending = m.status === "pending";
+                              const opacity = isPending || isDone ? "opacity-100" : "opacity-40";
+                              const borderRad = isFirst
+                                ? `${isMobile ? "rounded-tl-md rounded-bl-md" : "rounded-l-md"}`
+                                : isLast
+                                  ? `${isMobile ? "rounded-tr-md rounded-br-md" : "rounded-r-md"}`
+                                  : "";
+
+                              return (
+                                <button
+                                  key={idx}
+                                  disabled={!m.task}
+                                  onClick={() => {
+                                    if (!m.task) return;
+                                    const chosenDate = m.actualISO ?? m.task.due_date ?? m.plannedISO ?? "";
+                                    setDialog({ task: m.task, dateISO: chosenDate, hasActual: !!m.actualISO });
+                                  }}
+                                  className={`${borderRad} ${opacity} border p-2 text-left text-xs hover:bg-muted transition-colors disabled:cursor-not-allowed`}
+                                  title={m.task ? "Klik om datum te bewerken" : "Geen taak"}
+                                >
+                                  <div className="font-medium">{labelLine}</div>
+                                  <div className="text-muted-foreground mt-0.5">{whenLine}</div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </section>
 
