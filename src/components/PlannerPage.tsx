@@ -15,6 +15,7 @@ import { useConflictFlags } from "../hooks/useConflictFlags";
 import { SeedModal } from "./SeedModal";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Checkbox } from "./ui/checkbox";
+import { getCached, setCache } from "../lib/dataCache";
 
 /* ===== helpers ===== */
 const toISO = (d: Date) => d.toISOString().slice(0, 10);
@@ -170,10 +171,10 @@ function MapDroppable({ id }: { id: string }) {
 type InPlanner = "all" | "planned" | "unplanned";
 
 export function PlannerPage({ garden }: { garden: Garden }) {
-  const [beds, setBeds] = useState<GardenBed[]>([]);
-  const [seeds, setSeeds] = useState<Seed[]>([]);
-  const [plantings, setPlantings] = useState<Planting[]>([]);
-  const [cropTypes, setCropTypes] = useState<CropType[]>([]);
+  const [beds, setBeds] = useState<GardenBed[]>(() => getCached('planner_beds') ?? []);
+  const [seeds, setSeeds] = useState<Seed[]>(() => getCached('planner_seeds') ?? []);
+  const [plantings, setPlantings] = useState<Planting[]>(() => getCached('planner_plantings') ?? []);
+  const [cropTypes, setCropTypes] = useState<CropType[]>(() => getCached('planner_croptypes') ?? []);
 
   const [view, setView] = useState<"list" | "map" | "conflicts" | "timeline">(
     () => (localStorage.getItem("plannerOpenTab") as any) || (localStorage.getItem("plannerView") as any) || "list"
@@ -230,8 +231,17 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     setSeeds(s);
     setPlantings(p);
     setCropTypes(ct);
+    setCache('planner_beds', b);
+    setCache('planner_seeds', s);
+    setCache('planner_plantings', p);
+    setCache('planner_croptypes', ct);
   };
+  
   useEffect(() => {
+    // Alleen laden als er nog geen data is
+    if (beds.length > 0 && seeds.length > 0) {
+      return;
+    }
     reload().catch(console.error);
   }, [garden.id]);
   useEffect(() => {
