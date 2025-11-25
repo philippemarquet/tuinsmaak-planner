@@ -34,7 +34,6 @@ interface WeeklyDigestEmailProps {
     upcomingHeader?: string;
     upcomingSubtext?: string;
     noTasksMessage?: string;
-    footer?: string;
   };
 }
 
@@ -53,7 +52,6 @@ export const WeeklyDigestEmail = ({
   const upcomingHeader = template.upcomingHeader || '📅 Aankomende acties';
   const upcomingSubtext = template.upcomingSubtext || 'Deze acties staan gepland voor de komende 7 dagen:';
   const noTasksMessage = template.noTasksMessage || '✨ Je hebt geen openstaande taken! Geniet van je tuin.';
-  const footer = template.footer || 'Deze wekelijkse samenvatting is verstuurd omdat je dit hebt ingeschakeld in je instellingen.';
 
   return (
   <Html>
@@ -120,14 +118,11 @@ export const WeeklyDigestEmail = ({
             </Text>
           </Section>
         )}
-
-        <Text style={footer}>
-          {footer}
-        </Text>
       </Container>
     </Body>
   </Html>
 )};
+
 
 
 export default WeeklyDigestEmail;
@@ -177,11 +172,8 @@ const subText = {
 };
 
 const taskBox = {
-  backgroundColor: '#f9fafb',
-  border: '1px solid #e5e7eb',
-  borderRadius: '8px',
   margin: '16px 24px 24px 24px',
-  padding: '16px',
+  padding: '0',
 };
 
 const taskItem = {
@@ -206,11 +198,4 @@ const divider = {
   border: 'none',
   borderTop: '1px solid #e5e7eb',
   margin: '16px 0',
-};
-
-const footer = {
-  color: '#898989',
-  fontSize: '12px',
-  lineHeight: '22px',
-  margin: '32px 24px 0',
 };
