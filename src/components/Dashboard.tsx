@@ -108,7 +108,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [showAll, setShowAll] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [dialog, setDialog] = useState<{
@@ -120,8 +120,12 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
+    // Alleen loading tonen als er nog geen data is
+    if (beds.length === 0 && plantings.length === 0) {
+      setLoading(true);
+    }
     setLoadError(null);
+    
     Promise.all([
       listBeds(garden.id),
       listPlantings(garden.id),

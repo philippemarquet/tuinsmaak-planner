@@ -9,11 +9,14 @@ export function BedsPage({ garden }: { garden: Garden }) {
   const [beds, setBeds] = useState<GardenBed[]>([]);
   const [upsertOpen, setUpsertOpen] = useState<null | Partial<GardenBed>>(null);
   const [layoutMode, setLayoutMode] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
+    // Alleen loading tonen als er nog geen data is
+    if (beds.length === 0) {
+      setLoading(true);
+    }
     setLoadError(null);
     listBeds(garden.id)
       .then(setBeds)
