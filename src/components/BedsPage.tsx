@@ -11,26 +11,22 @@ export function BedsPage({ garden }: { garden: Garden }) {
   const [upsertOpen, setUpsertOpen] = useState<null | Partial<GardenBed>>(null);
   const [layoutMode, setLayoutMode] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
 
   useEffect(() => {
-    // Alleen laden als er nog geen data is
-    if (beds.length > 0) {
-      return;
-    }
+    // Laad data maar 1x
+    if (hasLoadedRef.current || beds.length > 0) return;
+    
+    hasLoadedRef.current = true;
     setLoading(true);
-    setLoadError(null);
     listBeds(garden.id)
       .then((b) => {
         setBeds(b);
         setCache('beds_list', b);
       })
-      .catch((err) => {
-        console.error('Bakken load error:', err);
-        setLoadError('Kon bakken niet laden. Probeer de pagina te verversen.');
-      })
+      .catch(console.error)
       .finally(() => setLoading(false));
-  }, [garden.id]);
+  }, []);
 
   function upsertLocal(bed: GardenBed) {
     setBeds((prev) => {
@@ -95,22 +91,6 @@ export function BedsPage({ garden }: { garden: Garden }) {
         <div className="text-center space-y-2">
           <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto" />
           <p className="text-sm text-muted-foreground">Bakken laden...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (loadError) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-center space-y-4 max-w-md">
-          <p className="text-destructive">{loadError}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
-          >
-            Pagina verversen
-          </button>
         </div>
       </div>
     );

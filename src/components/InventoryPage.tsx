@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Garden, Seed } from "../lib/types";
 import { listSeeds, createSeed, updateSeed, deleteSeed } from "../lib/api/seeds";
 import { listCropTypes } from "../lib/api/cropTypes";
@@ -127,7 +127,7 @@ export function InventoryPage({ garden }: { garden: Garden }) {
   const [cropTypes, setCropTypes] = useState<CropType[]>(() => getCached('inventory_croptypes') ?? []);
   const [editorOpen, setEditorOpen] = useState<{ seed: Seed | null } | null>(null);
   const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
 
   // filters
   const [inStockOnly, setInStockOnly] = useState<boolean>(false);
@@ -135,28 +135,22 @@ export function InventoryPage({ garden }: { garden: Garden }) {
   const [q, setQ] = useState<string>(() => localStorage.getItem("inventoryQ") ?? "");
 
   useEffect(() => {
-    (async () => {
-      // Alleen laden als er nog geen data is
-      if (seeds.length > 0 && cropTypes.length > 0) {
-        return;
-      }
-      setLoading(true);
-      setLoadError(null);
-      try {
-        const [ss, cts] = await Promise.all([listSeeds(garden.id), listCropTypes()]);
+    // Laad data maar 1x
+    if (hasLoadedRef.current || (seeds.length > 0 && cropTypes.length > 0)) return;
+    
+    hasLoadedRef.current = true;
+    setLoading(true);
+    
+    Promise.all([listSeeds(garden.id), listCropTypes()])
+      .then(([ss, cts]) => {
         setSeeds(ss);
         setCropTypes(cts);
         setCache('inventory_seeds', ss);
         setCache('inventory_croptypes', cts);
-        setLoadError(null);
-      } catch (err) {
-        console.error('Voorraad load error:', err);
-        setLoadError('Kon voorraad niet laden. Probeer de pagina te verversen.');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [garden.id]);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("inventoryQ", q);
@@ -263,22 +257,6 @@ export function InventoryPage({ garden }: { garden: Garden }) {
         <div className="text-center space-y-2">
           <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto" />
           <p className="text-sm text-muted-foreground">Voorraad laden...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (loadError) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-center space-y-4 max-w-md">
-          <p className="text-destructive">{loadError}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
-          >
-            Pagina verversen
-          </button>
         </div>
       </div>
     );

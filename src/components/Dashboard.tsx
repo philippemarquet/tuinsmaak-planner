@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import type { Garden, GardenBed, Planting, Seed, Task } from "../lib/types";
 import { listBeds } from "../lib/api/beds";
 import { listPlantings, updatePlanting } from "../lib/api/plantings";
@@ -110,7 +110,6 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const [tasks, setTasks] = useState<Task[]>(() => getCached('dashboard_tasks') ?? []);
   const [showAll, setShowAll] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [dialog, setDialog] = useState<{
     task: Task;
@@ -119,15 +118,19 @@ export function Dashboard({ garden }: { garden: Garden }) {
   } | null>(null);
 
   const [busyId, setBusyId] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
 
   useEffect(() => {
-    // Alleen laden als er nog geen data is
+    // Laad data maar 1x, ongeacht tab switches
+    if (hasLoadedRef.current) return;
+    
     if (beds.length > 0 && plantings.length > 0 && seeds.length > 0 && tasks.length > 0) {
+      hasLoadedRef.current = true;
       return;
     }
 
+    hasLoadedRef.current = true;
     setLoading(true);
-    setLoadError(null);
     
     Promise.all([
       listBeds(garden.id),
@@ -144,14 +147,13 @@ export function Dashboard({ garden }: { garden: Garden }) {
         setCache('dashboard_plantings', p);
         setCache('dashboard_seeds', s);
         setCache('dashboard_tasks', t);
-        setLoadError(null);
       })
       .catch((err) => {
         console.error('Dashboard load error:', err);
-        setLoadError('Kon gegevens niet laden. Probeer de pagina te verversen.');
+        hasLoadedRef.current = false; // Reset zodat het opnieuw kan proberen
       })
       .finally(() => setLoading(false));
-  }, [garden.id]);
+  }, []);
 
   const bedsById = useMemo(() => Object.fromEntries(beds.map(b => [b.id, b])), [beds]);
   const seedsById = useMemo(() => Object.fromEntries(seeds.map(s => [s.id, s])), [seeds]);
@@ -517,22 +519,6 @@ export function Dashboard({ garden }: { garden: Garden }) {
         <div className="text-center space-y-2">
           <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto" />
           <p className="text-sm text-muted-foreground">Gegevens laden...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (loadError) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-center space-y-4 max-w-md">
-          <p className="text-destructive">{loadError}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
-          >
-            Pagina verversen
-          </button>
         </div>
       </div>
     );
