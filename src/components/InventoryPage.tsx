@@ -125,7 +125,7 @@ export function InventoryPage({ garden }: { garden: Garden }) {
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [cropTypes, setCropTypes] = useState<CropType[]>([]);
   const [editorOpen, setEditorOpen] = useState<{ seed: Seed | null } | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // filters
@@ -135,7 +135,10 @@ export function InventoryPage({ garden }: { garden: Garden }) {
 
   useEffect(() => {
     (async () => {
-      setLoading(true);
+      // Alleen loading tonen als er nog geen data is
+      if (seeds.length === 0) {
+        setLoading(true);
+      }
       setLoadError(null);
       try {
         const [ss, cts] = await Promise.all([listSeeds(garden.id), listCropTypes()]);
