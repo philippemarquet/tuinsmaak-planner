@@ -172,19 +172,43 @@ const handler = async (req: Request): Promise<Response> => {
         );
 
         // Verstuur email
+        const emailSubject = `🌱 Wekelijkse tuinagenda: ${overdueTasks.length + upcomingTasks.length} acties`;
         const { error: emailError } = await resend.emails.send({
           from: 'Tuinplanner <onboarding@resend.dev>',
           to: [user.email],
-          subject: `🌱 Wekelijkse tuinagenda: ${overdueTasks.length + upcomingTasks.length} acties`,
+          subject: emailSubject,
           html,
         });
 
         if (emailError) {
           console.error(`Failed to send email to ${user.email}:`, emailError);
           errors++;
+          
+          // Log failed email
+          await supabase.from('email_logs').insert({
+            user_id: profile.id,
+            email_type: 'weekly_digest',
+            recipient_email: user.email,
+            subject: emailSubject,
+            status: 'failed',
+            error_message: emailError.message || 'Unknown error',
+            tasks_count: overdueTasks.length + upcomingTasks.length,
+            overdue_count: overdueTasks.length,
+          });
         } else {
           console.log(`Email sent to: ${user.email}`);
           emailsSent++;
+          
+          // Log successful email
+          await supabase.from('email_logs').insert({
+            user_id: profile.id,
+            email_type: 'weekly_digest',
+            recipient_email: user.email,
+            subject: emailSubject,
+            status: 'sent',
+            tasks_count: overdueTasks.length + upcomingTasks.length,
+            overdue_count: overdueTasks.length,
+          });
         }
       } catch (error: any) {
         console.error(`Error processing profile ${profile.id}:`, error);
