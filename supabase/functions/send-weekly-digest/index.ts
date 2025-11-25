@@ -31,6 +31,8 @@ const handler = async (req: Request): Promise<Response> => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    const { forceTest } = await req.json();
+
     // Haal alle gebruikers op met weekly_digest enabled
     const { data: profiles, error: profilesError } = await supabase
       .from('profiles')
@@ -58,25 +60,28 @@ const handler = async (req: Request): Promise<Response> => {
       try {
         const prefs = profile.notification_prefs as any;
         
-        // Check of deze gebruiker vandaag een digest moet ontvangen
-        if (!prefs?.email_notifications || !prefs?.weekly_digest) {
+        // Check of deze gebruiker weekly digest heeft ingeschakeld
+        if (!prefs?.weekly_digest) {
           continue;
         }
 
-        const digestDay = prefs.digest_day ?? 1; // Default maandag
-        const digestTime = prefs.digest_time ?? '08:00';
+        // Als het geen test is, check dag en tijd
+        if (!forceTest) {
+          const digestDay = prefs.digest_day ?? 1; // Default maandag
+          const digestTime = prefs.digest_time ?? '08:00';
 
-        // Check of het de juiste dag en tijd is (binnen 1 uur marge)
-        if (digestDay !== currentDay) {
-          continue;
-        }
+          // Check of het de juiste dag en tijd is (binnen 1 uur marge)
+          if (digestDay !== currentDay) {
+            continue;
+          }
 
-        const [targetHour] = digestTime.split(':').map(Number);
-        const currentHour = today.getHours();
-        
-        // Alleen versturen als we binnen het uur zijn
-        if (Math.abs(currentHour - targetHour) > 0) {
-          continue;
+          const [targetHour] = digestTime.split(':').map(Number);
+          const currentHour = today.getHours();
+          
+          // Alleen versturen als we binnen het uur zijn
+          if (Math.abs(currentHour - targetHour) > 0) {
+            continue;
+          }
         }
 
         console.log(`Processing digest for user ${profile.id}`);
