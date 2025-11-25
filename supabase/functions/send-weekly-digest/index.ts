@@ -18,6 +18,7 @@ interface WeeklyTask {
   seedName: string;
   bedName: string;
   dueDate: string;
+  dueDateRaw: string; // ISO date string voor correcte sortering
   isOverdue: boolean;
 }
 
@@ -181,6 +182,7 @@ const handler = async (req: Request): Promise<Response> => {
                 month: 'long',
                 year: 'numeric',
               }),
+              dueDateRaw: firstPendingTask.due_date,
               isOverdue: true,
             });
           }
@@ -206,13 +208,14 @@ const handler = async (req: Request): Promise<Response> => {
               month: 'long',
               year: 'numeric',
             }),
+            dueDateRaw: task.due_date,
             isOverdue: false,
           });
         }
 
-        // Sorteer taken op datum
-        overdueTasks.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
-        upcomingTasks.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+        // Sorteer taken op datum (oudste eerst)
+        overdueTasks.sort((a, b) => new Date(a.dueDateRaw).getTime() - new Date(b.dueDateRaw).getTime());
+        upcomingTasks.sort((a, b) => new Date(a.dueDateRaw).getTime() - new Date(b.dueDateRaw).getTime());
 
         // Render email template
         const html = await renderAsync(
