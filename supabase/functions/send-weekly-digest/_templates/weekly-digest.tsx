@@ -110,6 +110,15 @@ export const WeeklyDigestEmail = ({
             </Text>
           </Section>
         )}
+
+        <Section style={{ textAlign: 'center' as const, margin: '32px 24px 24px 24px' }}>
+          <Link
+            href="https://moestuin.bosgoedt.be"
+            style={button}
+          >
+            Naar mijn moestuin
+          </Link>
+        </Section>
       </Container>
     </Body>
   </Html>
@@ -186,4 +195,16 @@ const taskDetail = {
   fontSize: '14px',
   lineHeight: '20px',
   margin: '2px 0',
+};
+
+const button = {
+  backgroundColor: '#16a34a',
+  borderRadius: '6px',
+  color: '#ffffff',
+  fontSize: '16px',
+  fontWeight: '600',
+  textDecoration: 'none',
+  textAlign: 'center' as const,
+  display: 'inline-block',
+  padding: '12px 32px',
 };
