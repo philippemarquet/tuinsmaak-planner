@@ -150,21 +150,21 @@ const h1 = {
   fontSize: '24px',
   fontWeight: 'bold',
   margin: '40px 0 20px 0',
-  padding: '0 48px',
+  padding: '0 24px',
 };
 
 const h2 = {
   color: '#333',
   fontSize: '18px',
   fontWeight: 'bold',
-  margin: '32px 48px 12px 48px',
+  margin: '32px 24px 12px 24px',
 };
 
 const text = {
   color: '#333',
   fontSize: '16px',
   lineHeight: '26px',
-  padding: '0 48px',
+  padding: '0 24px',
   margin: '0 0 16px 0',
 };
 
@@ -172,7 +172,7 @@ const subText = {
   color: '#6b7280',
   fontSize: '14px',
   lineHeight: '22px',
-  padding: '0 48px',
+  padding: '0 24px',
   margin: '0 0 16px 0',
 };
 
@@ -180,7 +180,7 @@ const taskBox = {
   backgroundColor: '#f9fafb',
   border: '1px solid #e5e7eb',
   borderRadius: '8px',
-  margin: '16px 48px 24px 48px',
+  margin: '16px 24px 24px 24px',
   padding: '16px',
 };
 
@@ -212,5 +212,5 @@ const footer = {
   color: '#898989',
   fontSize: '12px',
   lineHeight: '22px',
-  margin: '32px 48px 0',
+  margin: '32px 24px 0',
 };
