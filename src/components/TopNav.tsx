@@ -2,21 +2,23 @@ import { signOut } from "../lib/auth";
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useIsMobile } from "../hooks/use-mobile";
+import { getMyProfile } from "../lib/api/profile";
 
 export function TopNav() {
   const isMobile = useIsMobile();
-  const [email, setEmail] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState<string | null>(null);
   const [hasConflicts, setHasConflicts] = useState(false);
   const [conflictCount, setConflictCount] = useState(0);
 
   useEffect(() => {
     const sync = async () => {
-      const { data } = await supabase.auth.getUser();
-      setEmail(data.user?.email ?? null);
+      const profile = await getMyProfile();
+      setDisplayName(profile?.display_name ?? null);
     };
     sync();
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      setEmail(session?.user?.email ?? null);
+    const { data: sub } = supabase.auth.onAuthStateChange(async () => {
+      const profile = await getMyProfile();
+      setDisplayName(profile?.display_name ?? null);
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -77,9 +79,9 @@ export function TopNav() {
 
       {/* Right side: user info + logout */}
       <div className="flex items-center gap-2 md:gap-3">
-        {email && !isMobile && (
+        {displayName && !isMobile && (
           <span className="text-sm text-muted-foreground hidden sm:block">
-            {email}
+            Hallo {displayName}
           </span>
         )}
         <button
