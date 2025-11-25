@@ -134,19 +134,48 @@ const handler = async (req: Request): Promise<Response> => {
           continue;
         }
 
+        // Definieer taak volgorde per planting
+        const taskOrder: Record<string, number> = {
+          'sow': 1,
+          'plant_out': 2,
+          'harvest_start': 3,
+          'harvest_end': 4,
+        };
+
+        // Groepeer taken per planting_id
+        const tasksByPlanting = new Map<string, typeof tasks>();
+        for (const task of tasks) {
+          const plantingId = task.planting_id;
+          if (!tasksByPlanting.has(plantingId)) {
+            tasksByPlanting.set(plantingId, []);
+          }
+          tasksByPlanting.get(plantingId)!.push(task);
+        }
+
         // Splits taken in achterstallig en aankomend
+        // Voor achterstallig: alleen de EERSTE nog-niet-gedane taak per planting
         const overdueTasks: WeeklyTask[] = [];
         const upcomingTasks: WeeklyTask[] = [];
 
-        for (const task of tasks) {
-          const taskDueDate = new Date(task.due_date);
+        for (const [plantingId, plantingTasks] of tasksByPlanting) {
+          // Sorteer taken op volgorde
+          const sortedTasks = plantingTasks.sort((a, b) => 
+            (taskOrder[a.type] || 999) - (taskOrder[b.type] || 999)
+          );
+
+          // Vind de eerste pending taak
+          const firstPendingTask = sortedTasks[0]; // Alle taken zijn pending door de query filter
+
+          if (!firstPendingTask) continue;
+
+          const taskDueDate = new Date(firstPendingTask.due_date);
           const isOverdue = taskDueDate < today;
 
           const weeklyTask: WeeklyTask = {
-            type: task.type,
-            typeLabel: taskTypeLabels[task.type] || task.type,
-            seedName: task.plantings?.seeds?.name || 'Onbekend gewas',
-            bedName: task.plantings?.garden_beds?.name || 'Onbekende bak',
+            type: firstPendingTask.type,
+            typeLabel: taskTypeLabels[firstPendingTask.type] || firstPendingTask.type,
+            seedName: firstPendingTask.plantings?.seeds?.name || 'Onbekend gewas',
+            bedName: firstPendingTask.plantings?.garden_beds?.name || 'Onbekende bak',
             dueDate: taskDueDate.toLocaleDateString('nl-NL', {
               day: '2-digit',
               month: 'long',
