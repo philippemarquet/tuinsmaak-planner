@@ -197,5 +197,6 @@ const taskDetail = {
 const divider = {
   border: 'none',
   borderTop: '1px solid #e5e7eb',
-  margin: '16px 0',
+  margin: '16px auto',
+  width: '50%',
 };
