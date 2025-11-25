@@ -8,10 +8,20 @@ import { DndContext, DragEndEvent, useDraggable, useDroppable } from "@dnd-kit/c
 export function BedsPage({ garden }: { garden: Garden }) {
   const [beds, setBeds] = useState<GardenBed[]>([]);
   const [upsertOpen, setUpsertOpen] = useState<null | Partial<GardenBed>>(null);
-  const [layoutMode, setLayoutMode] = useState(false); // plattegrond editor
+  const [layoutMode, setLayoutMode] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    listBeds(garden.id).then(setBeds).catch(console.error);
+    setLoading(true);
+    setLoadError(null);
+    listBeds(garden.id)
+      .then(setBeds)
+      .catch((err) => {
+        console.error('Bakken load error:', err);
+        setLoadError('Kon bakken niet laden. Probeer de pagina te verversen.');
+      })
+      .finally(() => setLoading(false));
   }, [garden.id]);
 
   function upsertLocal(bed: GardenBed) {
@@ -70,6 +80,33 @@ export function BedsPage({ garden }: { garden: Garden }) {
     () => beds.filter(b => b.is_greenhouse).sort((a,b)=> (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.created_at.localeCompare(b.created_at)),
     [beds]
   );
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center space-y-2">
+          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto" />
+          <p className="text-sm text-muted-foreground">Bakken laden...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center space-y-4 max-w-md">
+          <p className="text-destructive">{loadError}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+          >
+            Pagina verversen
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
