@@ -174,7 +174,7 @@ const handler = async (req: Request): Promise<Response> => {
         // Verstuur email
         const emailSubject = `🌱 Wekelijkse tuinagenda: ${overdueTasks.length + upcomingTasks.length} acties`;
         const { error: emailError } = await resend.emails.send({
-          from: 'Tuinplanner <onboarding@resend.dev>',
+          from: 'Tuinplanner <moestuin@bosgoedt.be>',
           to: [user.email],
           subject: emailSubject,
           html,
