@@ -72,15 +72,11 @@ export const WeeklyDigestEmail = ({
                 <div key={idx} style={taskItem}>
                   <Text style={taskTitle}>{task.typeLabel}</Text>
                   <Text style={taskDetail}>
-                    <strong>Gewas:</strong> {task.seedName}
+                    {task.seedName} • {task.bedName}
                   </Text>
-                  <Text style={taskDetail}>
-                    <strong>Bak:</strong> {task.bedName}
+                  <Text style={{ ...taskDetail, color: '#dc2626', fontWeight: '600' }}>
+                    {task.dueDate}
                   </Text>
-                  <Text style={{ ...taskDetail, color: '#dc2626' }}>
-                    <strong>Gepland:</strong> {task.dueDate}
-                  </Text>
-                  {idx < overdueTasks.length - 1 && <hr style={divider} />}
                 </div>
               ))}
             </Section>
@@ -96,15 +92,11 @@ export const WeeklyDigestEmail = ({
                 <div key={idx} style={taskItem}>
                   <Text style={taskTitle}>{task.typeLabel}</Text>
                   <Text style={taskDetail}>
-                    <strong>Gewas:</strong> {task.seedName}
+                    {task.seedName} • {task.bedName}
                   </Text>
                   <Text style={taskDetail}>
-                    <strong>Bak:</strong> {task.bedName}
+                    {task.dueDate}
                   </Text>
-                  <Text style={taskDetail}>
-                    <strong>Gepland:</strong> {task.dueDate}
-                  </Text>
-                  {idx < upcomingTasks.length - 1 && <hr style={divider} />}
                 </div>
               ))}
             </Section>
@@ -142,61 +134,56 @@ const container = {
 
 const h1 = {
   color: '#333',
-  fontSize: '24px',
-  fontWeight: 'bold',
-  margin: '40px 0 20px 0',
+  fontSize: '28px',
+  fontWeight: '700',
+  margin: '32px 0 24px 0',
   padding: '0 24px',
 };
 
 const h2 = {
   color: '#333',
-  fontSize: '18px',
-  fontWeight: 'bold',
-  margin: '32px 24px 12px 24px',
+  fontSize: '20px',
+  fontWeight: '600',
+  margin: '32px 24px 8px 24px',
 };
 
 const text = {
-  color: '#333',
+  color: '#555',
   fontSize: '16px',
-  lineHeight: '26px',
+  lineHeight: '24px',
   padding: '0 24px',
-  margin: '0 0 16px 0',
+  margin: '0 0 12px 0',
 };
 
 const subText = {
-  color: '#6b7280',
+  color: '#777',
   fontSize: '14px',
-  lineHeight: '22px',
+  lineHeight: '20px',
   padding: '0 24px',
   margin: '0 0 16px 0',
 };
 
 const taskBox = {
-  margin: '16px 24px 24px 24px',
+  margin: '0 24px 32px 24px',
   padding: '0',
 };
 
 const taskItem = {
-  margin: '12px 0',
+  margin: '0 0 20px 0',
+  paddingLeft: '12px',
+  borderLeft: '3px solid #e5e7eb',
 };
 
 const taskTitle = {
   color: '#16a34a',
   fontSize: '16px',
-  fontWeight: 'bold',
-  margin: '0 0 8px 0',
+  fontWeight: '600',
+  margin: '0 0 6px 0',
 };
 
 const taskDetail = {
-  color: '#4b5563',
+  color: '#666',
   fontSize: '14px',
   lineHeight: '20px',
-  margin: '4px 0',
-};
-
-const divider = {
-  border: 'none',
-  borderTop: '1px solid #e5e7eb',
-  margin: '16px auto',
-  width: '50%',
+  margin: '2px 0',
 };

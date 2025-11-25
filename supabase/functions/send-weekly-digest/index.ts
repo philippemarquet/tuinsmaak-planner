@@ -152,10 +152,9 @@ const handler = async (req: Request): Promise<Response> => {
           tasksByPlanting.get(plantingId)!.push(task);
         }
 
-        // Splits taken in achterstallig en aankomend
-        // Voor achterstallig: alleen de EERSTE nog-niet-gedane taak per planting
+        // Verzamel alle verlate taken (alleen eerste per planting)
         const overdueTasks: WeeklyTask[] = [];
-        const upcomingTasks: WeeklyTask[] = [];
+        const processedPlantings = new Set<string>();
 
         for (const [plantingId, plantingTasks] of tasksByPlanting) {
           // Sorteer taken op volgorde
@@ -164,31 +163,51 @@ const handler = async (req: Request): Promise<Response> => {
           );
 
           // Vind de eerste pending taak
-          const firstPendingTask = sortedTasks[0]; // Alle taken zijn pending door de query filter
-
+          const firstPendingTask = sortedTasks[0];
           if (!firstPendingTask) continue;
 
           const taskDueDate = new Date(firstPendingTask.due_date);
           const isOverdue = taskDueDate < today;
 
-          const weeklyTask: WeeklyTask = {
-            type: firstPendingTask.type,
-            typeLabel: taskTypeLabels[firstPendingTask.type] || firstPendingTask.type,
-            seedName: firstPendingTask.plantings?.seeds?.name || 'Onbekend gewas',
-            bedName: firstPendingTask.plantings?.garden_beds?.name || 'Onbekende bak',
+          if (isOverdue) {
+            processedPlantings.add(plantingId);
+            overdueTasks.push({
+              type: firstPendingTask.type,
+              typeLabel: taskTypeLabels[firstPendingTask.type] || firstPendingTask.type,
+              seedName: firstPendingTask.plantings?.seeds?.name || 'Onbekend gewas',
+              bedName: firstPendingTask.plantings?.garden_beds?.name || 'Onbekende bak',
+              dueDate: taskDueDate.toLocaleDateString('nl-NL', {
+                day: '2-digit',
+                month: 'long',
+                year: 'numeric',
+              }),
+              isOverdue: true,
+            });
+          }
+        }
+
+        // Verzamel alle aankomende taken (alle niet-verlate taken)
+        const upcomingTasks: WeeklyTask[] = [];
+        
+        for (const task of tasks) {
+          const taskDueDate = new Date(task.due_date);
+          const isOverdue = taskDueDate < today;
+          
+          // Skip als deze taak overdue is - die staat al in overdueTasks
+          if (isOverdue) continue;
+
+          upcomingTasks.push({
+            type: task.type,
+            typeLabel: taskTypeLabels[task.type] || task.type,
+            seedName: task.plantings?.seeds?.name || 'Onbekend gewas',
+            bedName: task.plantings?.garden_beds?.name || 'Onbekende bak',
             dueDate: taskDueDate.toLocaleDateString('nl-NL', {
               day: '2-digit',
               month: 'long',
               year: 'numeric',
             }),
-            isOverdue,
-          };
-
-          if (isOverdue) {
-            overdueTasks.push(weeklyTask);
-          } else {
-            upcomingTasks.push(weeklyTask);
-          }
+            isOverdue: false,
+          });
         }
 
         // Sorteer taken op datum
