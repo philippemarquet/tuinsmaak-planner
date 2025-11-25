@@ -97,7 +97,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     // Verstuur email
     const { error: emailError } = await resend.emails.send({
-      from: 'Tuinplanner <onboarding@resend.dev>',
+      from: 'Tuinplanner <moestuin@bosgoedt.be>',
       to: [user.email],
       subject: `🌱 Herinnering: ${taskTypeLabel} voor ${seedName}`,
       html,
