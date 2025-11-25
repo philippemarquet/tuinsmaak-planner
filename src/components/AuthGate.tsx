@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { signIn, signUp, signOut } from '../lib/auth';
 import { supabase } from '../lib/supabaseClient';
+
 export function AuthGate({
   children
 }: {
@@ -12,14 +13,62 @@ export function AuthGate({
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
-    supabase.auth.getSession().then(({
-      data
-    }) => setSession(data.session));
-    const {
-      data: sub
-    } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess));
-    return () => sub.subscription.unsubscribe();
+    // Haal initiële sessie op
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+    });
+
+    // Luister naar auth state changes
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
+      setSession(sess);
+    });
+
+    // Refresh sessie wanneer tab weer actief wordt
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible') {
+        try {
+          const { data, error } = await supabase.auth.refreshSession();
+          if (error) {
+            console.error('Session refresh error:', error);
+            // Als refresh faalt, probeer opnieuw sessie op te halen
+            const { data: sessionData } = await supabase.auth.getSession();
+            setSession(sessionData.session);
+          } else {
+            setSession(data.session);
+          }
+        } catch (err) {
+          console.error('Failed to refresh session:', err);
+        }
+      }
+    };
+
+    // Periodieke heartbeat om sessie actief te houden (elke 5 minuten)
+    const startHeartbeat = () => {
+      if (refreshTimeoutRef.current) {
+        clearInterval(refreshTimeoutRef.current);
+      }
+      refreshTimeoutRef.current = setInterval(async () => {
+        try {
+          await supabase.auth.refreshSession();
+        } catch (err) {
+          console.error('Heartbeat refresh failed:', err);
+        }
+      }, 5 * 60 * 1000); // 5 minuten
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    startHeartbeat();
+
+    return () => {
+      sub.subscription.unsubscribe();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (refreshTimeoutRef.current) {
+        clearInterval(refreshTimeoutRef.current);
+      }
+    };
   }, []);
   if (!session) {
     return <div className="min-h-screen flex items-center justify-center bg-background">
