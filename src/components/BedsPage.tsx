@@ -10,22 +10,18 @@ export function BedsPage({ garden }: { garden: Garden }) {
   const [beds, setBeds] = useState<GardenBed[]>(() => getCached('beds_list') ?? []);
   const [upsertOpen, setUpsertOpen] = useState<null | Partial<GardenBed>>(null);
   const [layoutMode, setLayoutMode] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const hasLoadedRef = useRef(false);
 
   useEffect(() => {
-    // Laad data maar 1x
-    if (hasLoadedRef.current || beds.length > 0) return;
+    // Als er al data is, doe niks
+    if (beds.length > 0) return;
     
-    hasLoadedRef.current = true;
-    setLoading(true);
+    // Laad op achtergrond
     listBeds(garden.id)
       .then((b) => {
         setBeds(b);
         setCache('beds_list', b);
       })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+      .catch(console.error);
   }, []);
 
   function upsertLocal(bed: GardenBed) {
@@ -84,17 +80,6 @@ export function BedsPage({ garden }: { garden: Garden }) {
     () => beds.filter(b => b.is_greenhouse).sort((a,b)=> (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.created_at.localeCompare(b.created_at)),
     [beds]
   );
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-center space-y-2">
-          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto" />
-          <p className="text-sm text-muted-foreground">Bakken laden...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-8">

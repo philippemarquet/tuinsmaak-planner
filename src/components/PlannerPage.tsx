@@ -224,8 +224,6 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     [activeDragId, seeds]
   );
 
-  const hasLoadedRef = useRef(false);
-
   const reload = async () => {
     const [b, s, p, ct] = await Promise.all([listBeds(garden.id), listSeeds(garden.id), listPlantings(garden.id), listCropTypes()]);
     setBeds(b);
@@ -239,19 +237,11 @@ export function PlannerPage({ garden }: { garden: Garden }) {
   };
   
   useEffect(() => {
-    // Laad data maar 1x, ongeacht tab switches
-    if (hasLoadedRef.current) return;
+    // Als er al data is, doe niks
+    if (beds.length > 0) return;
     
-    if (beds.length > 0 && seeds.length > 0) {
-      hasLoadedRef.current = true;
-      return;
-    }
-    
-    hasLoadedRef.current = true;
-    reload().catch((err) => {
-      console.error(err);
-      hasLoadedRef.current = false; // Reset bij error
-    });
+    // Laad op achtergrond
+    reload().catch((err) => console.error(err));
   }, []);
   useEffect(() => {
     const ch = supabase
