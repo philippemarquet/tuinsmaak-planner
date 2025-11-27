@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Garden, Seed } from "../lib/types";
-import { listSeeds, createSeed, updateSeed, deleteSeed } from "../lib/api/seeds";
-import { listCropTypes } from "../lib/api/cropTypes";
+import type { Garden, Seed, CropType } from "../lib/types";
+import { createSeed, updateSeed, deleteSeed } from "../lib/api/seeds";
 import { Pencil, Trash2, Copy, PlusCircle } from "lucide-react";
 import { SeedModal } from "./SeedModal";
-import { getCached, setCache } from "../lib/dataCache";
 
 /* ---------- helpers ---------- */
 
@@ -120,11 +118,19 @@ function SeedCard({
 
 /* ---------- pagina ---------- */
 
-type CropType = { id: string; name: string };
-
-export function InventoryPage({ garden }: { garden: Garden }) {
-  const [seeds, setSeeds] = useState<Seed[]>(() => getCached('inventory_seeds') ?? []);
-  const [cropTypes, setCropTypes] = useState<CropType[]>(() => getCached('inventory_croptypes') ?? []);
+export function InventoryPage({ 
+  garden,
+  seeds: initialSeeds,
+  cropTypes: initialCropTypes,
+  onDataChange
+}: { 
+  garden: Garden;
+  seeds: Seed[];
+  cropTypes: CropType[];
+  onDataChange: () => Promise<void>;
+}) {
+  const [seeds, setSeeds] = useState<Seed[]>(initialSeeds);
+  const [cropTypes, setCropTypes] = useState<CropType[]>(initialCropTypes);
   const [editorOpen, setEditorOpen] = useState<{ seed: Seed | null } | null>(null);
 
   // filters
@@ -132,20 +138,11 @@ export function InventoryPage({ garden }: { garden: Garden }) {
   const [cropTypeFilter, setCropTypeFilter] = useState<string>("all");
   const [q, setQ] = useState<string>(() => localStorage.getItem("inventoryQ") ?? "");
 
+  // Sync met centrale data
   useEffect(() => {
-    // Als er al data is, doe niks
-    if (seeds.length > 0) return;
-    
-    // Laad op achtergrond
-    Promise.all([listSeeds(garden.id), listCropTypes()])
-      .then(([ss, cts]) => {
-        setSeeds(ss);
-        setCropTypes(cts);
-        setCache('inventory_seeds', ss);
-        setCache('inventory_croptypes', cts);
-      })
-      .catch(console.error);
-  }, []);
+    setSeeds(initialSeeds);
+    setCropTypes(initialCropTypes);
+  }, [initialSeeds, initialCropTypes]);
 
   useEffect(() => {
     localStorage.setItem("inventoryQ", q);
@@ -166,6 +163,7 @@ export function InventoryPage({ garden }: { garden: Garden }) {
     try {
       await deleteSeed(seed.id);
       setSeeds((prev) => prev.filter((s) => s.id !== seed.id));
+      await onDataChange();
     } catch (e: any) {
       alert("Kon zaad niet verwijderen: " + (e.message ?? String(e)));
     }
@@ -193,6 +191,7 @@ export function InventoryPage({ garden }: { garden: Garden }) {
       };
       const created = await createSeed(payload);
       upsertLocal(created);
+      await onDataChange();
     } catch (e: any) {
       alert("Dupliceren mislukt: " + (e.message ?? String(e)));
     }
@@ -321,9 +320,10 @@ export function InventoryPage({ garden }: { garden: Garden }) {
           gardenId={garden.id}
           seed={(editorOpen.seed as any) || ({} as any)}
           onClose={() => setEditorOpen(null)}
-          onSaved={(saved) => {
+          onSaved={async (saved) => {
             upsertLocal(saved);
             setEditorOpen(null);
+            await onDataChange();
           }}
         />
       )}

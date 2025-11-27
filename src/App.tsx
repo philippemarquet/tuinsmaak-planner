@@ -12,6 +12,13 @@ import { SettingsPage } from "./components/SettingsPage";
 import { WishlistPage } from "./components/WishlistPage";
 import { AuthGate } from "./components/AuthGate";
 
+import { listBeds } from "./lib/api/beds";
+import { listSeeds } from "./lib/api/seeds";
+import { listPlantings } from "./lib/api/plantings";
+import { listTasks } from "./lib/api/tasks";
+import { listCropTypes } from "./lib/api/cropTypes";
+import type { GardenBed, Seed, Planting, Task, CropType } from "./lib/types";
+
 type TabKey = "dashboard" | "beds" | "inventory" | "planner" | "wishlist" | "settings";
 
 // Gebruik een vaste garden ID - iedereen heeft toegang tot dezelfde tuin
@@ -36,6 +43,52 @@ export default function App() {
 
   const [conflictCount, setConflictCount] = useState(0);
   const [hasConflicts, setHasConflicts] = useState(false);
+
+  // Centrale data state
+  const [beds, setBeds] = useState<GardenBed[]>([]);
+  const [seeds, setSeeds] = useState<Seed[]>([]);
+  const [plantings, setPlantings] = useState<Planting[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [cropTypes, setCropTypes] = useState<CropType[]>([]);
+
+  // Laad alle data bij opstarten
+  useEffect(() => {
+    Promise.all([
+      listBeds(GARDEN_ID),
+      listSeeds(GARDEN_ID),
+      listPlantings(GARDEN_ID),
+      listTasks(GARDEN_ID),
+      listCropTypes(),
+    ])
+      .then(([b, s, p, t, ct]) => {
+        setBeds(b);
+        setSeeds(s);
+        setPlantings(p);
+        setTasks(t);
+        setCropTypes(ct);
+      })
+      .catch((err) => console.error('App data load error:', err));
+  }, []);
+
+  // Centrale reload functie
+  const reloadAll = async () => {
+    try {
+      const [b, s, p, t, ct] = await Promise.all([
+        listBeds(GARDEN_ID),
+        listSeeds(GARDEN_ID),
+        listPlantings(GARDEN_ID),
+        listTasks(GARDEN_ID),
+        listCropTypes(),
+      ]);
+      setBeds(b);
+      setSeeds(s);
+      setPlantings(p);
+      setTasks(t);
+      setCropTypes(ct);
+    } catch (err) {
+      console.error('Reload error:', err);
+    }
+  };
 
   useEffect(() => {
     localStorage.setItem("activeTab", activeTab);
@@ -82,13 +135,13 @@ export default function App() {
   const Content = useMemo(() => {
     switch (activeTab) {
       case "dashboard":
-        return <Dashboard garden={garden} />;
+        return <Dashboard garden={garden} beds={beds} seeds={seeds} plantings={plantings} tasks={tasks} onDataChange={reloadAll} />;
       case "beds":
-        return <BedsPage garden={garden} />;
+        return <BedsPage garden={garden} beds={beds} onDataChange={reloadAll} />;
       case "inventory":
-        return <InventoryPage garden={garden} />;
+        return <InventoryPage garden={garden} seeds={seeds} cropTypes={cropTypes} onDataChange={reloadAll} />;
       case "planner":
-        return <PlannerPage garden={garden} />;
+        return <PlannerPage garden={garden} beds={beds} seeds={seeds} plantings={plantings} cropTypes={cropTypes} onDataChange={reloadAll} />;
       case "wishlist":
         return <WishlistPage garden={garden} />;
       case "settings":
@@ -96,7 +149,7 @@ export default function App() {
       default:
         return null;
     }
-  }, [activeTab]);
+  }, [activeTab, beds, seeds, plantings, tasks, cropTypes]);
 
   return (
     <AuthGate>
