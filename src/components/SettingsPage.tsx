@@ -35,8 +35,14 @@ type EmailLog = {
   sent_at: string;
 };
 
-export function SettingsPage({ garden }: { garden: Garden }) {
-  const [profile, setProfile] = useState<Profile | null>(null);
+interface SettingsPageProps {
+  garden: Garden;
+  profile: Profile | null;
+  onDataChange: () => Promise<void>;
+}
+
+export function SettingsPage({ garden, profile: initialProfile, onDataChange }: SettingsPageProps) {
+  const [profile, setProfile] = useState<Profile | null>(initialProfile);
   const [prefs, setPrefs] = useState<Prefs>({
     weekly_digest: true,
     digest_day: 1, // Maandag
@@ -63,51 +69,35 @@ export function SettingsPage({ garden }: { garden: Garden }) {
   const [copiedUrl, setCopiedUrl] = useState(false);
 
   useEffect(() => {
-    getMyProfile()
-      .then((p) => {
-        setProfile(p);
-        if (p?.notification_prefs) {
-          const savedPrefs = p.notification_prefs as any;
-          setPrefs({
-            weekly_digest: savedPrefs.weekly_digest ?? true,
-            digest_day: savedPrefs.digest_day ?? 1,
-            digest_time: savedPrefs.digest_time ?? '08:00',
-          });
-          if (savedPrefs.email_template) {
-            setTemplate({
-              header: savedPrefs.email_template.header ?? '🌱 Wekelijkse Tuinagenda',
-              greeting: savedPrefs.email_template.greeting ?? 'Hallo {naam},',
-              intro: savedPrefs.email_template.intro ?? 'Hier is je overzicht voor de komende week:',
-              overdueHeader: savedPrefs.email_template.overdueHeader ?? '⚠️ Achterstallige acties',
-              overdueSubtext: savedPrefs.email_template.overdueSubtext ?? 'Deze acties hadden al gedaan moeten zijn:',
-              upcomingHeader: savedPrefs.email_template.upcomingHeader ?? '📅 Aankomende acties',
-              upcomingSubtext: savedPrefs.email_template.upcomingSubtext ?? 'Deze acties staan gepland voor de komende 7 dagen:',
-              noTasksMessage: savedPrefs.email_template.noTasksMessage ?? '✨ Je hebt geen openstaande taken! Geniet van je tuin.',
-            });
-          }
-        }
-      })
-      .finally(() => setLoading(false));
-
-    // Load calendar token
-    import('@/integrations/supabase/client').then(({ supabase }) => {
-      supabase.auth.getUser().then(({ data }) => {
-        if (data.user) {
-          supabase
-            .from('profiles')
-            .select('calendar_token')
-            .eq('id', data.user.id)
-            .maybeSingle()
-            .then(({ data: prof }) => {
-              if (prof?.calendar_token) {
-                setCalendarToken(prof.calendar_token);
-              }
-            });
-        }
+    setProfile(initialProfile);
+    if (initialProfile?.notification_prefs) {
+      const savedPrefs = initialProfile.notification_prefs as any;
+      setPrefs({
+        weekly_digest: savedPrefs.weekly_digest ?? true,
+        digest_day: savedPrefs.digest_day ?? 1,
+        digest_time: savedPrefs.digest_time ?? '08:00',
       });
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      if (savedPrefs.email_template) {
+        setTemplate({
+          header: savedPrefs.email_template.header ?? '🌱 Wekelijkse Tuinagenda',
+          greeting: savedPrefs.email_template.greeting ?? 'Hallo {naam},',
+          intro: savedPrefs.email_template.intro ?? 'Hier is je overzicht voor de komende week:',
+          overdueHeader: savedPrefs.email_template.overdueHeader ?? '⚠️ Achterstallige acties',
+          overdueSubtext: savedPrefs.email_template.overdueSubtext ?? 'Deze acties hadden al gedaan moeten zijn:',
+          upcomingHeader: savedPrefs.email_template.upcomingHeader ?? '📅 Aankomende acties',
+          upcomingSubtext: savedPrefs.email_template.upcomingSubtext ?? 'Deze acties staan gepland voor de komende 7 dagen:',
+          noTasksMessage: savedPrefs.email_template.noTasksMessage ?? '✨ Je hebt geen openstaande taken! Geniet van je tuin.',
+        });
+      }
+    }
+    
+    // Load calendar token
+    if (initialProfile?.calendar_token) {
+      setCalendarToken(initialProfile.calendar_token);
+    }
+    
+    setLoading(false);
+  }, [initialProfile]);
 
   async function loadLogs() {
     setLogsLoading(true);
@@ -138,14 +128,14 @@ export function SettingsPage({ garden }: { garden: Garden }) {
     if (!profile) return;
     setSaving(true);
     try {
-      const newProfile = await updateMyProfile({
+      await updateMyProfile({
         notification_prefs: {
           ...prefs,
-          email_notifications: prefs.weekly_digest, // Auto-enable als digest aan staat
+          email_notifications: prefs.weekly_digest,
           email_template: activeTab === 'template' ? template : undefined,
         },
       });
-      setProfile(newProfile);
+      await onDataChange();
       toast.success('Voorkeuren opgeslagen');
     } catch (e: any) {
       toast.error('Opslaan mislukt: ' + e.message);
@@ -179,6 +169,7 @@ export function SettingsPage({ garden }: { garden: Garden }) {
     try {
       const newToken = await resetCalendarToken();
       setCalendarToken(newToken);
+      await onDataChange();
       toast.success('Token gereset! Oude URL werkt niet meer.');
     } catch (e: any) {
       toast.error('Token reset mislukt: ' + e.message);
