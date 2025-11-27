@@ -1,13 +1,10 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Garden, GardenBed, Planting, Seed, Task } from "../lib/types";
-import { listBeds } from "../lib/api/beds";
-import { listPlantings, updatePlanting } from "../lib/api/plantings";
-import { listSeeds } from "../lib/api/seeds";
-import { listTasks, updateTask } from "../lib/api/tasks";
+import { updatePlanting } from "../lib/api/plantings";
+import { updateTask } from "../lib/api/tasks";
 import { buildConflictsMap, countUniqueConflicts } from "../lib/conflicts";
 import { useConflictFlags } from "../hooks/useConflictFlags";
 import { useIsMobile } from "../hooks/use-mobile";
-import { getCached, setCache } from "../lib/dataCache";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { CalendarView } from "./CalendarView";
 
@@ -103,14 +100,28 @@ type Milestone = {
 };
 
 /* ---------- hoofdcomponent ---------- */
-export function Dashboard({ garden }: { garden: Garden }) {
+export function Dashboard({ 
+  garden, 
+  beds: initialBeds, 
+  seeds: initialSeeds, 
+  plantings: initialPlantings, 
+  tasks: initialTasks,
+  onDataChange
+}: { 
+  garden: Garden;
+  beds: GardenBed[];
+  seeds: Seed[];
+  plantings: Planting[];
+  tasks: Task[];
+  onDataChange: () => Promise<void>;
+}) {
   const isMobile = useIsMobile();
   const [activeTab, setActiveTab] = useState("overview");
   
-  const [beds, setBeds] = useState<GardenBed[]>(() => getCached('dashboard_beds') ?? []);
-  const [plantings, setPlantings] = useState<Planting[]>(() => getCached('dashboard_plantings') ?? []);
-  const [seeds, setSeeds] = useState<Seed[]>(() => getCached('dashboard_seeds') ?? []);
-  const [tasks, setTasks] = useState<Task[]>(() => getCached('dashboard_tasks') ?? []);
+  const [beds, setBeds] = useState<GardenBed[]>(initialBeds);
+  const [plantings, setPlantings] = useState<Planting[]>(initialPlantings);
+  const [seeds, setSeeds] = useState<Seed[]>(initialSeeds);
+  const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [showAll, setShowAll] = useState(false);
 
   const [dialog, setDialog] = useState<{
@@ -121,29 +132,13 @@ export function Dashboard({ garden }: { garden: Garden }) {
 
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  // Sync met centrale data
   useEffect(() => {
-    // Als er al data is, doe niks
-    if (beds.length > 0) return;
-    
-    // Laad op achtergrond zonder loading state
-    Promise.all([
-      listBeds(garden.id),
-      listPlantings(garden.id),
-      listSeeds(garden.id),
-      listTasks(garden.id),
-    ])
-      .then(([b, p, s, t]) => { 
-        setBeds(b); 
-        setPlantings(p); 
-        setSeeds(s); 
-        setTasks(t);
-        setCache('dashboard_beds', b);
-        setCache('dashboard_plantings', p);
-        setCache('dashboard_seeds', s);
-        setCache('dashboard_tasks', t);
-      })
-      .catch((err) => console.error('Dashboard load error:', err));
-  }, []);
+    setBeds(initialBeds);
+    setSeeds(initialSeeds);
+    setPlantings(initialPlantings);
+    setTasks(initialTasks);
+  }, [initialBeds, initialSeeds, initialPlantings, initialTasks]);
 
   const bedsById = useMemo(() => Object.fromEntries(beds.map(b => [b.id, b])), [beds]);
   const seedsById = useMemo(() => Object.fromEntries(seeds.map(s => [s.id, s])), [seeds]);
@@ -313,9 +308,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
   }, [totalConflicts]);
 
   async function reloadAll() {
-    const [p, t] = await Promise.all([ listPlantings(garden.id), listTasks(garden.id) ]);
-    setPlantings(p); setTasks(t);
-    return { p, t };
+    await onDataChange();
   }
 
   /* ---------- mapping helpers ---------- */
@@ -370,8 +363,8 @@ export function Dashboard({ garden }: { garden: Garden }) {
       try { await updateTask(task.id, { status: "done" }); } catch {}
 
       // 4) herladen en conflicts checken; ping Planner bij conflict
-      const { p } = await reloadAll();
-      const cmap = buildConflictsMap(p, seeds);
+      await reloadAll();
+      const cmap = buildConflictsMap(plantings, seeds);
       const conflicts = cmap.get(task.planting_id) ?? [];
       
       if (conflicts.length > 0) {

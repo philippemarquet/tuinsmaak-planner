@@ -1,28 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Garden, GardenBed, UUID } from "../lib/types";
-import { listBeds, deleteBed, updateBed, createBed } from "../lib/api/beds";
+import { deleteBed, updateBed, createBed } from "../lib/api/beds";
 import { BedModal } from "./BedModal";
 import { Pencil, Trash2, Map as MapIcon, PlusCircle, ZoomIn, ZoomOut, Maximize2, Copy, GripVertical } from "lucide-react";
 import { DndContext, DragEndEvent, useDraggable, useDroppable } from "@dnd-kit/core";
-import { getCached, setCache } from "../lib/dataCache";
 
-export function BedsPage({ garden }: { garden: Garden }) {
-  const [beds, setBeds] = useState<GardenBed[]>(() => getCached('beds_list') ?? []);
+export function BedsPage({ 
+  garden,
+  beds: initialBeds,
+  onDataChange
+}: { 
+  garden: Garden;
+  beds: GardenBed[];
+  onDataChange: () => Promise<void>;
+}) {
+  const [beds, setBeds] = useState<GardenBed[]>(initialBeds);
   const [upsertOpen, setUpsertOpen] = useState<null | Partial<GardenBed>>(null);
   const [layoutMode, setLayoutMode] = useState(false);
 
+  // Sync met centrale data
   useEffect(() => {
-    // Als er al data is, doe niks
-    if (beds.length > 0) return;
-    
-    // Laad op achtergrond
-    listBeds(garden.id)
-      .then((b) => {
-        setBeds(b);
-        setCache('beds_list', b);
-      })
-      .catch(console.error);
-  }, []);
+    setBeds(initialBeds);
+  }, [initialBeds]);
 
   function upsertLocal(bed: GardenBed) {
     setBeds((prev) => {
@@ -39,6 +38,7 @@ export function BedsPage({ garden }: { garden: Garden }) {
     try {
       await deleteBed(bedId);
       setBeds((prev) => prev.filter((b) => b.id !== bedId));
+      await onDataChange();
     } catch (e: any) {
       alert("Kon bak niet verwijderen: " + (e.message ?? String(e)));
     }
@@ -66,6 +66,7 @@ export function BedsPage({ garden }: { garden: Garden }) {
         sort_order: (maxOrder + 1)
       });
       upsertLocal(created);
+      await onDataChange();
     } catch (e: any) {
       alert("Dupliceren mislukt: " + (e.message ?? String(e)));
     }
@@ -125,6 +126,7 @@ export function BedsPage({ garden }: { garden: Garden }) {
                 // Optimistisch updaten
                 setBeds(prev => prev.map(b => updates.find(u => u.id===b.id) ?? b));
                 await Promise.all(updates.map(u => updateBed(u.id, { sort_order: u.sort_order })));
+                await onDataChange();
               }
             }}
           />
@@ -144,6 +146,7 @@ export function BedsPage({ garden }: { garden: Garden }) {
               if (updates.length) {
                 setBeds(prev => prev.map(b => updates.find(u => u.id===b.id) ?? b));
                 await Promise.all(updates.map(u => updateBed(u.id, { sort_order: u.sort_order })));
+                await onDataChange();
               }
             }}
           />
@@ -158,6 +161,7 @@ export function BedsPage({ garden }: { garden: Garden }) {
             try {
               const updated = await updateBed(id, { location_x: Math.round(x), location_y: Math.round(y) });
               upsertLocal(updated);
+              await onDataChange();
             } catch (e: any) {
               alert("Kon positie niet opslaan: " + (e.message ?? String(e)));
             }
@@ -173,7 +177,10 @@ export function BedsPage({ garden }: { garden: Garden }) {
           // gardenId={garden.id}
           bed={("id" in upsertOpen && upsertOpen.id) ? (upsertOpen as GardenBed) : null}
           onClose={() => setUpsertOpen(null)}
-          onUpdated={(b) => upsertLocal(b)}
+          onUpdated={async (b) => {
+            upsertLocal(b);
+            await onDataChange();
+          }}
         />
       )}
     </div>

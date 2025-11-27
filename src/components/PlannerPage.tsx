@@ -1,10 +1,7 @@
 // src/components/PlannerPage.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Garden, GardenBed, Planting, Seed, CropType, UUID } from "../lib/types";
-import { listBeds } from "../lib/api/beds";
-import { listSeeds } from "../lib/api/seeds";
-import { listPlantings, createPlanting, updatePlanting, deletePlanting } from "../lib/api/plantings";
-import { listCropTypes } from "../lib/api/cropTypes";
+import { createPlanting, updatePlanting, deletePlanting } from "../lib/api/plantings";
 import { DndContext, useDraggable, useDroppable, DragOverlay } from "@dnd-kit/core";
 import { supabase } from "../lib/supabaseClient";
 import { TimelineView } from "./TimelineView";
@@ -15,7 +12,6 @@ import { useConflictFlags } from "../hooks/useConflictFlags";
 import { SeedModal } from "./SeedModal";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Checkbox } from "./ui/checkbox";
-import { getCached, setCache } from "../lib/dataCache";
 
 /* ===== helpers ===== */
 const toISO = (d: Date) => d.toISOString().slice(0, 10);
@@ -170,11 +166,25 @@ function MapDroppable({ id }: { id: string }) {
 /* ===== main ===== */
 type InPlanner = "all" | "planned" | "unplanned";
 
-export function PlannerPage({ garden }: { garden: Garden }) {
-  const [beds, setBeds] = useState<GardenBed[]>(() => getCached('planner_beds') ?? []);
-  const [seeds, setSeeds] = useState<Seed[]>(() => getCached('planner_seeds') ?? []);
-  const [plantings, setPlantings] = useState<Planting[]>(() => getCached('planner_plantings') ?? []);
-  const [cropTypes, setCropTypes] = useState<CropType[]>(() => getCached('planner_croptypes') ?? []);
+export function PlannerPage({ 
+  garden,
+  beds: initialBeds,
+  seeds: initialSeeds,
+  plantings: initialPlantings,
+  cropTypes: initialCropTypes,
+  onDataChange
+}: { 
+  garden: Garden;
+  beds: GardenBed[];
+  seeds: Seed[];
+  plantings: Planting[];
+  cropTypes: CropType[];
+  onDataChange: () => Promise<void>;
+}) {
+  const [beds, setBeds] = useState<GardenBed[]>(initialBeds);
+  const [seeds, setSeeds] = useState<Seed[]>(initialSeeds);
+  const [plantings, setPlantings] = useState<Planting[]>(initialPlantings);
+  const [cropTypes, setCropTypes] = useState<CropType[]>(initialCropTypes);
 
   const [view, setView] = useState<"list" | "map" | "conflicts" | "timeline">(
     () => (localStorage.getItem("plannerOpenTab") as any) || (localStorage.getItem("plannerView") as any) || "list"
@@ -224,25 +234,17 @@ export function PlannerPage({ garden }: { garden: Garden }) {
     [activeDragId, seeds]
   );
 
-  const reload = async () => {
-    const [b, s, p, ct] = await Promise.all([listBeds(garden.id), listSeeds(garden.id), listPlantings(garden.id), listCropTypes()]);
-    setBeds(b);
-    setSeeds(s);
-    setPlantings(p);
-    setCropTypes(ct);
-    setCache('planner_beds', b);
-    setCache('planner_seeds', s);
-    setCache('planner_plantings', p);
-    setCache('planner_croptypes', ct);
-  };
-  
+  // Sync met centrale data
   useEffect(() => {
-    // Als er al data is, doe niks
-    if (beds.length > 0) return;
-    
-    // Laad op achtergrond
-    reload().catch((err) => console.error(err));
-  }, []);
+    setBeds(initialBeds);
+    setSeeds(initialSeeds);
+    setPlantings(initialPlantings);
+    setCropTypes(initialCropTypes);
+  }, [initialBeds, initialSeeds, initialPlantings, initialCropTypes]);
+
+  const reload = async () => {
+    await onDataChange();
+  };
   useEffect(() => {
     const ch = supabase
       .channel("rt-plantings")
@@ -1140,8 +1142,8 @@ export function PlannerPage({ garden }: { garden: Garden }) {
           gardenId={garden.id}
           seed={seedDetailsModal}
           onClose={() => setSeedDetailsModal(null)}
-          onSaved={(updatedSeed) => {
-            listSeeds(garden.id).then(setSeeds).catch(console.error);
+          onSaved={async (updatedSeed) => {
+            await onDataChange();
             setSeedDetailsModal(null);
           }}
         />
