@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Garden } from "../lib/types";
 import {
-  listWishlist,
   createWishlistItem,
   updateWishlistItem,
   deleteWishlistItem,
@@ -9,14 +8,20 @@ import {
 } from "../lib/api/wishlist";
 import { Pencil, Trash2, PlusCircle, X } from "lucide-react";
 
-export function WishlistPage({ garden }: { garden: Garden }) {
-  const [items, setItems] = useState<WishlistItem[]>([]);
+interface WishlistPageProps {
+  garden: Garden;
+  wishlistItems: WishlistItem[];
+  onDataChange: () => Promise<void>;
+}
+
+export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPageProps) {
+  const [items, setItems] = useState<WishlistItem[]>(wishlistItems);
   const [editing, setEditing] = useState<WishlistItem | null>(null);
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    listWishlist(garden.id).then(setItems).catch(console.error);
-  }, [garden.id]);
+    setItems(wishlistItems);
+  }, [wishlistItems]);
 
   async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -26,8 +31,8 @@ export function WishlistPage({ garden }: { garden: Garden }) {
     if (!name) return;
 
     try {
-      const saved = await createWishlistItem({ garden_id: garden.id, name, notes });
-      setItems([saved, ...items]);
+      await createWishlistItem({ garden_id: garden.id, name, notes });
+      await onDataChange();
       setCreating(false);
     } catch (err: any) {
       alert("Toevoegen mislukt: " + err.message);
@@ -43,8 +48,8 @@ export function WishlistPage({ garden }: { garden: Garden }) {
     if (!name) return;
 
     try {
-      const saved = await updateWishlistItem(editing.id, { name, notes });
-      setItems(items.map((it) => (it.id === saved.id ? saved : it)));
+      await updateWishlistItem(editing.id, { name, notes });
+      await onDataChange();
       setEditing(null);
     } catch (err: any) {
       alert("Opslaan mislukt: " + err.message);
@@ -55,7 +60,7 @@ export function WishlistPage({ garden }: { garden: Garden }) {
     if (!confirm("Weet je zeker dat je dit item wilt verwijderen?")) return;
     try {
       await deleteWishlistItem(id);
-      setItems(items.filter((it) => it.id !== id));
+      await onDataChange();
     } catch (err: any) {
       alert("Verwijderen mislukt: " + err.message);
     }

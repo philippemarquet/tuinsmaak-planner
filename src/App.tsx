@@ -17,6 +17,7 @@ import { listSeeds } from "./lib/api/seeds";
 import { listPlantings } from "./lib/api/plantings";
 import { listTasks } from "./lib/api/tasks";
 import { listCropTypes } from "./lib/api/cropTypes";
+import { listWishlist, type WishlistItem } from "./lib/api/wishlist";
 import type { GardenBed, Seed, Planting, Task, CropType } from "./lib/types";
 
 type TabKey = "dashboard" | "beds" | "inventory" | "planner" | "wishlist" | "settings";
@@ -50,6 +51,7 @@ export default function App() {
   const [plantings, setPlantings] = useState<Planting[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [cropTypes, setCropTypes] = useState<CropType[]>([]);
+  const [wishlistItems, setWishlistItems] = useState<WishlistItem[]>([]);
 
   // Laad alle data bij opstarten
   useEffect(() => {
@@ -59,13 +61,15 @@ export default function App() {
       listPlantings(GARDEN_ID),
       listTasks(GARDEN_ID),
       listCropTypes(),
+      listWishlist(GARDEN_ID),
     ])
-      .then(([b, s, p, t, ct]) => {
+      .then(([b, s, p, t, ct, w]) => {
         setBeds(b);
         setSeeds(s);
         setPlantings(p);
         setTasks(t);
         setCropTypes(ct);
+        setWishlistItems(w);
       })
       .catch((err) => console.error('App data load error:', err));
   }, []);
@@ -73,18 +77,20 @@ export default function App() {
   // Centrale reload functie
   const reloadAll = async () => {
     try {
-      const [b, s, p, t, ct] = await Promise.all([
+      const [b, s, p, t, ct, w] = await Promise.all([
         listBeds(GARDEN_ID),
         listSeeds(GARDEN_ID),
         listPlantings(GARDEN_ID),
         listTasks(GARDEN_ID),
         listCropTypes(),
+        listWishlist(GARDEN_ID),
       ]);
       setBeds(b);
       setSeeds(s);
       setPlantings(p);
       setTasks(t);
       setCropTypes(ct);
+      setWishlistItems(w);
     } catch (err) {
       console.error('Reload error:', err);
     }
@@ -143,7 +149,7 @@ export default function App() {
       case "planner":
         return <PlannerPage garden={garden} beds={beds} seeds={seeds} plantings={plantings} cropTypes={cropTypes} onDataChange={reloadAll} />;
       case "wishlist":
-        return <WishlistPage garden={garden} />;
+        return <WishlistPage garden={garden} wishlistItems={wishlistItems} onDataChange={reloadAll} />;
       case "settings":
         return <SettingsPage garden={garden} />;
       default:
