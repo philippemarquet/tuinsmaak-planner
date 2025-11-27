@@ -3,6 +3,8 @@ import type { Garden, Profile } from '../lib/types';
 import { getMyProfile, updateMyProfile } from '../lib/api/profile';
 import { Button } from './ui/button';
 import { toast } from 'sonner';
+import { resetCalendarToken, getCalendarFeedUrl } from '../lib/api/calendar';
+import { Copy, RefreshCw } from 'lucide-react';
 
 type Prefs = {
   weekly_digest: boolean;
@@ -54,8 +56,11 @@ export function SettingsPage({ garden }: { garden: Garden }) {
   const [saving, setSaving] = useState(false);
   const [logs, setLogs] = useState<EmailLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'settings' | 'logs' | 'template'>('settings');
+  const [activeTab, setActiveTab] = useState<'settings' | 'logs' | 'template' | 'calendar'>('settings');
   const [testingSend, setTestingSend] = useState(false);
+  const [calendarToken, setCalendarToken] = useState<string>('');
+  const [resettingToken, setResettingToken] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState(false);
 
   useEffect(() => {
     getMyProfile()
@@ -83,6 +88,24 @@ export function SettingsPage({ garden }: { garden: Garden }) {
         }
       })
       .finally(() => setLoading(false));
+
+    // Load calendar token
+    import('@/integrations/supabase/client').then(({ supabase }) => {
+      supabase.auth.getUser().then(({ data }) => {
+        if (data.user) {
+          supabase
+            .from('profiles')
+            .select('calendar_token')
+            .eq('id', data.user.id)
+            .maybeSingle()
+            .then(({ data: prof }) => {
+              if (prof?.calendar_token) {
+                setCalendarToken(prof.calendar_token);
+              }
+            });
+        }
+      });
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -151,6 +174,27 @@ export function SettingsPage({ garden }: { garden: Garden }) {
     }
   }
 
+  async function handleResetToken() {
+    setResettingToken(true);
+    try {
+      const newToken = await resetCalendarToken();
+      setCalendarToken(newToken);
+      toast.success('Token gereset! Oude URL werkt niet meer.');
+    } catch (e: any) {
+      toast.error('Token reset mislukt: ' + e.message);
+    } finally {
+      setResettingToken(false);
+    }
+  }
+
+  function copyFeedUrl() {
+    const url = getCalendarFeedUrl(calendarToken);
+    navigator.clipboard.writeText(url);
+    setCopiedUrl(true);
+    toast.success('URL gekopieerd!');
+    setTimeout(() => setCopiedUrl(false), 2000);
+  }
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-semibold">Instellingen — {garden.name}</h2>
@@ -190,6 +234,16 @@ export function SettingsPage({ garden }: { garden: Garden }) {
               }`}
             >
               Email template
+            </button>
+            <button
+              onClick={() => setActiveTab('calendar')}
+              className={`px-4 py-2 font-medium text-sm transition-colors ${
+                activeTab === 'calendar'
+                  ? 'border-b-2 border-primary text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Kalender integratie
             </button>
           </div>
 
@@ -468,6 +522,107 @@ export function SettingsPage({ garden }: { garden: Garden }) {
                     {saving ? 'Opslaan…' : 'Template opslaan'}
                   </Button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'calendar' && (
+            <div className="space-y-4">
+              <div className="bg-card text-card-foreground border border-border rounded-xl p-6 shadow-sm space-y-6">
+                <div>
+                  <h3 className="text-lg font-semibold mb-2">Kalender Integratie</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Voeg je moestuin acties toe aan Google Calendar, Apple Calendar, Outlook of andere kalender apps.
+                  </p>
+                </div>
+
+                {calendarToken ? (
+                  <>
+                    <div className="space-y-3">
+                      <label className="block text-sm font-medium">Je persoonlijke kalender feed URL</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          readOnly
+                          value={getCalendarFeedUrl(calendarToken)}
+                          className="flex-1 p-2 text-xs border border-border rounded-lg bg-muted/30 font-mono"
+                        />
+                        <Button
+                          onClick={copyFeedUrl}
+                          variant="outline"
+                          size="sm"
+                          className="flex items-center gap-2"
+                        >
+                          <Copy className="w-4 h-4" />
+                          {copiedUrl ? 'Gekopieerd!' : 'Kopieer'}
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Deze URL is privé en gekoppeld aan jouw account. Deel hem niet met anderen.
+                      </p>
+                    </div>
+
+                    <div className="border-t border-border pt-4">
+                      <h4 className="font-medium text-sm mb-3">Hoe toe te voegen aan je kalender:</h4>
+                      <div className="space-y-3 text-xs text-muted-foreground">
+                        <div className="bg-muted/30 rounded-lg p-3">
+                          <p className="font-medium text-foreground mb-1">📱 Google Calendar</p>
+                          <ol className="list-decimal ml-4 space-y-1">
+                            <li>Open Google Calendar op je computer</li>
+                            <li>Klik op het "+" naast "Andere agenda's"</li>
+                            <li>Kies "Van URL"</li>
+                            <li>Plak de URL hierboven en klik "Agenda toevoegen"</li>
+                          </ol>
+                        </div>
+
+                        <div className="bg-muted/30 rounded-lg p-3">
+                          <p className="font-medium text-foreground mb-1">🍎 Apple Calendar</p>
+                          <ol className="list-decimal ml-4 space-y-1">
+                            <li>Open Agenda app</li>
+                            <li>Ga naar Bestand → Nieuw agenda-abonnement</li>
+                            <li>Plak de URL en klik OK</li>
+                            <li>Kies een naam en kleur voor je moestuin agenda</li>
+                          </ol>
+                        </div>
+
+                        <div className="bg-muted/30 rounded-lg p-3">
+                          <p className="font-medium text-foreground mb-1">📧 Outlook</p>
+                          <ol className="list-decimal ml-4 space-y-1">
+                            <li>Open Outlook Calendar</li>
+                            <li>Klik "Agenda toevoegen" → "Vanuit internet"</li>
+                            <li>Plak de URL en klik OK</li>
+                          </ol>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-border pt-4">
+                      <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                        <span className="text-lg">⚠️</span>
+                        <div className="flex-1 text-xs">
+                          <p className="font-medium text-amber-900 mb-1">Veiligheid</p>
+                          <p className="text-amber-800">
+                            Als je denkt dat iemand anders je URL heeft, kun je deze resetten. 
+                            Je oude URL zal dan niet meer werken en moet je opnieuw toevoegen aan je kalender apps.
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        onClick={handleResetToken}
+                        disabled={resettingToken}
+                        variant="outline"
+                        className="w-full mt-3 flex items-center justify-center gap-2"
+                      >
+                        <RefreshCw className={`w-4 h-4 ${resettingToken ? 'animate-spin' : ''}`} />
+                        {resettingToken ? 'Resetten...' : 'Reset URL (oude URL werkt niet meer)'}
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center py-8">
+                    <p className="text-sm text-muted-foreground">Kalender token wordt geladen...</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
