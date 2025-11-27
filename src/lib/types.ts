@@ -4,6 +4,7 @@ export interface Profile {
   id: UUID;
   display_name: string | null;
   notification_prefs: Record<string, any>;
+  calendar_token: string | null;
   created_at: string;
   updated_at: string;
 }
