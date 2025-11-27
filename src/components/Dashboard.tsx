@@ -8,6 +8,8 @@ import { buildConflictsMap, countUniqueConflicts } from "../lib/conflicts";
 import { useConflictFlags } from "../hooks/useConflictFlags";
 import { useIsMobile } from "../hooks/use-mobile";
 import { getCached, setCache } from "../lib/dataCache";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
+import { CalendarView } from "./CalendarView";
 
 /* ---------- helpers ---------- */
 function toISO(d: Date) { return d.toISOString().slice(0, 10); }
@@ -103,6 +105,7 @@ type Milestone = {
 /* ---------- hoofdcomponent ---------- */
 export function Dashboard({ garden }: { garden: Garden }) {
   const isMobile = useIsMobile();
+  const [activeTab, setActiveTab] = useState("overview");
   
   const [beds, setBeds] = useState<GardenBed[]>(() => getCached('dashboard_beds') ?? []);
   const [plantings, setPlantings] = useState<Planting[]>(() => getCached('dashboard_plantings') ?? []);
@@ -525,110 +528,141 @@ export function Dashboard({ garden }: { garden: Garden }) {
   }
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-bold">Dashboard</h2>
-        <button
-          onClick={() => setShowAll(s => !s)}
-          className="px-3 py-1.5 rounded-md border text-sm"
-        >
-          {showAll ? "Komende 2 weken" : "Alle acties"}
-        </button>
-      </div>
+    <div className={`mx-auto ${isMobile ? 'max-w-full px-4 py-4' : 'max-w-5xl py-6'}`}>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="mb-4">
+          <TabsTrigger value="overview">Overzicht</TabsTrigger>
+          <TabsTrigger value="calendar">Kalender</TabsTrigger>
+        </TabsList>
 
-      {/* Conflict banner (alleen info; geen auto-oplossen meer) */}
-      {totalConflicts > 0 && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 text-amber-900 p-3 flex items-center justify-between">
-          <div className="text-sm">
-            ⚠️ {totalConflicts} conflict{totalConflicts!==1?"en":""} gedetecteerd. Bekijk en los op in de Planner (tabblad "Conflicten").
+        <TabsContent value="overview">
+          {/* Filter buttons */}
+          <div className="mb-4 flex gap-2">
+            <button
+              onClick={() => setShowAll(false)}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${!showAll ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"}`}
+            >
+              Komende 2 weken
+            </button>
+            <button
+              onClick={() => setShowAll(true)}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${showAll ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"}`}
+            >
+              Alle acties
+            </button>
           </div>
-          <button
-            className="text-sm px-2 py-1 rounded border border-amber-300 hover:bg-amber-100"
-            onClick={() => {
-              try {
-                localStorage.setItem("plannerOpenTab", "conflicts");
-                window.location.hash = "#planner";
-              } catch {}
-            }}
-          >
-            Open conflicten
-          </button>
-        </div>
-      )}
 
-      <section className="space-y-3">
-        {/* Verlopen acties sectie */}
-        {overduePlantings.length > 0 && (
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-destructive uppercase tracking-wide">
-              Verlopen acties ({overduePlantings.length})
-            </h3>
-            {overduePlantings.map(renderPlantingCard)}
-          </div>
-        )}
-
-        {/* Komende/alle acties */}
-        {upcomingPlantings.length === 0 && overduePlantings.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            {showAll ? "Geen plantingen gevonden." : "Geen acties in de komende 2 weken."}
-          </p>
-        ) : upcomingPlantings.length > 0 ? (
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground">
-              Huidige acties ({upcomingPlantings.length})
-            </h3>
-            {upcomingPlantings.map(renderPlantingCard)}
-          </div>
-        ) : null}
-      </section>
-
-      {/* Dialog: actie uitvoeren / bewerken of leegmaken */}
-      {dialog && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setDialog(null)}>
-          <div className={`bg-card w-full ${isMobile ? 'max-w-full' : 'max-w-sm'} rounded-lg shadow-lg ${isMobile ? 'p-6' : 'p-5'} space-y-4`} onClick={(e) => e.stopPropagation()}>
-            <h4 className={`${isMobile ? 'text-xl' : 'text-lg'} font-semibold`}>Actie {dialog.hasActual ? "bewerken" : "uitvoeren"}</h4>
-            <p className={`${isMobile ? 'text-base' : 'text-sm'}`}>
-              {(() => {
-                const p = plantingsById[dialog.task.planting_id];
-                return `${labelForType(dialog.task.type, p?.method)} • ${seedNameFor(dialog.task)} • ${bedNameFor(dialog.task)}`;
-              })()}
-            </p>
-            <label className={`block ${isMobile ? 'text-base' : 'text-sm'}`}>
-              Datum
-              <input
-                type="date"
-                value={dialog.dateISO}
-                onChange={(e) => setDialog(d => d ? { ...d, dateISO: e.target.value } : d)}
-                className={`mt-2 w-full border border-input bg-background rounded-md ${isMobile ? 'px-4 py-3 text-base' : 'px-2 py-1'}`}
-              />
-            </label>
-            <div className={`flex ${isMobile ? 'flex-col' : 'justify-end'} gap-2`}>
-              <button 
-                className={`${isMobile ? 'w-full py-3 text-base' : 'px-3 py-1.5'} rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80`} 
-                onClick={() => setDialog(null)}
-              >
-                Annuleren
-              </button>
-              {dialog.hasActual && (
-                <button
-                  className={`${isMobile ? 'w-full py-3 text-base' : 'px-3 py-1.5'} rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50`}
-                  onClick={() => clearActual(dialog.task)}
-                  disabled={busyId === dialog.task.id}
-                >
-                  {busyId === dialog.task.id ? "Leegmaken…" : "Leegmaken"}
-                </button>
-              )}
+          {/* Conflict banner (alleen info; geen auto-oplossen meer) */}
+          {totalConflicts > 0 && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 text-amber-900 p-3 flex items-center justify-between">
+              <div className="text-sm">
+                ⚠️ {totalConflicts} conflict{totalConflicts!==1?"en":""} gedetecteerd. Bekijk en los op in de Planner (tabblad "Conflicten").
+              </div>
               <button
-                className={`${isMobile ? 'w-full py-3 text-base' : 'px-3 py-1.5'} rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50`}
-                onClick={() => applyActual(dialog.task, dialog.dateISO)}
-                disabled={busyId === dialog.task.id}
+                className="text-sm px-2 py-1 rounded border border-amber-300 hover:bg-amber-100"
+                onClick={() => {
+                  try {
+                    localStorage.setItem("plannerOpenTab", "conflicts");
+                    window.location.hash = "#planner";
+                  } catch {}
+                }}
               >
-                {busyId === dialog.task.id ? "Opslaan…" : "Opslaan"}
+                Open conflicten
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          )}
+
+          <section className="space-y-3">
+            {/* Verlopen acties sectie */}
+            {overduePlantings.length > 0 && (
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold text-destructive uppercase tracking-wide">
+                  Verlopen acties ({overduePlantings.length})
+                </h3>
+                {overduePlantings.map(renderPlantingCard)}
+              </div>
+            )}
+
+            {/* Komende/alle acties */}
+            {upcomingPlantings.length === 0 && overduePlantings.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {showAll ? "Geen plantingen gevonden." : "Geen acties in de komende 2 weken."}
+              </p>
+            ) : upcomingPlantings.length > 0 ? (
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground">
+                  Huidige acties ({upcomingPlantings.length})
+                </h3>
+                {upcomingPlantings.map(renderPlantingCard)}
+              </div>
+            ) : null}
+          </section>
+
+          {/* Dialog: actie uitvoeren / bewerken of leegmaken */}
+          {dialog && (
+            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setDialog(null)}>
+              <div className={`bg-card w-full ${isMobile ? 'max-w-full' : 'max-w-sm'} rounded-lg shadow-lg ${isMobile ? 'p-6' : 'p-5'} space-y-4`} onClick={(e) => e.stopPropagation()}>
+                <h4 className={`${isMobile ? 'text-xl' : 'text-lg'} font-semibold`}>Actie {dialog.hasActual ? "bewerken" : "uitvoeren"}</h4>
+                <p className={`${isMobile ? 'text-base' : 'text-sm'}`}>
+                  {(() => {
+                    const p = plantingsById[dialog.task.planting_id];
+                    return `${labelForType(dialog.task.type, p?.method)} • ${seedNameFor(dialog.task)} • ${bedNameFor(dialog.task)}`;
+                  })()}
+                </p>
+                <label className={`block ${isMobile ? 'text-base' : 'text-sm'}`}>
+                  Datum
+                  <input
+                    type="date"
+                    value={dialog.dateISO}
+                    onChange={(e) => setDialog(d => d ? { ...d, dateISO: e.target.value } : d)}
+                    className={`mt-2 w-full border border-input bg-background rounded-md ${isMobile ? 'px-4 py-3 text-base' : 'px-2 py-1'}`}
+                  />
+                </label>
+                <div className={`flex ${isMobile ? 'flex-col' : 'justify-end'} gap-2`}>
+                  <button 
+                    className={`${isMobile ? 'w-full py-3 text-base' : 'px-3 py-1.5'} rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80`} 
+                    onClick={() => setDialog(null)}
+                  >
+                    Annuleren
+                  </button>
+                  {dialog.hasActual && (
+                    <button
+                      className={`${isMobile ? 'w-full py-3 text-base' : 'px-3 py-1.5'} rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50`}
+                      onClick={() => clearActual(dialog.task)}
+                      disabled={busyId === dialog.task.id}
+                    >
+                      {busyId === dialog.task.id ? "Leegmaken…" : "Leegmaken"}
+                    </button>
+                  )}
+                  <button
+                    className={`${isMobile ? 'w-full py-3 text-base' : 'px-3 py-1.5'} rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50`}
+                    onClick={() => applyActual(dialog.task, dialog.dateISO)}
+                    disabled={busyId === dialog.task.id}
+                  >
+                    {busyId === dialog.task.id ? "Opslaan…" : "Opslaan"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="calendar">
+          <CalendarView
+            beds={beds}
+            plantings={plantings}
+            seeds={seeds}
+            tasks={tasks}
+            bedsById={bedsById}
+            seedsById={seedsById}
+            plantingsById={plantingsById}
+            tasksIndex={tasksIndex}
+            busyId={busyId}
+            onApplyActual={applyActual}
+            onClearActual={clearActual}
+          />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
