@@ -112,7 +112,6 @@ export function Dashboard({ garden }: { garden: Garden }) {
   const [seeds, setSeeds] = useState<Seed[]>(() => getCached('dashboard_seeds') ?? []);
   const [tasks, setTasks] = useState<Task[]>(() => getCached('dashboard_tasks') ?? []);
   const [showAll, setShowAll] = useState(false);
-  const [loading, setLoading] = useState(false);
 
   const [dialog, setDialog] = useState<{
     task: Task;
@@ -121,20 +120,12 @@ export function Dashboard({ garden }: { garden: Garden }) {
   } | null>(null);
 
   const [busyId, setBusyId] = useState<string | null>(null);
-  const hasLoadedRef = useRef(false);
 
   useEffect(() => {
-    // Laad data maar 1x, ongeacht tab switches
-    if (hasLoadedRef.current) return;
+    // Als er al data is, doe niks
+    if (beds.length > 0) return;
     
-    if (beds.length > 0 && plantings.length > 0 && seeds.length > 0 && tasks.length > 0) {
-      hasLoadedRef.current = true;
-      return;
-    }
-
-    hasLoadedRef.current = true;
-    setLoading(true);
-    
+    // Laad op achtergrond zonder loading state
     Promise.all([
       listBeds(garden.id),
       listPlantings(garden.id),
@@ -151,11 +142,7 @@ export function Dashboard({ garden }: { garden: Garden }) {
         setCache('dashboard_seeds', s);
         setCache('dashboard_tasks', t);
       })
-      .catch((err) => {
-        console.error('Dashboard load error:', err);
-        hasLoadedRef.current = false; // Reset zodat het opnieuw kan proberen
-      })
-      .finally(() => setLoading(false));
+      .catch((err) => console.error('Dashboard load error:', err));
   }, []);
 
   const bedsById = useMemo(() => Object.fromEntries(beds.map(b => [b.id, b])), [beds]);
@@ -516,17 +503,6 @@ export function Dashboard({ garden }: { garden: Garden }) {
   };
 
   /* ---------- render ---------- */
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-center space-y-2">
-          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto" />
-          <p className="text-sm text-muted-foreground">Gegevens laden...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className={`mx-auto ${isMobile ? 'max-w-full px-4 py-4' : 'max-w-5xl py-6'}`}>
       <Tabs value={activeTab} onValueChange={setActiveTab}>

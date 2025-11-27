@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Garden, Seed } from "../lib/types";
 import { listSeeds, createSeed, updateSeed, deleteSeed } from "../lib/api/seeds";
 import { listCropTypes } from "../lib/api/cropTypes";
@@ -126,8 +126,6 @@ export function InventoryPage({ garden }: { garden: Garden }) {
   const [seeds, setSeeds] = useState<Seed[]>(() => getCached('inventory_seeds') ?? []);
   const [cropTypes, setCropTypes] = useState<CropType[]>(() => getCached('inventory_croptypes') ?? []);
   const [editorOpen, setEditorOpen] = useState<{ seed: Seed | null } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const hasLoadedRef = useRef(false);
 
   // filters
   const [inStockOnly, setInStockOnly] = useState<boolean>(false);
@@ -135,12 +133,10 @@ export function InventoryPage({ garden }: { garden: Garden }) {
   const [q, setQ] = useState<string>(() => localStorage.getItem("inventoryQ") ?? "");
 
   useEffect(() => {
-    // Laad data maar 1x
-    if (hasLoadedRef.current || (seeds.length > 0 && cropTypes.length > 0)) return;
+    // Als er al data is, doe niks
+    if (seeds.length > 0) return;
     
-    hasLoadedRef.current = true;
-    setLoading(true);
-    
+    // Laad op achtergrond
     Promise.all([listSeeds(garden.id), listCropTypes()])
       .then(([ss, cts]) => {
         setSeeds(ss);
@@ -148,8 +144,7 @@ export function InventoryPage({ garden }: { garden: Garden }) {
         setCache('inventory_seeds', ss);
         setCache('inventory_croptypes', cts);
       })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+      .catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -250,17 +245,6 @@ export function InventoryPage({ garden }: { garden: Garden }) {
 
     return out;
   }, [filtered, cropTypes]);
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-center space-y-2">
-          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto" />
-          <p className="text-sm text-muted-foreground">Voorraad laden...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-8">
