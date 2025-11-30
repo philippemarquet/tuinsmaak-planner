@@ -8,6 +8,3 @@ verify_jwt = false
 
 [functions.calendar-feed]
 verify_jwt = false
-
-[functions.ean-seed-lookup]
-verify_jwt = false

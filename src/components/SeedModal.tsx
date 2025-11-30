@@ -4,7 +4,6 @@ import { createSeed, updateSeed } from "../lib/api/seeds";
 import { listCropTypes } from "../lib/api/cropTypes";
 import { MonthSelector } from "./MonthSelector";
 import { ColorField } from "./ColorField";
-import { supabase } from "@/integrations/supabase/client";
 
 interface SeedModalProps {
   gardenId: UUID;
@@ -18,11 +17,6 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
   const [cropTypes, setCropTypes] = useState<CropType[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
-  // EAN Lookup state
-  const [eanCode, setEanCode] = useState("");
-  const [eanLoading, setEanLoading] = useState(false);
-  const [eanMessage, setEanMessage] = useState<{type: 'success' | 'info' | 'error', text: string} | null>(null);
 
   const [form, setForm] = useState<Partial<Seed>>({
     garden_id: gardenId,
@@ -84,62 +78,6 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
     setForm((f) => ({ ...f, [field]: value }));
   }
 
-  async function handleEanLookup() {
-    if (!eanCode.trim()) return;
-    
-    setEanLoading(true);
-    setEanMessage(null);
-    
-    try {
-      const { data, error: lookupError } = await supabase.functions.invoke('ean-seed-lookup', {
-        body: { ean: eanCode.trim() }
-      });
-
-      if (lookupError) throw lookupError;
-
-      if (data?.found && data?.data) {
-        const extracted = data.data;
-        
-        // Update form met gevonden data
-        setForm(prev => ({
-          ...prev,
-          name: extracted.name || prev.name,
-          crop_type_id: extracted.crop_type_id || prev.crop_type_id,
-          sowing_type: extracted.sowing_type || prev.sowing_type,
-          presow_months: extracted.presow_months || prev.presow_months,
-          direct_plant_months: extracted.direct_plant_months || prev.direct_plant_months,
-          greenhouse_months: extracted.greenhouse_months || prev.greenhouse_months,
-          harvest_months: extracted.harvest_months || prev.harvest_months,
-          presow_duration_weeks: extracted.presow_duration_weeks ?? prev.presow_duration_weeks,
-          grow_duration_weeks: extracted.grow_duration_weeks ?? prev.grow_duration_weeks,
-          harvest_duration_weeks: extracted.harvest_duration_weeks ?? prev.harvest_duration_weeks,
-          plant_spacing_cm: extracted.plant_spacing_cm ?? prev.plant_spacing_cm,
-          row_spacing_cm: extracted.row_spacing_cm ?? prev.row_spacing_cm,
-          greenhouse_compatible: extracted.greenhouse_compatible ?? prev.greenhouse_compatible,
-          notes: extracted.notes || prev.notes,
-        }));
-        
-        setEanMessage({ 
-          type: 'success', 
-          text: 'Gevonden! Controleer de ingevulde gegevens en pas aan waar nodig.' 
-        });
-      } else {
-        setEanMessage({ 
-          type: 'info', 
-          text: data?.message || `Geen informatie gevonden voor EAN ${eanCode}. Je kunt de gegevens handmatig invullen.` 
-        });
-      }
-    } catch (err: any) {
-      console.error('EAN lookup error:', err);
-      setEanMessage({ 
-        type: 'error', 
-        text: err?.message || 'Er ging iets mis bij het zoeken. Probeer het opnieuw of vul handmatig in.' 
-      });
-    } finally {
-      setEanLoading(false);
-    }
-  }
-
   async function handleSave() {
     setSaving(true);
     setError(null);
@@ -188,36 +126,6 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
         {error && (
           <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
             {error}
-          </div>
-        )}
-
-        {/* EAN Lookup */}
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2 items-end">
-          <div>
-            <label className="block text-sm font-medium mb-1">EAN / Barcode</label>
-            <input
-              type="text"
-              value={eanCode}
-              onChange={(e) => setEanCode(e.target.value)}
-              placeholder="Bijv. 8717202604869"
-              className="w-full border rounded-md px-2 py-1"
-            />
-          </div>
-          <button
-            onClick={handleEanLookup}
-            disabled={!eanCode.trim() || eanLoading}
-            className="px-3 py-1 rounded-md border border-border bg-muted hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {eanLoading ? "Zoeken..." : "🔍 Zoeken"}
-          </button>
-        </div>
-        {eanMessage && (
-          <div className={`text-sm rounded px-3 py-2 ${
-            eanMessage.type === 'success' ? 'text-green-700 bg-green-50 border border-green-200' :
-            eanMessage.type === 'error' ? 'text-red-600 bg-red-50 border border-red-200' :
-            'text-amber-700 bg-amber-50 border border-amber-200'
-          }`}>
-            {eanMessage.text}
           </div>
         )}
 
