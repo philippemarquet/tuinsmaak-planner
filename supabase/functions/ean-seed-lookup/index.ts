@@ -173,6 +173,27 @@ Extraheer ALLEEN informatie die je daadwerkelijk vindt in de zoekresultaten. Geb
     const extractedData = JSON.parse(toolCall.function.arguments);
     console.log('[EAN Lookup] Gevonden data:', extractedData);
 
+    // Check of er daadwerkelijk zinvolle data is gevonden
+    const hasValidName = extractedData.name && 
+                         extractedData.name.toLowerCase() !== 'onbekend' && 
+                         extractedData.name.toLowerCase() !== 'unknown' &&
+                         !extractedData.name.toLowerCase().includes('geen informatie');
+    
+    const hasNoDataMessage = extractedData.notes && (
+      extractedData.notes.toLowerCase().includes('geen') ||
+      extractedData.notes.toLowerCase().includes('niet gevonden') ||
+      extractedData.notes.toLowerCase().includes('no data')
+    );
+
+    // Als er geen valide naam is OF als de notes aangeven dat er niets gevonden is
+    if (!hasValidName || hasNoDataMessage) {
+      console.log('[EAN Lookup] Geen bruikbare data gevonden');
+      return new Response(
+        JSON.stringify({ found: false, message: `Geen informatie gevonden voor EAN ${ean}` }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     // Map crop_type naar database ID
     if (extractedData.crop_type && cropTypeMap[extractedData.crop_type]) {
       extractedData.crop_type_id = cropTypeMap[extractedData.crop_type];
