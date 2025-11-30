@@ -38,8 +38,8 @@ serve(async (req) => {
 
     console.log(`[EAN Lookup] Zoeken naar EAN: ${ean}`);
 
-    // Web search voor Nederlandse zadenleveranciers
-    const searchQuery = `${ean} zaad zaden De Bolster Vreeken biologisch site:debolster.nl OR site:vreeken.nl`;
+    // Web search voor Nederlandse en Franse zadenleveranciers
+    const searchQuery = `${ean} zaad zaden graine semence "De Bolster" OR "Vreeken" OR "Sainte Marthe" OR "Ferme de Sainte Marthe" OR "Graines Baumaux" OR "Kokopelli" site:debolster.nl OR site:vreeken.nl OR site:fermedesaintemarthe.com OR site:graines-baumaux.fr OR site:kokopelli-semences.fr`;
     const searchResponse = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(searchQuery)}`);
     const searchHtml = await searchResponse.text();
     
@@ -55,7 +55,7 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: `Je bent een expert in het extraheren van zaad/seed informatie van Nederlandse websites zoals De Bolster en Vreeken's.
+            content: `Je bent een expert in het extraheren van zaad/seed informatie van Nederlandse en Franse websites zoals De Bolster, Vreeken's, Ferme de Sainte Marthe, Graines Baumaux en Kokopelli.
 
 BELANGRIJK - Gewastypes mapping (gebruik EXACT deze namen):
 - Aardappel (aardappelen)
