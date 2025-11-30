@@ -38,10 +38,17 @@ serve(async (req) => {
 
     console.log(`[EAN Lookup] Zoeken naar EAN: ${ean}`);
 
-    // Web search voor Nederlandse en Franse zadenleveranciers
-    const searchQuery = `${ean} zaad zaden graine semence "De Bolster" OR "Vreeken" OR "Sainte Marthe" OR "Ferme de Sainte Marthe" OR "Graines Baumaux" OR "Kokopelli" site:debolster.nl OR site:vreeken.nl OR site:fermedesaintemarthe.com OR site:graines-baumaux.fr OR site:kokopelli-semences.fr`;
-    const searchResponse = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(searchQuery)}`);
+    // Probeer eerst direct naar product pages te zoeken met EAN in URL
+    const directSearchQuery = `"${ean}" site:debolster.nl OR site:vreeken.nl OR site:fermedesaintemarthe.com OR site:graines-baumaux.fr OR site:kokopelli-semences.fr`;
+    
+    // Tweede zoekopdracht met productnaam keywords
+    const productSearchQuery = `${ean} (zaad OR zaden OR graine OR semence OR "biologisch zaad") (debolster OR vreeken OR "sainte marthe" OR baumaux OR kokopelli)`;
+    
+    // Gebruik de meest specifieke query
+    const searchResponse = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(directSearchQuery)}`);
     const searchHtml = await searchResponse.text();
+    
+    console.log('[EAN Lookup] Search resultaten lengte:', searchHtml.length);
     
     // Gebruik Lovable AI om gestructureerde data te extraheren
     const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
@@ -57,6 +64,13 @@ serve(async (req) => {
             role: 'system',
             content: `Je bent een expert in het extraheren van zaad/seed informatie van Nederlandse en Franse websites zoals De Bolster, Vreeken's, Ferme de Sainte Marthe, Graines Baumaux en Kokopelli.
 
+Je krijgt HTML zoekresultaten van zoekmachines. Zoek naar:
+- Productnaam (vaak in titles, headers, of product links)
+- EAN/barcode referenties
+- Zaai- en oogstinformatie
+- Plantafstanden
+- Productbeschrijvingen
+
 BELANGRIJK - Gewastypes mapping (gebruik EXACT deze namen):
 - Aardappel (aardappelen)
 - Alium (uien, look, sjalotten, prei)
@@ -70,13 +84,19 @@ BELANGRIJK - Gewastypes mapping (gebruik EXACT deze namen):
 
 Maanden: gebruik getallen 1-12 (januari=1, december=12).
 
+BELANGRIJK: 
+- Als je een productnaam vindt (zelfs een gedeeltelijke), gebruik die voor het name veld
+- Gebruik null (niet "null" als string, niet "Onbekend") als je echt geen naam vindt
+- Wees creatief in het interpreteren van fragmentarische informatie
+- Zoek naar zaadnamen in link teksten, titles, en snippets
+
 Extraheer ALLEEN informatie die je daadwerkelijk vindt in de zoekresultaten. Gebruik null voor onbekende velden.
 
 BELANGRIJK: Als je geen zaadnaam kunt vinden, gebruik dan null voor het name veld (niet "Onbekend" of "null" als tekst).`
           },
           {
             role: 'user',
-            content: `Zoekresultaten voor EAN ${ean}:\n\n${searchHtml.slice(0, 4000)}\n\nExtraheer zaad informatie uit deze resultaten.`
+            content: `Zoekresultaten voor EAN ${ean}. Analyseer deze HTML en zoek naar product informatie. Let op link teksten, titles, en snippets die de productnaam bevatten:\n\n${searchHtml.slice(0, 6000)}\n\nExtraheer zaad informatie uit deze resultaten. Als je een productnaam ziet (ook gedeeltelijk), gebruik die. Wees creatief!`
           }
         ],
         tools: [
