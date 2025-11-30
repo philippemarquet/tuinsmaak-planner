@@ -70,7 +70,9 @@ BELANGRIJK - Gewastypes mapping (gebruik EXACT deze namen):
 
 Maanden: gebruik getallen 1-12 (januari=1, december=12).
 
-Extraheer ALLEEN informatie die je daadwerkelijk vindt in de zoekresultaten. Gebruik null voor onbekende velden.`
+Extraheer ALLEEN informatie die je daadwerkelijk vindt in de zoekresultaten. Gebruik null voor onbekende velden.
+
+BELANGRIJK: Als je geen zaadnaam kunt vinden, gebruik dan null voor het name veld (niet "Onbekend" of "null" als tekst).`
           },
           {
             role: 'user',
@@ -177,6 +179,8 @@ Extraheer ALLEEN informatie die je daadwerkelijk vindt in de zoekresultaten. Geb
     const hasValidName = extractedData.name && 
                          extractedData.name.toLowerCase() !== 'onbekend' && 
                          extractedData.name.toLowerCase() !== 'unknown' &&
+                         extractedData.name.toLowerCase() !== 'null' &&
+                         extractedData.name !== 'null' &&
                          !extractedData.name.toLowerCase().includes('geen informatie');
     
     const hasNoDataMessage = extractedData.notes && (
