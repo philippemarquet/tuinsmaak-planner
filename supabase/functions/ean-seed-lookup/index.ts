@@ -38,17 +38,54 @@ serve(async (req) => {
 
     console.log(`[EAN Lookup] Zoeken naar EAN: ${ean}`);
 
-    // Probeer eerst direct naar product pages te zoeken met EAN in URL
+    // Stap 1: Zoek naar relevante productpagina's
     const directSearchQuery = `"${ean}" site:debolster.nl OR site:vreeken.nl OR site:fermedesaintemarthe.com OR site:graines-baumaux.fr OR site:kokopelli-semences.fr`;
     
-    // Tweede zoekopdracht met productnaam keywords
-    const productSearchQuery = `${ean} (zaad OR zaden OR graine OR semence OR "biologisch zaad") (debolster OR vreeken OR "sainte marthe" OR baumaux OR kokopelli)`;
-    
-    // Gebruik de meest specifieke query
     const searchResponse = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(directSearchQuery)}`);
     const searchHtml = await searchResponse.text();
     
     console.log('[EAN Lookup] Search resultaten lengte:', searchHtml.length);
+
+    // Stap 2: Extract eerste relevante product URL uit search results
+    const urlRegex = /href="(https?:\/\/(?:www\.)?(debolster\.nl|vreeken\.nl|fermedesaintemarthe\.com|graines-baumaux\.fr|kokopelli-semences\.fr)[^"]+)"/g;
+    const urls: string[] = [];
+    let match;
+    
+    while ((match = urlRegex.exec(searchHtml)) !== null && urls.length < 3) {
+      const url = match[1];
+      // Filter out non-product pages
+      if (!url.includes('/cart') && !url.includes('/checkout') && !url.includes('/account')) {
+        urls.push(url);
+      }
+    }
+
+    console.log('[EAN Lookup] Gevonden URLs:', urls.length);
+
+    // Stap 3: Haal volledige productpagina op
+    let productHtml = '';
+    let productUrl = '';
+    
+    if (urls.length > 0) {
+      productUrl = urls[0];
+      console.log('[EAN Lookup] Fetching product page:', productUrl);
+      
+      try {
+        const productResponse = await fetch(productUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          }
+        });
+        productHtml = await productResponse.text();
+        console.log('[EAN Lookup] Product page lengte:', productHtml.length);
+      } catch (err) {
+        console.error('[EAN Lookup] Fout bij ophalen productpagina:', err);
+        // Fallback naar search results
+        productHtml = searchHtml;
+      }
+    } else {
+      // Geen directe URLs gevonden, gebruik search results
+      productHtml = searchHtml;
+    }
     
     // Gebruik Lovable AI om gestructureerde data te extraheren
     const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
@@ -96,7 +133,19 @@ BELANGRIJK: Als je geen zaadnaam kunt vinden, gebruik dan null voor het name vel
           },
           {
             role: 'user',
-            content: `Zoekresultaten voor EAN ${ean}. Analyseer deze HTML en zoek naar product informatie. Let op link teksten, titles, en snippets die de productnaam bevatten:\n\n${searchHtml.slice(0, 6000)}\n\nExtraheer zaad informatie uit deze resultaten. Als je een productnaam ziet (ook gedeeltelijk), gebruik die. Wees creatief!`
+            content: `${productUrl ? `Volledige productpagina van ${productUrl}` : 'Zoekresultaten'} voor EAN ${ean}. 
+
+Analyseer deze HTML en extraheer alle beschikbare zaad informatie:
+- Productnaam (vaak in <h1>, <title>, of product headers)
+- EAN/barcode referenties
+- Zaai- en oogstmaanden (zoek naar maandnamen of cijfers 1-12)
+- Plantafstanden (cm)
+- Productbeschrijvingen met teeltinformatie
+
+HTML content (eerste 8000 karakters):
+${productHtml.slice(0, 8000)}
+
+Extraheer alle bruikbare informatie. Gebruik gedeeltelijke namen als dat het beste is wat je kan vinden.`
           }
         ],
         tools: [
