@@ -47,6 +47,18 @@ export async function deleteGardenTask(id: string): Promise<void> {
   if (error) throw error;
 }
 
+export async function deleteCompletedGardenTasks(gardenId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from("garden_tasks")
+    .delete()
+    .eq("garden_id", gardenId)
+    .eq("status", "done")
+    .select("id");
+
+  if (error) throw error;
+  return data?.length ?? 0;
+}
+
 export async function completeGardenTask(id: string): Promise<GardenTask> {
   const { data, error } = await supabase
     .from("garden_tasks")

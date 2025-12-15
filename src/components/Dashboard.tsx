@@ -3,7 +3,7 @@ import { getISOWeek } from "date-fns";
 import type { Garden, GardenBed, Planting, Seed, Task, GardenTask } from "../lib/types";
 import { updatePlanting } from "../lib/api/plantings";
 import { updateTask } from "../lib/api/tasks";
-import { createGardenTask, updateGardenTask, deleteGardenTask, completeGardenTask } from "../lib/api/gardenTasks";
+import { createGardenTask, updateGardenTask, deleteGardenTask, completeGardenTask, deleteCompletedGardenTasks } from "../lib/api/gardenTasks";
 import { buildConflictsMap, countUniqueConflicts } from "../lib/conflicts";
 import { useConflictFlags } from "../hooks/useConflictFlags";
 import { useIsMobile } from "../hooks/use-mobile";
@@ -550,6 +550,7 @@ export function Dashboard({
     onEditTask,
     onCompleteTask,
     onDeleteTask,
+    onDeleteAllCompleted,
   }: {
     gardenTasks: GardenTask[];
     isMobile: boolean;
@@ -557,6 +558,7 @@ export function Dashboard({
     onEditTask: (task: GardenTask) => void;
     onCompleteTask: (task: GardenTask) => void;
     onDeleteTask: (task: GardenTask) => void;
+    onDeleteAllCompleted: () => void;
   }) => {
     // Filter: pending tasks first, then done ones
     const pendingTasks = gardenTasks.filter(t => t.status === "pending");
@@ -569,13 +571,24 @@ export function Dashboard({
             <Sprout className="w-4 h-4" />
             Tuin taken
           </h3>
-          <button
-            onClick={onAddTask}
-            className="flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
-          >
-            <Plus className="w-3 h-3" />
-            Toevoegen
-          </button>
+          <div className="flex items-center gap-2">
+            {doneTasks.length > 0 && (
+              <button
+                onClick={onDeleteAllCompleted}
+                className="flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-destructive/30 text-destructive hover:bg-destructive/10"
+              >
+                <Trash2 className="w-3 h-3" />
+                Alle afgeronde verwijderen
+              </button>
+            )}
+            <button
+              onClick={onAddTask}
+              className="flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              <Plus className="w-3 h-3" />
+              Toevoegen
+            </button>
+          </div>
         </div>
 
         {pendingTasks.length === 0 && doneTasks.length === 0 ? (
@@ -783,6 +796,16 @@ export function Dashboard({
                 await reloadAll();
               } catch (e: any) {
                 alert("Kon taak niet verwijderen: " + (e?.message ?? e));
+              }
+            }}
+            onDeleteAllCompleted={async () => {
+              if (!garden) return;
+              if (!confirm("Weet je zeker dat je alle afgeronde tuintaken wilt verwijderen?")) return;
+              try {
+                await deleteCompletedGardenTasks(garden.id);
+                await reloadAll();
+              } catch (e: any) {
+                alert("Kon taken niet verwijderen: " + (e?.message ?? e));
               }
             }}
           />
