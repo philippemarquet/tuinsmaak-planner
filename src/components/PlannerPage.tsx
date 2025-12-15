@@ -678,7 +678,7 @@ export function PlannerPage({
 
   /* ===== LIST view (main area only) ===== */
   const listViewContent = (
-    <div className="flex-1 overflow-auto p-4">
+    <div className="p-4 pb-8">
       <div className="space-y-6">
         {([["Buiten", outdoorBeds], ["Kas", greenhouseBeds]] as const).map(
           ([label, bedList]) =>
@@ -1131,12 +1131,12 @@ export function PlannerPage({
       )}
 
       <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="flex min-h-[calc(100vh-200px)]">
+        <div className="flex flex-1 min-h-0">
           {/* Fixed sidebar */}
           {(view === "list" || view === "map") && <SeedsSidebar />}
           
-          {/* Main content area */}
-          <div className="flex-1 overflow-hidden">
+          {/* Main content area - scrollable */}
+          <div className="flex-1 overflow-auto">
             {view === "list" && listViewContent}
             {view === "map" && (
               <div className="p-6 h-full">
