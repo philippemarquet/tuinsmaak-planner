@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { getISOWeek } from "date-fns";
+import { getISOWeek, format } from "date-fns";
+import { nl } from "date-fns/locale";
 import type { Garden, GardenBed, Planting, Seed, Task, GardenTask } from "../lib/types";
 import { updatePlanting } from "../lib/api/plantings";
 import { updateTask } from "../lib/api/tasks";
@@ -10,7 +11,10 @@ import { useIsMobile } from "../hooks/use-mobile";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { CalendarView } from "./CalendarView";
 import { GardenTaskModal } from "./GardenTaskModal";
-import { Plus, AlertCircle, Check, Sprout, Trash2 } from "lucide-react";
+import { Plus, AlertCircle, Check, Sprout, Trash2, X, CalendarIcon } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { Calendar } from "./ui/calendar";
+import { cn } from "../lib/utils";
 /* ---------- helpers ---------- */
 function toISO(d: Date) { return d.toISOString().slice(0, 10); }
 function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
@@ -693,30 +697,50 @@ export function Dashboard({
         </TabsList>
 
         <TabsContent value="overview">
-          {/* Filter buttons */}
-          <div className="mb-4 flex gap-2">
+          {/* Filter - Segmented Control */}
+          <div className="mb-5 flex p-1 bg-muted/40 rounded-lg w-fit">
             <button
               onClick={() => setShowAll(false)}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${!showAll ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"}`}
+              className={cn(
+                "px-4 py-2 text-sm font-medium rounded-md transition-all",
+                !showAll 
+                  ? "bg-background text-foreground shadow-sm" 
+                  : "text-muted-foreground hover:text-foreground"
+              )}
             >
               Komende 2 weken
             </button>
             <button
               onClick={() => setShowAll(true)}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${showAll ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"}`}
+              className={cn(
+                "px-4 py-2 text-sm font-medium rounded-md transition-all",
+                showAll 
+                  ? "bg-background text-foreground shadow-sm" 
+                  : "text-muted-foreground hover:text-foreground"
+              )}
             >
               Alle acties
             </button>
           </div>
 
-          {/* Conflict banner (alleen info; geen auto-oplossen meer) */}
+          {/* Conflict banner - Modern style */}
           {totalConflicts > 0 && (
-            <div className="rounded-md border border-amber-300 bg-amber-50 text-amber-900 p-3 flex items-center justify-between">
-              <div className="text-sm">
-                ⚠️ {totalConflicts} conflict{totalConflicts!==1?"en":""} gedetecteerd. Bekijk en los op in de Planner (tabblad "Conflicten").
+            <div className="rounded-xl border border-amber-200 bg-amber-50/50 backdrop-blur-sm p-4 flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                  <AlertCircle className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-amber-900">
+                    {totalConflicts} conflict{totalConflicts!==1?"en":""} gedetecteerd
+                  </p>
+                  <p className="text-xs text-amber-700">
+                    Bekijk en los op in de Planner
+                  </p>
+                </div>
               </div>
               <button
-                className="text-sm px-2 py-1 rounded border border-amber-300 hover:bg-amber-100"
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors"
                 onClick={() => {
                   try {
                     localStorage.setItem("plannerOpenTab", "conflicts");
@@ -834,49 +858,129 @@ export function Dashboard({
             } : undefined}
           />
 
-          {/* Dialog: actie uitvoeren / bewerken of leegmaken */}
+          {/* Dialog: actie uitvoeren / bewerken of leegmaken - Modern Style */}
           {dialog && (
-            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setDialog(null)}>
-              <div className={`bg-card w-full ${isMobile ? 'max-w-full' : 'max-w-sm'} rounded-lg shadow-lg ${isMobile ? 'p-6' : 'p-5'} space-y-4`} onClick={(e) => e.stopPropagation()}>
-                <h4 className={`${isMobile ? 'text-xl' : 'text-lg'} font-semibold`}>Actie {dialog.hasActual ? "bewerken" : "uitvoeren"}</h4>
-                <p className={`${isMobile ? 'text-base' : 'text-sm'}`}>
-                  {(() => {
-                    const p = plantingsById[dialog.task.planting_id];
-                    return `${labelForType(dialog.task.type, p?.method)} • ${seedNameFor(dialog.task)} • ${bedNameFor(dialog.task)}`;
-                  })()}
-                </p>
-                <label className={`block ${isMobile ? 'text-base' : 'text-sm'}`}>
-                  Datum
-                  <input
-                    type="date"
-                    value={dialog.dateISO}
-                    onChange={(e) => setDialog(d => d ? { ...d, dateISO: e.target.value } : d)}
-                    className={`mt-2 w-full border border-input bg-background rounded-md ${isMobile ? 'px-4 py-3 text-base' : 'px-2 py-1'}`}
-                  />
-                </label>
-                <div className={`flex ${isMobile ? 'flex-col' : 'justify-end'} gap-2`}>
+            <div 
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" 
+              onClick={() => setDialog(null)}
+            >
+              <div 
+                className={cn(
+                  "bg-card/95 backdrop-blur-md w-full rounded-2xl shadow-2xl border border-border/50 overflow-hidden animate-in fade-in-0 zoom-in-95 duration-200",
+                  isMobile ? 'max-w-full' : 'max-w-md'
+                )} 
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between px-5 py-4 border-b border-border/30 bg-gradient-to-r from-primary/5 to-transparent">
+                  <h4 className="text-lg font-semibold">
+                    Actie {dialog.hasActual ? "bewerken" : "uitvoeren"}
+                  </h4>
                   <button 
-                    className={`${isMobile ? 'w-full py-3 text-base' : 'px-3 py-1.5'} rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80`} 
                     onClick={() => setDialog(null)}
+                    className="p-2 rounded-full hover:bg-muted/50 transition-colors"
                   >
-                    Annuleren
+                    <X className="h-4 w-4 text-muted-foreground" />
                   </button>
-                  {dialog.hasActual && (
+                </div>
+
+                {/* Content */}
+                <div className="p-5 space-y-5">
+                  {/* Task info */}
+                  <div className="flex items-center gap-3 p-3 bg-muted/20 rounded-lg">
+                    <div 
+                      className="w-3 h-3 rounded-full"
+                      style={{ 
+                        background: (() => {
+                          const p = plantingsById[dialog.task.planting_id];
+                          return p?.color || "#22c55e";
+                        })()
+                      }}
+                    />
+                    <div>
+                      <p className="text-sm font-medium">
+                        {seedNameFor(dialog.task)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {(() => {
+                          const p = plantingsById[dialog.task.planting_id];
+                          return `${labelForType(dialog.task.type, p?.method)} • ${bedNameFor(dialog.task)}`;
+                        })()}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Date picker */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                      Uitgevoerd op
+                    </label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className={cn(
+                            "w-full bg-muted/30 border-0 rounded-lg h-12 px-4 text-left text-sm flex items-center gap-3 focus:ring-2 focus:ring-primary/20 transition-all hover:bg-muted/50",
+                            !dialog.dateISO && "text-muted-foreground"
+                          )}
+                        >
+                          <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                          {dialog.dateISO ? format(new Date(dialog.dateISO), "d MMMM yyyy", { locale: nl }) : "Kies datum"}
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0 bg-popover/95 backdrop-blur-md border-border/50" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={dialog.dateISO ? new Date(dialog.dateISO) : undefined}
+                          onSelect={(d) => {
+                            if (d) {
+                              setDialog(prev => prev ? { ...prev, dateISO: toISO(d) } : prev);
+                            }
+                          }}
+                          initialFocus
+                          className="pointer-events-auto"
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {/* Footer */}
+                  <div className={cn(
+                    "flex gap-2 pt-2 border-t border-border/30",
+                    isMobile ? "flex-col" : "justify-end"
+                  )}>
+                    <button 
+                      className={cn(
+                        "px-4 py-2.5 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted transition-colors",
+                        isMobile && "w-full"
+                      )}
+                      onClick={() => setDialog(null)}
+                    >
+                      Annuleren
+                    </button>
+                    {dialog.hasActual && (
+                      <button
+                        className={cn(
+                          "px-4 py-2.5 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted transition-colors disabled:opacity-50",
+                          isMobile && "w-full"
+                        )}
+                        onClick={() => clearActual(dialog.task)}
+                        disabled={busyId === dialog.task.id}
+                      >
+                        {busyId === dialog.task.id ? "Leegmaken…" : "Leegmaken"}
+                      </button>
+                    )}
                     <button
-                      className={`${isMobile ? 'w-full py-3 text-base' : 'px-3 py-1.5'} rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50`}
-                      onClick={() => clearActual(dialog.task)}
+                      className={cn(
+                        "px-4 py-2.5 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50",
+                        isMobile && "w-full"
+                      )}
+                      onClick={() => applyActual(dialog.task, dialog.dateISO)}
                       disabled={busyId === dialog.task.id}
                     >
-                      {busyId === dialog.task.id ? "Leegmaken…" : "Leegmaken"}
+                      {busyId === dialog.task.id ? "Opslaan…" : "Opslaan"}
                     </button>
-                  )}
-                  <button
-                    className={`${isMobile ? 'w-full py-3 text-base' : 'px-3 py-1.5'} rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50`}
-                    onClick={() => applyActual(dialog.task, dialog.dateISO)}
-                    disabled={busyId === dialog.task.id}
-                  >
-                    {busyId === dialog.task.id ? "Opslaan…" : "Opslaan"}
-                  </button>
+                  </div>
                 </div>
               </div>
             </div>
