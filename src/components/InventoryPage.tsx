@@ -181,13 +181,6 @@ function SeedGroup({
               </div>
             );
           })}
-          {hasMore && (
-            <div 
-              className="absolute left-32 top-1/2 -translate-y-1/2 bg-primary/90 text-primary-foreground text-xs font-medium px-2 py-1 rounded-full z-10"
-            >
-              +{count - 4} meer
-            </div>
-          )}
         </div>
       ) : (
         // Expanded: full grid with animation
