@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -6,12 +6,90 @@ import { Textarea } from "./ui/textarea";
 import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Switch } from "./ui/switch";
+import { getISOWeek, startOfWeek, endOfWeek, format, startOfMonth, endOfMonth, addWeeks } from "date-fns";
+import { nl } from "date-fns/locale";
 import type { GardenTask } from "../lib/types";
 
 const MONTHS = [
   "Januari", "Februari", "Maart", "April", "Mei", "Juni",
   "Juli", "Augustus", "September", "Oktober", "November", "December"
 ];
+
+/** Get all ISO weeks that fall within a given month/year */
+function getWeeksInMonth(year: number, month: number): { weekNum: number; label: string }[] {
+  const monthStart = startOfMonth(new Date(year, month - 1));
+  const monthEnd = endOfMonth(new Date(year, month - 1));
+  
+  const weeks: { weekNum: number; label: string }[] = [];
+  const seenWeeks = new Set<number>();
+  
+  // Start from the Monday of the week containing the first day of the month
+  let current = startOfWeek(monthStart, { weekStartsOn: 1 });
+  
+  while (current <= monthEnd) {
+    const weekNum = getISOWeek(current);
+    
+    if (!seenWeeks.has(weekNum)) {
+      seenWeeks.add(weekNum);
+      
+      const weekStart = startOfWeek(current, { weekStartsOn: 1 });
+      const weekEnd = endOfWeek(current, { weekStartsOn: 1 });
+      
+      const startStr = format(weekStart, "d MMM", { locale: nl });
+      const endStr = format(weekEnd, "d MMM", { locale: nl });
+      
+      weeks.push({
+        weekNum,
+        label: `Week ${weekNum} (${startStr} - ${endStr})`
+      });
+    }
+    
+    current = addWeeks(current, 1);
+  }
+  
+  return weeks;
+}
+
+/** Week select component with dynamic weeks based on month/year */
+function WeekSelect({ 
+  year, 
+  month, 
+  value, 
+  onChange 
+}: { 
+  year: number; 
+  month: number; 
+  value: number | null; 
+  onChange: (v: number | null) => void;
+}) {
+  const weeks = useMemo(() => getWeeksInMonth(year, month), [year, month]);
+  
+  // Reset selection if current week is no longer valid for the new month
+  useEffect(() => {
+    if (value !== null && !weeks.some(w => w.weekNum === value)) {
+      onChange(null);
+    }
+  }, [weeks, value, onChange]);
+
+  return (
+    <Select
+      value={value ? String(value) : "none"}
+      onValueChange={(v) => onChange(v === "none" ? null : Number(v))}
+    >
+      <SelectTrigger>
+        <SelectValue placeholder="Geen specifieke week" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="none">Geen specifieke week</SelectItem>
+        {weeks.map((w) => (
+          <SelectItem key={w.weekNum} value={String(w.weekNum)}>
+            {w.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
 
 interface GardenTaskModalProps {
   open: boolean;
@@ -172,22 +250,12 @@ export function GardenTaskModal({
 
           <div className="space-y-2">
             <Label>Week (optioneel)</Label>
-            <Select
-              value={dueWeek ? String(dueWeek) : "none"}
-              onValueChange={(v) => setDueWeek(v === "none" ? null : Number(v))}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Geen specifieke week" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Geen specifieke week</SelectItem>
-                <SelectItem value="1">Week 1</SelectItem>
-                <SelectItem value="2">Week 2</SelectItem>
-                <SelectItem value="3">Week 3</SelectItem>
-                <SelectItem value="4">Week 4</SelectItem>
-                <SelectItem value="5">Week 5</SelectItem>
-              </SelectContent>
-            </Select>
+            <WeekSelect
+              year={dueYear}
+              month={dueMonth}
+              value={dueWeek}
+              onChange={setDueWeek}
+            />
           </div>
 
           <div className="flex items-center justify-between">
