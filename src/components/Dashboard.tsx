@@ -874,6 +874,26 @@ export function Dashboard({
             busyId={busyId}
             onApplyActual={applyActual}
             onClearActual={clearActual}
+            onCompleteGardenTask={async (task) => {
+              try {
+                await completeGardenTask(task.id);
+                if (task.is_recurring) {
+                  await createGardenTask({
+                    garden_id: task.garden_id,
+                    title: task.title,
+                    description: task.description,
+                    due_month: task.due_month,
+                    due_week: task.due_week,
+                    due_year: task.due_year + 1,
+                    is_recurring: true,
+                    status: "pending",
+                  });
+                }
+                await reloadAll();
+              } catch (e: any) {
+                alert("Kon taak niet afronden: " + (e?.message ?? e));
+              }
+            }}
           />
         </TabsContent>
       </Tabs>

@@ -20,6 +20,7 @@ interface CalendarViewProps {
   busyId: string | null;
   onApplyActual: (task: Task, performedISO: string) => Promise<void>;
   onClearActual: (task: Task) => Promise<void>;
+  onCompleteGardenTask: (task: GardenTask) => Promise<void>;
 }
 
 type MilestoneId = "presow" | "ground" | "harvest_start" | "harvest_end";
@@ -55,6 +56,7 @@ export function CalendarView({
   busyId,
   onApplyActual,
   onClearActual,
+  onCompleteGardenTask,
 }: CalendarViewProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [dialog, setDialog] = useState<{
@@ -402,14 +404,16 @@ export function CalendarView({
                 const isDone = task.status === "done";
                 
                 return (
-                  <div
+                  <button
                     key={task.id}
-                    className={`p-2 rounded-md border text-sm ${
+                    onClick={() => !isDone && onCompleteGardenTask(task)}
+                    disabled={isDone}
+                    className={`w-full text-left p-2 rounded-md border text-sm transition-colors ${
                       isDone 
-                        ? 'bg-muted/50 border-border opacity-60' 
+                        ? 'bg-muted/50 border-border opacity-60 cursor-default' 
                         : overdue 
-                        ? 'bg-destructive/5 border-destructive' 
-                        : 'bg-background border-border'
+                        ? 'bg-destructive/5 border-destructive hover:bg-destructive/10 cursor-pointer' 
+                        : 'bg-background border-border hover:bg-muted/50 cursor-pointer'
                     }`}
                   >
                     <div className={`font-medium flex items-center gap-1 ${isDone ? 'line-through' : ''}`}>
@@ -428,7 +432,7 @@ export function CalendarView({
                         🔄 Terugkerend
                       </div>
                     )}
-                  </div>
+                  </button>
                 );
               })}
             </div>
