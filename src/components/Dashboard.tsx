@@ -11,7 +11,7 @@ import { useIsMobile } from "../hooks/use-mobile";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { CalendarView } from "./CalendarView";
 import { GardenTaskModal } from "./GardenTaskModal";
-import { Plus, AlertCircle, Check, Sprout, Trash2, X, CalendarIcon } from "lucide-react";
+import { Plus, AlertCircle, Check, Sprout, Trash2, X, CalendarIcon, Calendar as CalendarTabIcon, LayoutDashboard, Leaf, RefreshCw } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Calendar } from "./ui/calendar";
 import { cn } from "../lib/utils";
@@ -569,10 +569,10 @@ export function Dashboard({
     const doneTasks = gardenTasks.filter(t => t.status === "done");
 
     return (
-      <section className="mt-8 pt-6 border-t border-border">
+      <section className="pt-6 border-t border-border/50">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground flex items-center gap-2">
-            <Sprout className="w-4 h-4" />
+            <Sprout className="w-4 h-4 text-emerald-600" />
             Tuin taken
           </h3>
           <div className="flex items-center gap-2">
@@ -634,9 +634,7 @@ export function Dashboard({
                       )}
                       <span className={overdue ? 'text-destructive' : ''}>{task.title}</span>
                       {task.is_recurring && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                          🔄
-                        </span>
+                        <RefreshCw className="w-3 h-3 text-muted-foreground" />
                       )}
                     </div>
                     <div className={`${isMobile ? 'text-sm' : 'text-xs'} ${overdue ? 'text-destructive/80' : 'text-muted-foreground'}`}>
@@ -691,41 +689,38 @@ export function Dashboard({
   return (
     <div className={`mx-auto ${isMobile ? 'max-w-full px-4 py-4' : 'max-w-5xl py-6'}`}>
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="mb-4">
-          <TabsTrigger value="overview">Overzicht</TabsTrigger>
-          <TabsTrigger value="calendar">Kalender</TabsTrigger>
-        </TabsList>
+        {/* Modern Tab Switch */}
+        <div className="mb-6 flex p-1 bg-muted/40 rounded-xl w-fit">
+          <button
+            onClick={() => setActiveTab("overview")}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg transition-all",
+              activeTab === "overview" 
+                ? "bg-background text-foreground shadow-sm" 
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <LayoutDashboard className="h-4 w-4" />
+            Overzicht
+          </button>
+          <button
+            onClick={() => setActiveTab("calendar")}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg transition-all",
+              activeTab === "calendar" 
+                ? "bg-background text-foreground shadow-sm" 
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <CalendarTabIcon className="h-4 w-4" />
+            Kalender
+          </button>
+        </div>
 
         <TabsContent value="overview">
-          {/* Filter - Segmented Control */}
-          <div className="mb-5 flex p-1 bg-muted/40 rounded-lg w-fit">
-            <button
-              onClick={() => setShowAll(false)}
-              className={cn(
-                "px-4 py-2 text-sm font-medium rounded-md transition-all",
-                !showAll 
-                  ? "bg-background text-foreground shadow-sm" 
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Komende 2 weken
-            </button>
-            <button
-              onClick={() => setShowAll(true)}
-              className={cn(
-                "px-4 py-2 text-sm font-medium rounded-md transition-all",
-                showAll 
-                  ? "bg-background text-foreground shadow-sm" 
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Alle acties
-            </button>
-          </div>
-
           {/* Conflict banner - Modern style */}
           {totalConflicts > 0 && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50/50 backdrop-blur-sm p-4 flex items-center justify-between mb-5">
+            <div className="rounded-xl border border-amber-200 bg-amber-50/50 backdrop-blur-sm p-4 flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
                   <AlertCircle className="w-5 h-5 text-amber-600" />
@@ -753,27 +748,62 @@ export function Dashboard({
             </div>
           )}
 
-          <section className="space-y-3">
+          {/* MOESTUIN TAKEN SECTIE */}
+          <section className="space-y-4 mb-8">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground flex items-center gap-2">
+                <Leaf className="w-4 h-4 text-green-600" />
+                Moestuin taken
+              </h3>
+              {/* Filter - Segmented Control */}
+              <div className="flex p-0.5 bg-muted/40 rounded-lg">
+                <button
+                  onClick={() => setShowAll(false)}
+                  className={cn(
+                    "px-3 py-1.5 text-xs font-medium rounded-md transition-all",
+                    !showAll 
+                      ? "bg-background text-foreground shadow-sm" 
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  Komende 2 weken
+                </button>
+                <button
+                  onClick={() => setShowAll(true)}
+                  className={cn(
+                    "px-3 py-1.5 text-xs font-medium rounded-md transition-all",
+                    showAll 
+                      ? "bg-background text-foreground shadow-sm" 
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  Alle acties
+                </button>
+              </div>
+            </div>
+
             {/* Verlopen acties sectie */}
             {overduePlantings.length > 0 && (
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-destructive uppercase tracking-wide">
-                  Verlopen acties ({overduePlantings.length})
-                </h3>
+                <h4 className="text-xs font-medium text-destructive uppercase tracking-wide">
+                  Verlopen ({overduePlantings.length})
+                </h4>
                 {overduePlantings.map(renderPlantingCard)}
               </div>
             )}
 
             {/* Komende/alle acties */}
             {upcomingPlantings.length === 0 && overduePlantings.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-muted-foreground py-4">
                 {showAll ? "Geen plantingen gevonden." : "Geen acties in de komende 2 weken."}
               </p>
             ) : upcomingPlantings.length > 0 ? (
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground">
-                  Huidige acties ({upcomingPlantings.length})
-                </h3>
+                {overduePlantings.length > 0 && (
+                  <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Huidig ({upcomingPlantings.length})
+                  </h4>
+                )}
                 {upcomingPlantings.map(renderPlantingCard)}
               </div>
             ) : null}

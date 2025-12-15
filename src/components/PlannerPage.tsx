@@ -1099,23 +1099,24 @@ export function PlannerPage({
             )}
           </h2>
           <div className="flex items-center gap-2">
-            <div className="flex items-center bg-muted rounded-lg p-1">
+            {/* Modern Week Navigator */}
+            <div className="flex items-center p-0.5 bg-muted/40 rounded-lg">
               <button 
-                className="px-3 py-1.5 text-sm rounded-md hover:bg-background transition-colors" 
+                className="px-3 py-2 text-sm font-medium rounded-md hover:bg-background transition-colors" 
                 onClick={() => setCurrentWeek(addDays(currentWeek, -7))}
               >
                 ←
               </button>
-              <span className="px-4 py-1.5 font-semibold text-sm">WK {weekOf(currentWeek)}</span>
+              <span className="px-4 py-2 font-semibold text-sm min-w-[80px] text-center">WK {weekOf(currentWeek)}</span>
               <button 
-                className="px-3 py-1.5 text-sm rounded-md hover:bg-background transition-colors" 
+                className="px-3 py-2 text-sm font-medium rounded-md hover:bg-background transition-colors" 
                 onClick={() => setCurrentWeek(addDays(currentWeek, 7))}
               >
                 →
               </button>
             </div>
             <button 
-              className="px-3 py-1.5 text-sm border rounded-lg hover:bg-muted transition-colors" 
+              className="px-3 py-2 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-all" 
               onClick={gotoToday}
             >
               Vandaag
@@ -1147,15 +1148,19 @@ export function PlannerPage({
               </button>
             );
           })}
-          <label className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
-            <input 
-              type="checkbox" 
-              checked={showGhosts} 
-              onChange={(e) => setShowGhosts(e.target.checked)}
-              className="rounded"
-            />
-            Toon toekomstige plantingen
-          </label>
+          
+          {/* Toekomstige plantingen - Modern Toggle */}
+          <button
+            onClick={() => setShowGhosts(!showGhosts)}
+            className={cn(
+              "ml-auto px-3 py-2 text-sm font-medium rounded-lg transition-all",
+              showGhosts 
+                ? "bg-primary/10 text-primary" 
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            )}
+          >
+            Toekomstige plantingen
+          </button>
         </div>
       </header>
 
