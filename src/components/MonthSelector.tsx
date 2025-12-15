@@ -1,14 +1,14 @@
+import { cn } from "@/lib/utils";
+
 interface MonthSelectorProps {
   label: string;
-  value: number[]; // array met maanden (1–12)
+  value: number[];
   onChange: (months: number[]) => void;
   disabled?: boolean;
 }
 
-const MONTHS = [
-  "J", "F", "M", "A", "M", "J",
-  "J", "A", "S", "O", "N", "D"
-];
+const MONTHS = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+const MONTH_NAMES = ["Jan", "Feb", "Mrt", "Apr", "Mei", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"];
 
 export function MonthSelector({ label, value, onChange, disabled = false }: MonthSelectorProps) {
   function toggle(month: number) {
@@ -21,9 +21,9 @@ export function MonthSelector({ label, value, onChange, disabled = false }: Mont
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <span className={`text-xs font-medium w-20 flex-shrink-0 ${disabled ? "opacity-50" : ""}`}>{label}</span>
-      <div className="flex gap-1 flex-wrap">
+    <div className={cn("flex items-center gap-3", disabled && "opacity-40")}>
+      <span className="text-xs font-medium text-muted-foreground w-20 flex-shrink-0">{label}</span>
+      <div className="flex gap-0.5">
         {MONTHS.map((m, idx) => {
           const monthNum = idx + 1;
           const active = value.includes(monthNum);
@@ -33,11 +33,14 @@ export function MonthSelector({ label, value, onChange, disabled = false }: Mont
               type="button"
               onClick={() => toggle(monthNum)}
               disabled={disabled}
-              className={`w-6 h-6 rounded text-xs font-medium ${
+              title={MONTH_NAMES[idx]}
+              className={cn(
+                "w-6 h-6 rounded-md text-[11px] font-semibold transition-all",
                 active
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-secondary-foreground"
-              } ${disabled ? "opacity-40 cursor-not-allowed" : "hover:bg-primary/80 hover:text-primary-foreground"}`}
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground",
+                disabled && "cursor-not-allowed hover:bg-muted/40 hover:text-muted-foreground"
+              )}
             >
               {m}
             </button>
