@@ -63,17 +63,10 @@ function WeekSelect({
   onChange: (v: number | null) => void;
 }) {
   const weeks = useMemo(() => getWeeksInMonth(year, month), [year, month]);
-  
-  // Reset selection if current week is no longer valid for the new month
-  useEffect(() => {
-    if (value !== null && !weeks.some(w => w.weekNum === value)) {
-      onChange(null);
-    }
-  }, [weeks, value, onChange]);
 
   return (
     <Select
-      value={value ? String(value) : "none"}
+      value={value !== null ? String(value) : "none"}
       onValueChange={(v) => onChange(v === "none" ? null : Number(v))}
     >
       <SelectTrigger>

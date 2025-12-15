@@ -9,7 +9,7 @@ import { useIsMobile } from "../hooks/use-mobile";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { CalendarView } from "./CalendarView";
 import { GardenTaskModal } from "./GardenTaskModal";
-import { Plus, AlertCircle, Check, Sprout } from "lucide-react";
+import { Plus, AlertCircle, Check, Sprout, Trash2 } from "lucide-react";
 /* ---------- helpers ---------- */
 function toISO(d: Date) { return d.toISOString().slice(0, 10); }
 function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
@@ -548,12 +548,14 @@ export function Dashboard({
     onAddTask,
     onEditTask,
     onCompleteTask,
+    onDeleteTask,
   }: {
     gardenTasks: GardenTask[];
     isMobile: boolean;
     onAddTask: () => void;
     onEditTask: (task: GardenTask) => void;
     onCompleteTask: (task: GardenTask) => void;
+    onDeleteTask: (task: GardenTask) => void;
   }) => {
     // Filter: pending tasks first, then done ones
     const pendingTasks = gardenTasks.filter(t => t.status === "pending");
@@ -646,6 +648,18 @@ export function Dashboard({
                   <div className={`${isMobile ? 'text-sm' : 'text-xs'} text-muted-foreground`}>
                     {formatGardenTaskDeadline(task)}
                   </div>
+                </button>
+                {/* Delete button for done tasks */}
+                <button
+                  onClick={async () => {
+                    if (confirm("Weet je zeker dat je deze afgeronde taak wilt verwijderen?")) {
+                      await onDeleteTask(task);
+                    }
+                  }}
+                  className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                  title="Verwijderen"
+                >
+                  <Trash2 className="w-4 h-4" />
                 </button>
               </div>
             ))}
@@ -742,9 +756,32 @@ export function Dashboard({
             onCompleteTask={async (task) => {
               try {
                 await completeGardenTask(task.id);
+                
+                // Als het een recurring task is, maak een nieuwe aan voor volgend jaar
+                if (task.is_recurring) {
+                  await createGardenTask({
+                    garden_id: task.garden_id,
+                    title: task.title,
+                    description: task.description,
+                    due_month: task.due_month,
+                    due_week: task.due_week,
+                    due_year: task.due_year + 1,
+                    is_recurring: true,
+                    status: "pending",
+                  });
+                }
+                
                 await reloadAll();
               } catch (e: any) {
                 alert("Kon taak niet afronden: " + (e?.message ?? e));
+              }
+            }}
+            onDeleteTask={async (task) => {
+              try {
+                await deleteGardenTask(task.id);
+                await reloadAll();
+              } catch (e: any) {
+                alert("Kon taak niet verwijderen: " + (e?.message ?? e));
               }
             }}
           />
