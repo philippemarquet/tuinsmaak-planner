@@ -136,3 +136,18 @@ export interface BedOccupancyWeek {
   week_start: string;
   occupancy_pct: number;
 }
+
+export interface GardenTask {
+  id: UUID;
+  garden_id: UUID;
+  title: string;
+  description: string | null;
+  due_month: number;
+  due_week: number | null;
+  due_year: number;
+  is_recurring: boolean;
+  status: "pending" | "done";
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}

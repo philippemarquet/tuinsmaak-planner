@@ -19,7 +19,8 @@ import { listTasks } from "./lib/api/tasks";
 import { listCropTypes } from "./lib/api/cropTypes";
 import { listWishlist, type WishlistItem } from "./lib/api/wishlist";
 import { getMyProfile } from "./lib/api/profile";
-import type { GardenBed, Seed, Planting, Task, CropType, Profile } from "./lib/types";
+import { listGardenTasks } from "./lib/api/gardenTasks";
+import type { GardenBed, Seed, Planting, Task, CropType, Profile, GardenTask } from "./lib/types";
 
 type TabKey = "dashboard" | "beds" | "inventory" | "planner" | "wishlist" | "settings";
 
@@ -54,6 +55,7 @@ export default function App() {
   const [cropTypes, setCropTypes] = useState<CropType[]>([]);
   const [wishlistItems, setWishlistItems] = useState<WishlistItem[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [gardenTasks, setGardenTasks] = useState<GardenTask[]>([]);
 
   // Laad alle data bij opstarten
   useEffect(() => {
@@ -65,8 +67,9 @@ export default function App() {
       listCropTypes(),
       listWishlist(GARDEN_ID),
       getMyProfile(),
+      listGardenTasks(GARDEN_ID),
     ])
-      .then(([b, s, p, t, ct, w, prof]) => {
+      .then(([b, s, p, t, ct, w, prof, gt]) => {
         setBeds(b);
         setSeeds(s);
         setPlantings(p);
@@ -74,6 +77,7 @@ export default function App() {
         setCropTypes(ct);
         setWishlistItems(w);
         setProfile(prof);
+        setGardenTasks(gt);
       })
       .catch((err) => console.error('App data load error:', err));
   }, []);
@@ -81,7 +85,7 @@ export default function App() {
   // Centrale reload functie
   const reloadAll = async () => {
     try {
-      const [b, s, p, t, ct, w, prof] = await Promise.all([
+      const [b, s, p, t, ct, w, prof, gt] = await Promise.all([
         listBeds(GARDEN_ID),
         listSeeds(GARDEN_ID),
         listPlantings(GARDEN_ID),
@@ -89,6 +93,7 @@ export default function App() {
         listCropTypes(),
         listWishlist(GARDEN_ID),
         getMyProfile(),
+        listGardenTasks(GARDEN_ID),
       ]);
       setBeds(b);
       setSeeds(s);
@@ -97,6 +102,7 @@ export default function App() {
       setCropTypes(ct);
       setWishlistItems(w);
       setProfile(prof);
+      setGardenTasks(gt);
     } catch (err) {
       console.error('Reload error:', err);
     }
@@ -147,7 +153,7 @@ export default function App() {
   const Content = useMemo(() => {
     switch (activeTab) {
       case "dashboard":
-        return <Dashboard garden={garden} beds={beds} seeds={seeds} plantings={plantings} tasks={tasks} onDataChange={reloadAll} />;
+        return <Dashboard garden={garden} beds={beds} seeds={seeds} plantings={plantings} tasks={tasks} gardenTasks={gardenTasks} onDataChange={reloadAll} />;
       case "beds":
         return <BedsPage garden={garden} beds={beds} onDataChange={reloadAll} />;
       case "inventory":
@@ -161,7 +167,7 @@ export default function App() {
       default:
         return null;
     }
-  }, [activeTab, beds, seeds, plantings, tasks, cropTypes]);
+  }, [activeTab, beds, seeds, plantings, tasks, cropTypes, gardenTasks]);
 
   return (
     <AuthGate>
