@@ -1,11 +1,13 @@
 import { useState, useMemo } from "react";
-import { ChevronLeft, ChevronRight, AlertCircle, Sprout, Check } from "lucide-react";
-import { getISOWeek } from "date-fns";
+import { ChevronLeft, ChevronRight, AlertCircle, Sprout, Check, CalendarIcon, X } from "lucide-react";
+import { getISOWeek, format } from "date-fns";
+import { nl } from "date-fns/locale";
 import { Button } from "./ui/button";
 import type { GardenBed, Planting, Seed, Task, GardenTask } from "../lib/types";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
-import { Input } from "./ui/input";
-import { Label } from "./ui/label";
+import { Dialog, DialogContent } from "./ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { Calendar } from "./ui/calendar";
+import { cn } from "../lib/utils";
 
 interface CalendarViewProps {
   beds: GardenBed[];
@@ -406,24 +408,36 @@ export function CalendarView({
     );
   };
 
+  // Helper voor ISO date string
+  const toISO = (d: Date) => d.toISOString().slice(0, 10);
+
   return (
     <div className="flex gap-6">
       {/* Kalender */}
       <div className="flex-1 space-y-4">
-        {/* Maand navigator */}
+        {/* Maand navigator - Modern */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={previousMonth}>
+            <button 
+              onClick={previousMonth}
+              className="p-2 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+            >
               <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="sm" onClick={goToToday} className="text-xs">
+            </button>
+            <button 
+              onClick={goToToday}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+            >
               Vandaag
-            </Button>
+            </button>
           </div>
           <h2 className="text-lg font-semibold capitalize">{monthName}</h2>
-          <Button variant="outline" size="sm" onClick={nextMonth}>
+          <button 
+            onClick={nextMonth}
+            className="p-2 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+          >
             <ChevronRight className="h-4 w-4" />
-          </Button>
+          </button>
         </div>
 
         {/* Kalender grid */}
@@ -466,18 +480,20 @@ export function CalendarView({
         </div>
       </div>
 
-      {/* Tuintaken zijpaneel */}
+      {/* Tuintaken zijpaneel - Modern */}
       <div className="w-64 flex-shrink-0">
-        <div className="border border-border rounded-lg p-4 bg-card">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground flex items-center gap-2 mb-4">
-            <Sprout className="w-4 h-4" />
+        <div className="border border-border/50 rounded-xl p-4 bg-card/50 backdrop-blur-sm">
+          <h3 className="text-sm font-semibold tracking-tight text-foreground flex items-center gap-2 mb-4">
+            <div className="w-6 h-6 rounded-full bg-emerald-500/10 flex items-center justify-center">
+              <Sprout className="w-3.5 h-3.5 text-emerald-600" />
+            </div>
             Tuintaken
           </h3>
           
           {/* Overdue tasks - altijd bovenaan */}
           {gardenTasksForSidebar.overdueTasks.length > 0 && (
             <div className="space-y-2 mb-4">
-              <div className="text-xs font-medium text-destructive uppercase tracking-wide flex items-center gap-1">
+              <div className="text-[10px] font-medium text-destructive uppercase tracking-wide flex items-center gap-1 px-1">
                 <AlertCircle className="w-3 h-3" />
                 Te laat
               </div>
@@ -491,14 +507,14 @@ export function CalendarView({
               {gardenTasksForSidebar.monthTasks.map(renderGardenTask)}
             </div>
           ) : gardenTasksForSidebar.overdueTasks.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground text-center py-4">
               Geen tuintaken deze maand.
             </p>
           ) : null}
         </div>
       </div>
 
-      {/* Dialog voor datum bevestigen */}
+      {/* Dialog voor datum bevestigen - Modern */}
       {dialog && (() => {
         const pl = plantingsById[dialog.task.planting_id];
         const seed = pl ? seedsById[pl.seed_id] : null;
@@ -506,54 +522,93 @@ export function CalendarView({
         
         return (
           <Dialog open={!!dialog} onOpenChange={() => setDialog(null)}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>
+            <DialogContent className="sm:max-w-md p-0 gap-0 bg-card/95 backdrop-blur-md border-border/50 overflow-hidden">
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border/30 bg-gradient-to-r from-primary/5 to-transparent">
+                <h3 className="text-lg font-semibold">
                   {dialog.hasActual ? "Datum wijzigen" : "Actie voltooien"}
-                </DialogTitle>
-              </DialogHeader>
+                </h3>
+                <button 
+                  onClick={() => setDialog(null)}
+                  className="p-2 rounded-full hover:bg-muted/50 transition-colors"
+                >
+                  <X className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </div>
               
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <div className="text-sm">
-                    <span className="font-medium">Gewas:</span> {seed?.name ?? "Onbekend"}
-                  </div>
-                  <div className="text-sm">
-                    <span className="font-medium">Bak:</span> {bed?.name ?? "Onbekend"}
-                    {pl?.start_segment != null && (
-                      <> • Segment {pl.start_segment + 1}{(pl.segments_used ?? 1) > 1 ? `-${pl.start_segment + (pl.segments_used ?? 1)}` : ''}</>
-                    )}
+              {/* Content */}
+              <div className="p-5 space-y-5">
+                {/* Task info */}
+                <div className="flex items-center gap-3 p-3 bg-muted/20 rounded-lg">
+                  <div 
+                    className="w-3 h-3 rounded-full"
+                    style={{ background: pl?.color || "#22c55e" }}
+                  />
+                  <div>
+                    <p className="text-sm font-medium">{seed?.name ?? "Onbekend"}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {bed?.name ?? "Onbekend"}
+                      {pl?.start_segment != null && (
+                        <> • Segment {pl.start_segment + 1}{(pl.segments_used ?? 1) > 1 ? `-${pl.start_segment + (pl.segments_used ?? 1)}` : ''}</>
+                      )}
+                    </p>
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="date">Uitgevoerd op</Label>
-                  <Input
-                    id="date"
-                    type="date"
-                    value={dialog.dateISO}
-                    onChange={(e) => setDialog({ ...dialog, dateISO: e.target.value })}
-                  />
+                {/* Date picker */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Uitgevoerd op
+                  </label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className={cn(
+                          "w-full bg-muted/30 border-0 rounded-lg h-12 px-4 text-left text-sm flex items-center gap-3 focus:ring-2 focus:ring-primary/20 transition-all hover:bg-muted/50",
+                          !dialog.dateISO && "text-muted-foreground"
+                        )}
+                      >
+                        <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                        {dialog.dateISO ? format(new Date(dialog.dateISO), "d MMMM yyyy", { locale: nl }) : "Kies datum"}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0 bg-popover/95 backdrop-blur-md border-border/50" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={dialog.dateISO ? new Date(dialog.dateISO) : undefined}
+                        onSelect={(d) => {
+                          if (d) {
+                            setDialog({ ...dialog, dateISO: toISO(d) });
+                          }
+                        }}
+                        initialFocus
+                        className="pointer-events-auto"
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                {/* Footer */}
+                <div className="flex gap-2 pt-2 border-t border-border/30 justify-end">
+                  {dialog.hasActual && (
+                    <button
+                      onClick={clearDate}
+                      disabled={busyId === dialog.task.id}
+                      className="px-4 py-2.5 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted transition-colors disabled:opacity-50"
+                    >
+                      Leegmaken
+                    </button>
+                  )}
+                  <button
+                    onClick={confirmDate}
+                    disabled={busyId === dialog.task.id}
+                    className="px-4 py-2.5 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                  >
+                    {busyId === dialog.task.id ? "Bezig..." : "Opslaan"}
+                  </button>
                 </div>
               </div>
-
-              <DialogFooter className="flex gap-2">
-                {dialog.hasActual && (
-                  <Button
-                    variant="outline"
-                    onClick={clearDate}
-                    disabled={busyId === dialog.task.id}
-                  >
-                    Leegmaken
-                  </Button>
-                )}
-                <Button
-                  onClick={confirmDate}
-                  disabled={busyId === dialog.task.id}
-                >
-                  {busyId === dialog.task.id ? "Bezig..." : "Opslaan"}
-                </Button>
-              </DialogFooter>
             </DialogContent>
           </Dialog>
         );

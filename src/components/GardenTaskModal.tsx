@@ -1,13 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
-import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import { Textarea } from "./ui/textarea";
-import { Label } from "./ui/label";
+import { Dialog, DialogContent } from "./ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Switch } from "./ui/switch";
 import { getISOWeek, startOfWeek, endOfWeek, format, startOfMonth, endOfMonth, addWeeks } from "date-fns";
 import { nl } from "date-fns/locale";
+import { X } from "lucide-react";
+import { cn } from "../lib/utils";
 import type { GardenTask } from "../lib/types";
 
 const MONTHS = [
@@ -23,7 +20,6 @@ function getWeeksInMonth(year: number, month: number): { weekNum: number; label:
   const weeks: { weekNum: number; label: string }[] = [];
   const seenWeeks = new Set<number>();
   
-  // Start from the Monday of the week containing the first day of the month
   let current = startOfWeek(monthStart, { weekStartsOn: 1 });
   
   while (current <= monthEnd) {
@@ -69,10 +65,10 @@ function WeekSelect({
       value={value !== null ? String(value) : "none"}
       onValueChange={(v) => onChange(v === "none" ? null : Number(v))}
     >
-      <SelectTrigger>
+      <SelectTrigger className="bg-muted/30 border-0 rounded-lg h-10 focus:ring-2 focus:ring-primary/20">
         <SelectValue placeholder="Geen specifieke week" />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent className="bg-popover/95 backdrop-blur-md border-border/50">
         <SelectItem value="none">Geen specifieke week</SelectItem>
         {weeks.map((w) => (
           <SelectItem key={w.weekNum} value={String(w.weekNum)}>
@@ -174,44 +170,56 @@ export function GardenTaskModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{task ? "Taak bewerken" : "Nieuwe tuintaak"}</DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="title">Titel *</Label>
-            <Input
-              id="title"
+      <DialogContent className="sm:max-w-md p-0 gap-0 bg-card/95 backdrop-blur-md border-border/50 overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border/30 bg-gradient-to-r from-emerald-500/10 to-transparent">
+          <h3 className="text-lg font-semibold">{task ? "Taak bewerken" : "Nieuwe tuintaak"}</h3>
+          <button 
+            onClick={() => onOpenChange(false)}
+            className="p-2 rounded-full hover:bg-muted/50 transition-colors"
+          >
+            <X className="h-4 w-4 text-muted-foreground" />
+          </button>
+        </div>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="p-5 space-y-5">
+          {/* Titel - Underline style */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Titel *</label>
+            <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Bijv. Hortensia's snoeien"
               required
+              className="w-full bg-transparent border-0 border-b-2 border-muted-foreground/20 px-0 py-2 text-base font-medium placeholder:text-muted-foreground/40 focus:border-primary focus:outline-none transition-colors"
             />
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="description">Beschrijving</Label>
-            <Textarea
-              id="description"
+          {/* Beschrijving */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Beschrijving</label>
+            <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Extra notities..."
               rows={2}
+              className="w-full bg-muted/20 border-0 rounded-lg px-3 py-2 text-sm resize-none focus:ring-2 focus:ring-primary/20 focus:outline-none placeholder:text-muted-foreground/50"
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label>Maand *</Label>
+          {/* Grid: Maand + Jaar */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Maand *</label>
               <Select
                 value={String(dueMonth)}
                 onValueChange={(v) => setDueMonth(Number(v))}
               >
-                <SelectTrigger>
+                <SelectTrigger className="bg-muted/30 border-0 rounded-lg h-10 focus:ring-2 focus:ring-primary/20">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="bg-popover/95 backdrop-blur-md border-border/50">
                   {MONTHS.map((m, i) => (
                     <SelectItem key={i + 1} value={String(i + 1)}>
                       {m}
@@ -221,16 +229,16 @@ export function GardenTaskModal({
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label>Jaar *</Label>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Jaar *</label>
               <Select
                 value={String(dueYear)}
                 onValueChange={(v) => setDueYear(Number(v))}
               >
-                <SelectTrigger>
+                <SelectTrigger className="bg-muted/30 border-0 rounded-lg h-10 focus:ring-2 focus:ring-primary/20">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="bg-popover/95 backdrop-blur-md border-border/50">
                   {Array.from({ length: 7 }, (_, i) => currentYear - 1 + i).map((y) => (
                     <SelectItem key={y} value={String(y)}>
                       {y}
@@ -241,8 +249,9 @@ export function GardenTaskModal({
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label>Week (optioneel)</Label>
+          {/* Week */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Week (optioneel)</label>
             <WeekSelect
               year={dueYear}
               month={dueMonth}
@@ -251,40 +260,54 @@ export function GardenTaskModal({
             />
           </div>
 
-          <div className="flex items-center justify-between">
-            <Label htmlFor="recurring" className="cursor-pointer">
-              Terugkerende taak (elk jaar)
-            </Label>
-            <Switch
-              id="recurring"
-              checked={isRecurring}
-              onCheckedChange={setIsRecurring}
-            />
+          {/* Terugkerend - Toggle Pill */}
+          <div className="flex items-center justify-between py-2">
+            <label className="text-sm font-medium">Terugkerende taak (elk jaar)</label>
+            <button
+              type="button"
+              onClick={() => setIsRecurring(!isRecurring)}
+              className={cn(
+                "relative w-12 h-6 rounded-full transition-colors",
+                isRecurring ? "bg-primary" : "bg-muted"
+              )}
+            >
+              <span
+                className={cn(
+                  "absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-md transition-transform",
+                  isRecurring ? "left-[26px]" : "left-0.5"
+                )}
+              />
+            </button>
           </div>
 
-          <div className="flex gap-2 pt-2">
+          {/* Footer */}
+          <div className="flex gap-2 pt-2 border-t border-border/30">
             {task && onDelete && (
-              <Button
+              <button
                 type="button"
-                variant="destructive"
                 onClick={handleDelete}
                 disabled={saving}
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors disabled:opacity-50"
               >
                 Verwijderen
-              </Button>
+              </button>
             )}
             <div className="flex-1" />
-            <Button
+            <button
               type="button"
-              variant="outline"
               onClick={() => onOpenChange(false)}
               disabled={saving}
+              className="px-4 py-2 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted transition-colors"
             >
               Annuleren
-            </Button>
-            <Button type="submit" disabled={saving || !title.trim()}>
+            </button>
+            <button 
+              type="submit" 
+              disabled={saving || !title.trim()}
+              className="px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
               {saving ? "Opslaan..." : "Opslaan"}
-            </Button>
+            </button>
           </div>
         </form>
       </DialogContent>
