@@ -7,11 +7,21 @@ import { supabase } from "../lib/supabaseClient";
 import { TimelineView } from "./TimelineView";
 import { buildConflictsMap, countUniqueConflicts } from "../lib/conflicts";
 import { ConflictWarning } from "./ConflictWarning";
-import { Edit3, Trash2, ChevronDown, Info } from "lucide-react";
+import { Edit3, Trash2, ChevronDown, Info, AlertTriangle } from "lucide-react";
 import { useConflictFlags } from "../hooks/useConflictFlags";
 import { SeedModal } from "./SeedModal";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Checkbox } from "./ui/checkbox";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
 
 /* ===== helpers ===== */
 const toISO = (d: Date) => d.toISOString().slice(0, 10);
@@ -1193,7 +1203,9 @@ function PlantingForm({
   );
   const [bedId, setBedId] = useState<string>(existing?.garden_bed_id ?? bed.id);
   const [startSegment, setStartSegment] = useState<number>(existing?.start_segment ?? defaultSegment);
+  const [monthDialogOpen, setMonthDialogOpen] = useState(false);
 
+  const selectedBed = useMemo(() => beds.find((x) => x.id === bedId) ?? bed, [beds, bedId, bed]);
   // bereken einddatum o.b.v. seed-waarden
   const plantDate = useMemo(() => new Date(date), [date]);
   const hs = useMemo(() => addWeeks(plantDate, seed.grow_duration_weeks ?? 0), [plantDate, seed.grow_duration_weeks]);
@@ -1210,9 +1222,8 @@ function PlantingForm({
   }, [beds, seed.greenhouse_compatible, allPlantings, segmentsUsed, plantDate, he, existing?.id]);
 
   const startSegmentOptions = useMemo(() => {
-    const b = beds.find((x) => x.id === bedId) ?? bed;
-    return findAllStartSegments(allPlantings, b, segmentsUsed, plantDate, he, existing?.id);
-  }, [beds, bedId, bed, allPlantings, segmentsUsed, plantDate, he, existing?.id]);
+    return findAllStartSegments(allPlantings, selectedBed, segmentsUsed, plantDate, he, existing?.id);
+  }, [allPlantings, selectedBed, segmentsUsed, plantDate, he, existing?.id]);
 
   useEffect(() => {
     // Als huidige startSegment ongeldig wordt (door bed/segmentsUsed/date), pak eerste geldige
@@ -1221,17 +1232,82 @@ function PlantingForm({
     }
   }, [startSegmentOptions]); // eslint-disable-line
 
-  const selectedBed = beds.find((x) => x.id === bedId) ?? bed;
+  const monthWarning = useMemo(() => {
+    if (!date) return null;
+    const dt = new Date(date);
+    if (Number.isNaN(dt.getTime())) return null;
+
+    const month = dt.getMonth() + 1; // 1-12
+    const monthNames = [
+      "",
+      "januari",
+      "februari",
+      "maart",
+      "april",
+      "mei",
+      "juni",
+      "juli",
+      "augustus",
+      "september",
+      "oktober",
+      "november",
+      "december",
+    ];
+
+    const isGreenhouse = !!selectedBed.is_greenhouse;
+    const allowedMonths = isGreenhouse ? (seed.greenhouse_months ?? []) : (seed.direct_plant_months ?? []);
+
+    // Geen data = geen waarschuwing
+    if (allowedMonths.length === 0) return null;
+
+    if (allowedMonths.includes(month)) return null;
+
+    const allowedNames = allowedMonths.map((m) => monthNames[m]).join(", ");
+
+    return {
+      title: "Maand niet geschikt",
+      description: `"${seed.name}" mag niet in ${monthNames[month]} in ${isGreenhouse ? "de kas" : "de volle grond"} (${selectedBed.name}) worden geplant. Toegestane maanden: ${allowedNames}.`,
+    };
+  }, [date, seed, selectedBed]);
+
   const maxSegSpinner = Math.max(1, selectedBed.segments);
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
+        if (monthWarning) {
+          setMonthDialogOpen(true);
+          return;
+        }
         onConfirm(startSegment, segmentsUsed, method, date, color, bedId);
       }}
       className="space-y-4"
     >
+      <AlertDialog open={monthDialogOpen} onOpenChange={setMonthDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5" />
+              {monthWarning?.title ?? "Maand niet geschikt"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {monthWarning?.description ?? "Deze maand lijkt niet te kloppen voor dit gewas."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Terug</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setMonthDialogOpen(false);
+                onConfirm(startSegment, segmentsUsed, method, date, color, bedId);
+              }}
+            >
+              Toch opslaan
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {/* Bed wisselen */}
       <div>
         <label className="block text-sm font-medium mb-1">Bak</label>
