@@ -122,7 +122,7 @@ function Chip({ children, tone = "muted" }: { children: React.ReactNode; tone?: 
     warn: "bg-amber-100 text-amber-900",
     danger: "bg-red-100 text-red-800",
   };
-  return <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] ${map[tone]}`}>{children}</span>;
+  return <span className={`inline-flex items-center rounded px-1 py-0.5 text-[9px] ${map[tone]}`}>{children}</span>;
 }
 function DraggableSeed({ seed, isDragging = false, onInfoClick }: { seed: Seed; isDragging?: boolean; onInfoClick?: () => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging: dragging } = useDraggable({ id: `seed-${seed.id}` });
@@ -131,20 +131,20 @@ function DraggableSeed({ seed, isDragging = false, onInfoClick }: { seed: Seed; 
   return (
     <div
       ref={setNodeRef}
-      className={`group relative px-3 py-2 rounded-lg border bg-card shadow-sm hover:shadow-md transition-all duration-200 ${
+      className={`group relative px-2 py-1 rounded border bg-card hover:shadow-sm transition-all duration-150 ${
         dragging || isDragging ? "opacity-40 scale-95" : "hover:border-primary/30"
       }`}
     >
       <div 
         {...listeners} 
         {...attributes} 
-        className="flex items-center gap-3 cursor-grab active:cursor-grabbing"
+        className="flex items-center gap-1.5 cursor-grab active:cursor-grabbing"
       >
         <div 
-          className="w-4 h-4 rounded-full shadow-inner flex-shrink-0 ring-2 ring-white"
+          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
           style={{ background: color }}
         />
-        <span className="text-sm font-medium truncate flex-1">{seed.name}</span>
+        <span className="text-[11px] font-medium truncate flex-1">{seed.name}</span>
       </div>
       {onInfoClick && (
         <button
@@ -152,10 +152,10 @@ function DraggableSeed({ seed, isDragging = false, onInfoClick }: { seed: Seed; 
             e.stopPropagation();
             onInfoClick();
           }}
-          className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md opacity-0 group-hover:opacity-100 hover:bg-muted transition-opacity"
+          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-muted transition-opacity"
           title="Bekijk zaadgegevens"
         >
-          <Info className="h-4 w-4 text-muted-foreground" />
+          <Info className="h-3 w-3 text-muted-foreground" />
         </button>
       )}
     </div>
@@ -167,12 +167,12 @@ function DroppableSegment({ id, occupied, children }: { id: string; occupied: bo
   return (
     <div
       ref={setNodeRef}
-      className={`relative border-2 border-dashed rounded-lg min-h-[36px] flex items-center justify-center transition-all duration-200 ${
+      className={`relative border border-dashed rounded min-h-[18px] flex items-center justify-center transition-all duration-150 ${
         isOver 
-          ? "border-primary bg-primary/10 scale-[1.02] shadow-lg" 
+          ? "border-primary bg-primary/10 scale-[1.01]" 
           : occupied 
-            ? "border-emerald-300 bg-emerald-50/50" 
-            : "border-muted-foreground/20 bg-muted/30 hover:border-muted-foreground/40"
+            ? "border-emerald-300/50 bg-emerald-50/20" 
+            : "border-muted-foreground/15 bg-muted/10 hover:border-muted-foreground/25"
       }`}
     >
       {children}
@@ -509,48 +509,48 @@ export function PlannerPage({
 
   /* ===== Sidebar zaden (vast, buiten scroll) ===== */
   const SeedsSidebar = () => (
-    <aside className="w-72 flex-shrink-0 bg-card border-r border-border">
+    <aside className="w-56 flex-shrink-0 bg-card border-r border-border ml-3 rounded-l-lg">
       <div className="sticky top-0 h-screen overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="p-4 border-b bg-muted/30">
-          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Zaden</h3>
+        <div className="px-3 py-2.5 border-b bg-muted/30">
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Zaden</h3>
         </div>
         
         {/* Filters */}
-        <div className="p-4 border-b space-y-3 bg-background">
+        <div className="px-3 py-2.5 border-b space-y-2 bg-background">
           <input 
-            className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" 
+            className="w-full px-2 py-1.5 text-xs border rounded bg-background focus:ring-1 focus:ring-primary/20 focus:border-primary transition-all" 
             value={q} 
             onChange={(e) => setQ(e.target.value)} 
             placeholder="Zoek op naam…" 
           />
           
-          <div className="flex flex-wrap gap-2">
-            <label className="flex items-center gap-1.5 text-xs bg-muted px-2 py-1 rounded-md cursor-pointer hover:bg-muted/80 transition-colors">
+          <div className="flex flex-wrap gap-1.5">
+            <label className="flex items-center gap-1 text-[11px] bg-muted px-1.5 py-0.5 rounded cursor-pointer hover:bg-muted/80 transition-colors">
               <input 
                 type="checkbox" 
                 checked={inStockOnly} 
                 onChange={(e) => setInStockOnly(e.target.checked)}
-                className="rounded"
+                className="rounded w-3 h-3"
               />
-              <span>In voorraad</span>
+              <span>Voorraad</span>
             </label>
-            <label className="flex items-center gap-1.5 text-xs bg-muted px-2 py-1 rounded-md cursor-pointer hover:bg-muted/80 transition-colors">
+            <label className="flex items-center gap-1 text-[11px] bg-muted px-1.5 py-0.5 rounded cursor-pointer hover:bg-muted/80 transition-colors">
               <input 
                 type="checkbox" 
                 checked={greenhouseOnly} 
                 onChange={(e) => setGreenhouseOnly(e.target.checked)}
-                className="rounded"
+                className="rounded w-3 h-3"
               />
-              <span>Kas-geschikt</span>
+              <span>Kas</span>
             </label>
           </div>
           
-          <div className="flex gap-1">
+          <div className="flex gap-0.5">
             {(["all", "planned", "unplanned"] as InPlanner[]).map((k) => (
               <button
                 key={k}
-                className={`flex-1 px-2 py-1.5 text-xs rounded-md transition-all ${
+                className={`flex-1 px-1 py-1 text-[10px] rounded transition-all ${
                   inPlanner === k 
                     ? "bg-primary text-primary-foreground shadow-sm" 
                     : "bg-muted text-muted-foreground hover:bg-muted/80"
@@ -565,45 +565,47 @@ export function PlannerPage({
           {/* Categorie filter */}
           <Popover>
             <PopoverTrigger asChild>
-              <button className="w-full px-3 py-2 text-sm text-left border rounded-lg flex justify-between items-center bg-background hover:bg-muted/50 transition-colors">
+              <button className="w-full px-2 py-1 text-[11px] text-left border rounded flex justify-between items-center bg-background hover:bg-muted/50 transition-colors">
                 <span className="truncate text-muted-foreground">
                   {cropTypeFilters.length === 0
                     ? "Alle gewastypen"
                     : cropTypeFilters.length === 1
                     ? cropTypes.find((ct) => ct.id === cropTypeFilters[0])?.name || "Overig"
-                    : `${cropTypeFilters.length} geselecteerd`}
+                    : `${cropTypeFilters.length} geselect.`}
                 </span>
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                <ChevronDown className="h-3 w-3 text-muted-foreground" />
               </button>
             </PopoverTrigger>
-            <PopoverContent className="w-64 p-3 max-h-64 overflow-y-auto bg-popover z-50">
-              <div className="space-y-2">
+            <PopoverContent className="w-48 p-2 max-h-48 overflow-y-auto bg-popover z-50">
+              <div className="space-y-1">
                 {cropTypeFilters.length > 0 && (
-                  <button onClick={() => setCropTypeFilters([])} className="text-xs text-primary hover:underline mb-2">
+                  <button onClick={() => setCropTypeFilters([])} className="text-[10px] text-primary hover:underline mb-1">
                     Wis selectie
                   </button>
                 )}
                 {cropTypes.map((ct) => (
-                  <label key={ct.id} className="flex items-center gap-2 cursor-pointer">
+                  <label key={ct.id} className="flex items-center gap-1.5 cursor-pointer">
                     <Checkbox
                       checked={cropTypeFilters.includes(ct.id)}
                       onCheckedChange={(checked) => {
                         if (checked) setCropTypeFilters([...cropTypeFilters, ct.id]);
                         else setCropTypeFilters(cropTypeFilters.filter((id) => id !== ct.id));
                       }}
+                      className="h-3 w-3"
                     />
-                    <span className="text-sm">{ct.name}</span>
+                    <span className="text-[11px]">{ct.name}</span>
                   </label>
                 ))}
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label className="flex items-center gap-1.5 cursor-pointer">
                   <Checkbox
                     checked={cropTypeFilters.includes("__none__")}
                     onCheckedChange={(checked) => {
                       if (checked) setCropTypeFilters([...cropTypeFilters, "__none__"]);
                       else setCropTypeFilters(cropTypeFilters.filter((id) => id !== "__none__"));
                     }}
+                    className="h-3 w-3"
                   />
-                  <span className="text-sm">Overig</span>
+                  <span className="text-[11px]">Overig</span>
                 </label>
               </div>
             </PopoverContent>
@@ -612,7 +614,7 @@ export function PlannerPage({
           {/* Maand filter */}
           <Popover>
             <PopoverTrigger asChild>
-              <button className="w-full px-3 py-2 text-sm text-left border rounded-lg flex justify-between items-center bg-background hover:bg-muted/50 transition-colors">
+              <button className="w-full px-2 py-1 text-[11px] text-left border rounded flex justify-between items-center bg-background hover:bg-muted/50 transition-colors">
                 <span className="truncate text-muted-foreground">
                   {selectedMonths.length === 0
                     ? "Alle maanden"
@@ -620,26 +622,27 @@ export function PlannerPage({
                     ? new Date(2000, selectedMonths[0] - 1, 1).toLocaleString("nl-NL", { month: "long" })
                     : `${selectedMonths.length} maanden`}
                 </span>
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                <ChevronDown className="h-3 w-3 text-muted-foreground" />
               </button>
             </PopoverTrigger>
-            <PopoverContent className="w-64 p-3 max-h-64 overflow-y-auto bg-popover z-50">
-              <div className="space-y-2">
+            <PopoverContent className="w-48 p-2 max-h-48 overflow-y-auto bg-popover z-50">
+              <div className="space-y-1">
                 {selectedMonths.length > 0 && (
-                  <button onClick={() => setSelectedMonths([])} className="text-xs text-primary hover:underline mb-2">
+                  <button onClick={() => setSelectedMonths([])} className="text-[10px] text-primary hover:underline mb-1">
                     Wis selectie
                   </button>
                 )}
                 {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                  <label key={m} className="flex items-center gap-2 cursor-pointer">
+                  <label key={m} className="flex items-center gap-1.5 cursor-pointer">
                     <Checkbox
                       checked={selectedMonths.includes(m)}
                       onCheckedChange={(checked) => {
                         if (checked) setSelectedMonths([...selectedMonths, m].sort((a, b) => a - b));
                         else setSelectedMonths(selectedMonths.filter((month) => month !== m));
                       }}
+                      className="h-3 w-3"
                     />
-                    <span className="text-sm capitalize">
+                    <span className="text-[11px] capitalize">
                       {new Date(2000, m - 1, 1).toLocaleString("nl-NL", { month: "long" })}
                     </span>
                   </label>
@@ -650,9 +653,9 @@ export function PlannerPage({
         </div>
         
         {/* Scrollable seed list */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        <div className="flex-1 overflow-y-auto px-2 py-1.5 space-y-1">
           {filteredSeeds.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">Geen zaden gevonden</p>
+            <p className="text-[11px] text-muted-foreground text-center py-4">Geen zaden gevonden</p>
           ) : (
             filteredSeeds.map((seed) => (
               <DraggableSeed 
@@ -666,8 +669,8 @@ export function PlannerPage({
         </div>
         
         {/* Footer count */}
-        <div className="p-3 border-t bg-muted/20 text-xs text-muted-foreground text-center">
-          {filteredSeeds.length} van {seeds.length} zaden
+        <div className="px-2 py-1.5 border-t bg-muted/20 text-[10px] text-muted-foreground text-center">
+          {filteredSeeds.length} / {seeds.length} zaden
         </div>
       </div>
     </aside>
@@ -675,14 +678,14 @@ export function PlannerPage({
 
   /* ===== LIST view (main area only) ===== */
   const listViewContent = (
-    <div className="flex-1 overflow-auto p-6">
-      <div className="space-y-8">
+    <div className="flex-1 overflow-auto p-4">
+      <div className="space-y-6">
         {([["Buiten", outdoorBeds], ["Kas", greenhouseBeds]] as const).map(
           ([label, bedList]) =>
             bedList.length > 0 && (
               <section key={label} className="space-y-2">
-                <h4 className="text-lg font-semibold">{label}</h4>
-                <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}>
+                <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">{label}</h4>
+                <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}>
                   {bedList.map((bed) => {
                     const activePlantings = plantings.filter((p) => p.garden_bed_id === bed.id && isActiveInWeek(p, currentWeek));
                     const futurePlantings = showGhosts
@@ -691,17 +694,17 @@ export function PlannerPage({
                     const segs = Array.from({ length: bed.segments }, (_, i) => i);
 
                     return (
-                      <div key={bed.id} className="p-2.5 border rounded-xl bg-card shadow-sm">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <div className="flex items-center gap-2">
-                            <h5 className="font-semibold text-sm">{bed.name}</h5>
+                      <div key={bed.id} className="p-2 border rounded-lg bg-card shadow-sm">
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-1.5">
+                            <h5 className="font-medium text-xs">{bed.name}</h5>
                             {bedHasConflict(bed.id) && <Chip tone="danger">⚠️</Chip>}
                           </div>
                           {bed.is_greenhouse && <Chip>Kas</Chip>}
                         </div>
 
                         {/* Let op: we tonen exact bed.segments rijen, nooit meer */}
-                        <div className="grid gap-1" style={{ gridTemplateRows: `repeat(${bed.segments}, minmax(26px, auto))` }}>
+                        <div className="grid gap-0.5" style={{ gridTemplateRows: `repeat(${bed.segments}, minmax(20px, auto))` }}>
                           {segs.map((i) => {
                             const here = activePlantings.filter((p) => {
                               const s = p.start_segment ?? 0,
@@ -716,7 +719,7 @@ export function PlannerPage({
 
                             return (
                               <DroppableSegment key={i} id={`bed__${bed.id}__segment__${i}`} occupied={here.length > 0}>
-                                <div className="flex flex-col gap-0.5 w-full px-1">
+                                <div className="flex flex-col gap-0.5 w-full px-0.5">
                                   {here.map((p) => {
                                     const seed = seedsById[p.seed_id];
                                     const color = p.color?.startsWith("#") ? p.color : "#22c55e";
@@ -725,15 +728,15 @@ export function PlannerPage({
                                     return (
                                       <div
                                         key={`${p.id}-${i}`}
-                                        className="rounded px-2 py-1 text-white text-[11px] flex items-center justify-between"
+                                        className="rounded px-1.5 py-0.5 text-white text-[10px] flex items-center justify-between"
                                         style={{ background: color }}
                                         title={`${seed?.name ?? "—"} • ${fmtDMY(p.planned_date)} → ${fmtDMY(p.planned_harvest_end)}`}
                                       >
-                                        <div className="flex items-center gap-1 min-w-0">
+                                        <div className="flex items-center gap-0.5 min-w-0">
                                           <span className="truncate">{seed?.name ?? "—"}</span>
                                           {hasConflict && (
                                             <button
-                                              className="text-[10px] underline decoration-white/70 underline-offset-2 opacity-90"
+                                              className="text-[9px] underline decoration-white/70 underline-offset-1 opacity-90"
                                               onClick={(e) => {
                                                 e.stopPropagation();
                                                 setView("conflicts");
@@ -741,12 +744,12 @@ export function PlannerPage({
                                               }}
                                               title="Bekijk in Conflicten"
                                             >
-                                              ⚠️ Conflicten
+                                              ⚠️
                                             </button>
                                           )}
                                         </div>
 
-                                        <div className="flex items-center gap-1 ml-1">
+                                        <div className="flex items-center gap-0.5 ml-0.5">
                                           <button
                                             className="p-0.5 hover:bg-white/20 rounded"
                                             title="Bewerken"
@@ -760,7 +763,7 @@ export function PlannerPage({
                                               })
                                             }
                                           >
-                                            <Edit3 className="w-3 h-3" />
+                                            <Edit3 className="w-2.5 h-2.5" />
                                           </button>
                                           <button
                                             className="p-0.5 hover:bg-white/20 rounded"
@@ -769,7 +772,7 @@ export function PlannerPage({
                                               if (confirm("Verwijderen?")) deletePlanting(p.id).then(reload);
                                             }}
                                           >
-                                            <Trash2 className="w-3 h-3" />
+                                            <Trash2 className="w-2.5 h-2.5" />
                                           </button>
                                         </div>
                                       </div>
@@ -778,8 +781,8 @@ export function PlannerPage({
 
                                   {ghosts.length > 0 && (
                                     <div
-                                      className="text-white text-[11px] rounded px-2 py-1"
-                                      style={{ background: "rgba(34,197,94,.35)", border: "1px dashed rgba(0,0,0,.45)" }}
+                                      className="text-white text-[9px] rounded px-1.5 py-0.5"
+                                      style={{ background: "rgba(34,197,94,.35)", border: "1px dashed rgba(0,0,0,.35)" }}
                                     >
                                       {ghosts
                                         .map((g) => seedsById[g.seed_id]?.name)
@@ -795,17 +798,16 @@ export function PlannerPage({
 
                         {/* Footer: eenvoudige hint naar Conflicten-tab als dit bed issues heeft */}
                         {bedHasConflict(bed.id) && (
-                          <div className="mt-2 text-[11px] text-red-700">
-                            ⚠️ Er zijn conflicten in deze bak. Ga naar het tabblad <button
+                          <div className="mt-1.5 text-[10px] text-red-700">
+                            ⚠️ Conflicten — <button
                               className="underline"
                               onClick={() => {
                                 setView("conflicts");
                                 localStorage.setItem("plannerOpenTab", "conflicts");
                               }}
                             >
-                              Conflicten
-                            </button>{" "}
-                            om op te lossen.
+                              Bekijk
+                            </button>
                           </div>
                         )}
                       </div>
