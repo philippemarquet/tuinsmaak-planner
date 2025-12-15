@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { ChevronLeft, ChevronRight, AlertCircle, Sprout } from "lucide-react";
+import { ChevronLeft, ChevronRight, AlertCircle, Sprout, Check } from "lucide-react";
 import { getISOWeek } from "date-fns";
 import { Button } from "./ui/button";
 import type { GardenBed, Planting, Seed, Task, GardenTask } from "../lib/types";
@@ -283,25 +283,7 @@ export function CalendarView({
     }
   }
 
-  // Filter garden tasks voor de huidige maand
-  const gardenTasksForMonth = useMemo(() => {
-    const viewMonth = month + 1; // 1-indexed
-    const viewYear = year;
-    
-    return gardenTasks.filter(t => {
-      // Moet in hetzelfde jaar en maand vallen
-      if (t.due_year !== viewYear || t.due_month !== viewMonth) return false;
-      return true;
-    }).sort((a, b) => {
-      // Sorteer op week (null = geen specifieke week, komt laatst)
-      if (a.due_week === null && b.due_week === null) return 0;
-      if (a.due_week === null) return 1;
-      if (b.due_week === null) return -1;
-      return a.due_week - b.due_week;
-    });
-  }, [gardenTasks, month, year]);
-
-  // Helper: check of garden task overdue is
+  // Helper: check of garden task overdue is (defined early for use in filtering)
   const isGardenTaskOverdue = (task: GardenTask): boolean => {
     if (task.status === "done") return false;
     
@@ -319,10 +301,109 @@ export function CalendarView({
     return false;
   };
 
-  // Format garden task week display
-  const formatTaskWeek = (task: GardenTask): string => {
-    if (!task.due_week) return "";
-    return `Week ${task.due_week}`;
+  // Garden tasks: overdue tasks + tasks for the current month
+  const gardenTasksForSidebar = useMemo(() => {
+    const viewMonth = month + 1; // Convert to 1-based
+    const viewYear = year;
+    
+    // Get overdue tasks (always show regardless of month)
+    const overdueTasks = gardenTasks.filter(t => isGardenTaskOverdue(t));
+    
+    // Get tasks for current viewing month (excluding overdue to avoid duplicates)
+    const monthTasks = gardenTasks.filter(t => {
+      if (isGardenTaskOverdue(t)) return false; // Already in overdue
+      if (t.due_year !== viewYear || t.due_month !== viewMonth) return false;
+      return true;
+    });
+    
+    // Sort each group by week
+    const sortByWeek = (a: GardenTask, b: GardenTask) => {
+      if (a.due_week === null && b.due_week === null) return 0;
+      if (a.due_week === null) return 1;
+      if (b.due_week === null) return -1;
+      return a.due_week - b.due_week;
+    };
+    
+    overdueTasks.sort(sortByWeek);
+    monthTasks.sort(sortByWeek);
+    
+    return { overdueTasks, monthTasks };
+  }, [gardenTasks, month, year]);
+
+  // Format garden task deadline (month + year + optional week)
+  const formatGardenTaskDeadline = (task: GardenTask): string => {
+    const months = ["januari", "februari", "maart", "april", "mei", "juni",
+                    "juli", "augustus", "september", "oktober", "november", "december"];
+    let result = `${months[task.due_month - 1]} ${task.due_year}`;
+    if (task.due_week) {
+      result += `, week ${task.due_week}`;
+    }
+    return result;
+  };
+
+  // Render a single garden task card
+  const renderGardenTask = (task: GardenTask) => {
+    const overdue = isGardenTaskOverdue(task);
+    const isDone = task.status === "done";
+
+    if (isDone) {
+      return (
+        <div
+          key={task.id}
+          className="border rounded-lg p-2 bg-muted/50 flex items-center gap-2 opacity-60"
+        >
+          <div className="flex-shrink-0 w-5 h-5 rounded-full border-2 border-green-500 bg-green-500 flex items-center justify-center">
+            <Check className="w-3 h-3 text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium line-through">{task.title}</div>
+            <div className="text-xs text-muted-foreground">
+              {formatGardenTaskDeadline(task)}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        key={task.id}
+        className={`border rounded-lg p-2 bg-card flex items-center gap-2 ${
+          overdue ? 'border-destructive bg-destructive/5' : ''
+        }`}
+      >
+        {/* Complete button - cirkel */}
+        <button
+          onClick={() => onCompleteGardenTask(task)}
+          className={`flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+            overdue 
+              ? 'border-destructive hover:bg-destructive hover:text-destructive-foreground' 
+              : 'border-muted-foreground/30 hover:bg-primary hover:border-primary hover:text-primary-foreground'
+          }`}
+          title="Markeer als voltooid"
+        >
+          <Check className="w-3 h-3 opacity-0 hover:opacity-100" />
+        </button>
+
+        {/* Task content */}
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium flex items-center gap-1.5">
+            {overdue && (
+              <AlertCircle className="w-3 h-3 text-destructive flex-shrink-0" />
+            )}
+            <span className={overdue ? 'text-destructive' : ''}>{task.title}</span>
+            {task.is_recurring && (
+              <span className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground">
+                🔄
+              </span>
+            )}
+          </div>
+          <div className={`text-xs ${overdue ? 'text-destructive/80' : 'text-muted-foreground'}`}>
+            {formatGardenTaskDeadline(task)}
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -393,50 +474,27 @@ export function CalendarView({
             Tuintaken
           </h3>
           
-          {gardenTasksForMonth.length === 0 ? (
+          {/* Overdue tasks - altijd bovenaan */}
+          {gardenTasksForSidebar.overdueTasks.length > 0 && (
+            <div className="space-y-2 mb-4">
+              <div className="text-xs font-medium text-destructive uppercase tracking-wide flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />
+                Te laat
+              </div>
+              {gardenTasksForSidebar.overdueTasks.map(renderGardenTask)}
+            </div>
+          )}
+          
+          {/* Current month tasks */}
+          {gardenTasksForSidebar.monthTasks.length > 0 ? (
+            <div className="space-y-2">
+              {gardenTasksForSidebar.monthTasks.map(renderGardenTask)}
+            </div>
+          ) : gardenTasksForSidebar.overdueTasks.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Geen tuintaken deze maand.
             </p>
-          ) : (
-            <div className="space-y-2">
-              {gardenTasksForMonth.map((task) => {
-                const overdue = isGardenTaskOverdue(task);
-                const isDone = task.status === "done";
-                
-                return (
-                  <button
-                    key={task.id}
-                    onClick={() => !isDone && onCompleteGardenTask(task)}
-                    disabled={isDone}
-                    className={`w-full text-left p-2 rounded-md border text-sm transition-colors ${
-                      isDone 
-                        ? 'bg-muted/50 border-border opacity-60 cursor-default' 
-                        : overdue 
-                        ? 'bg-destructive/5 border-destructive hover:bg-destructive/10 cursor-pointer' 
-                        : 'bg-background border-border hover:bg-muted/50 cursor-pointer'
-                    }`}
-                  >
-                    <div className={`font-medium flex items-center gap-1 ${isDone ? 'line-through' : ''}`}>
-                      {overdue && !isDone && (
-                        <AlertCircle className="w-3 h-3 text-destructive flex-shrink-0" />
-                      )}
-                      <span className={overdue && !isDone ? 'text-destructive' : ''}>{task.title}</span>
-                    </div>
-                    {task.due_week && (
-                      <div className={`text-xs ${overdue && !isDone ? 'text-destructive/80' : 'text-muted-foreground'}`}>
-                        {formatTaskWeek(task)}
-                      </div>
-                    )}
-                    {task.is_recurring && (
-                      <div className="text-[10px] text-muted-foreground mt-1">
-                        🔄 Terugkerend
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          ) : null}
         </div>
       </div>
 
