@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { getISOWeek } from "date-fns";
 import type { Garden, GardenBed, Planting, Seed, Task, GardenTask } from "../lib/types";
 import { updatePlanting } from "../lib/api/plantings";
 import { updateTask } from "../lib/api/tasks";
@@ -512,6 +513,7 @@ export function Dashboard({
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1;
+    const currentISOWeek = getISOWeek(now);
     
     // Check year first
     if (task.due_year < currentYear) return true;
@@ -521,10 +523,9 @@ export function Dashboard({
     if (task.due_month < currentMonth) return true;
     if (task.due_month > currentMonth) return false;
     
-    // Same month, check week if specified
+    // Same month, check ISO week if specified
     if (task.due_week) {
-      const currentWeekOfMonth = Math.ceil(now.getDate() / 7);
-      if (task.due_week < currentWeekOfMonth) return true;
+      if (task.due_week < currentISOWeek) return true;
     }
     
     return false;
