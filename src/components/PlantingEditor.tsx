@@ -109,37 +109,50 @@ export default function PlantingEditor({ gardenId, planting, onClose, onSaved }:
 
   // Maand validatie: check of de plant-maand past bij kas/volle grond maanden
   const monthValidation = useMemo(() => {
-    if (!curSeed || !curBed) return null;
+    if (!curSeed) return null;
+    
+    // Zoek de bak - eerst in curBed, dan in fittingBeds
+    const selectedBed = curBed ?? fittingBeds.find(f => f.bed.id === bedId)?.bed ?? fittingBeds[0]?.bed;
+    if (!selectedBed) return null;
     
     // De datum die we checken is de planned_date (wanneer het de grond in gaat)
     const dateToCheck = plantDate || sowDate;
     if (!dateToCheck) return null;
     
     const month = new Date(dateToCheck).getMonth() + 1; // 1-12
-    const isGreenhouse = curBed.is_greenhouse;
+    const isGreenhouse = selectedBed.is_greenhouse;
+    
+    const monthNames = ['', 'januari', 'februari', 'maart', 'april', 'mei', 'juni', 
+                        'juli', 'augustus', 'september', 'oktober', 'november', 'december'];
     
     if (isGreenhouse) {
       // Check greenhouse_months
       const allowedMonths = curSeed.greenhouse_months ?? [];
       if (allowedMonths.length > 0 && !allowedMonths.includes(month)) {
+        const allowedNames = allowedMonths.map(m => monthNames[m]).join(', ');
         return {
           valid: false,
-          message: `"${curSeed.name}" mag niet in maand ${month} in de kas worden geplant. Toegestane kasmaanden: ${allowedMonths.join(', ')}.`
+          message: `"${curSeed.name}" mag niet in ${monthNames[month]} in de kas worden geplant. Toegestane kasmaanden: ${allowedNames}.`,
+          bedName: selectedBed.name,
+          locationType: 'kas'
         };
       }
     } else {
       // Check direct_plant_months (volle grond)
       const allowedMonths = (curSeed as any).direct_plant_months ?? [];
       if (allowedMonths.length > 0 && !allowedMonths.includes(month)) {
+        const allowedNames = allowedMonths.map((m: number) => monthNames[m]).join(', ');
         return {
           valid: false,
-          message: `"${curSeed.name}" mag niet in maand ${month} in de volle grond worden geplant. Toegestane maanden: ${allowedMonths.join(', ')}.`
+          message: `"${curSeed.name}" mag niet in ${monthNames[month]} in de volle grond worden geplant. Toegestane maanden: ${allowedNames}.`,
+          bedName: selectedBed.name,
+          locationType: 'volle grond'
         };
       }
     }
     
-    return { valid: true, message: '' };
-  }, [curSeed, curBed, plantDate, sowDate]);
+    return { valid: true, message: '', bedName: selectedBed.name, locationType: isGreenhouse ? 'kas' : 'volle grond' };
+  }, [curSeed, curBed, fittingBeds, bedId, plantDate, sowDate]);
 
   async function handleSave() {
     // Check maand validatie en toon waarschuwing indien nodig
