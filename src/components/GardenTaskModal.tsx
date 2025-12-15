@@ -3,7 +3,6 @@ import { Dialog, DialogContent } from "./ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { getISOWeek, startOfWeek, endOfWeek, format, startOfMonth, endOfMonth, addWeeks } from "date-fns";
 import { nl } from "date-fns/locale";
-import { X } from "lucide-react";
 import { cn } from "../lib/utils";
 import type { GardenTask } from "../lib/types";
 
@@ -174,12 +173,6 @@ export function GardenTaskModal({
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border/30 bg-gradient-to-r from-emerald-500/10 to-transparent">
           <h3 className="text-lg font-semibold">{task ? "Taak bewerken" : "Nieuwe tuintaak"}</h3>
-          <button 
-            onClick={() => onOpenChange(false)}
-            className="p-2 rounded-full hover:bg-muted/50 transition-colors"
-          >
-            <X className="h-4 w-4 text-muted-foreground" />
-          </button>
         </div>
 
         {/* Form */}
