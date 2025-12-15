@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Garden, Seed, CropType } from "../lib/types";
 import { createSeed, updateSeed, deleteSeed } from "../lib/api/seeds";
+import { listCropTypes } from "../lib/api/cropTypes";
 import { Copy, Trash2, PlusCircle, ChevronDown } from "lucide-react";
 import { SeedModal } from "./SeedModal";
 import { cn } from "../lib/utils";
@@ -169,11 +170,22 @@ export function InventoryPage({
   const [cropTypeFilter, setCropTypeFilter] = useState<string>("all");
   const [q, setQ] = useState<string>(() => localStorage.getItem("inventoryQ") ?? "");
 
-  // Sync met centrale data
+  // Sync met centrale data + lokale fetch als fallback
   useEffect(() => {
     setSeeds(initialSeeds);
-    setCropTypes(initialCropTypes);
+    if (initialCropTypes.length > 0) {
+      setCropTypes(initialCropTypes);
+    }
   }, [initialSeeds, initialCropTypes]);
+
+  // Fetch cropTypes lokaal als ze leeg zijn (fallback)
+  useEffect(() => {
+    if (cropTypes.length === 0) {
+      listCropTypes()
+        .then(setCropTypes)
+        .catch((err) => console.error('Failed to fetch crop types:', err));
+    }
+  }, [cropTypes.length]);
 
   useEffect(() => {
     localStorage.setItem("inventoryQ", q);
