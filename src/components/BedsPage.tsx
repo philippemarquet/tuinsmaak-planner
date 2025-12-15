@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Garden, GardenBed, UUID } from "../lib/types";
 import { deleteBed, updateBed, createBed } from "../lib/api/beds";
 import { BedModal } from "./BedModal";
-import { Pencil, Trash2, Map as MapIcon, PlusCircle, ZoomIn, ZoomOut, Maximize2, Copy, GripVertical, ChevronDown } from "lucide-react";
+import { Trash2, Map as MapIcon, PlusCircle, ZoomIn, ZoomOut, Maximize2, Copy, GripVertical, ChevronDown } from "lucide-react";
 import { DndContext, DragEndEvent, useDraggable, useDroppable } from "@dnd-kit/core";
 import { cn } from "../lib/utils";
 
@@ -84,10 +84,10 @@ export function BedsPage({
   );
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-bold">Bakken</h2>
+        <h2 className="text-2xl font-bold">Bakken</h2>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setLayoutMode((v) => !v)}
@@ -109,7 +109,7 @@ export function BedsPage({
 
       {/* Cards (gesplitst in Buiten / Kas) */}
       {!layoutMode && (
-        <div className="space-y-10">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           <Section
             title="Buiten"
             items={outdoor}
@@ -117,14 +117,12 @@ export function BedsPage({
             onDelete={handleDelete}
             onDuplicate={duplicateBed}
             onReorder={async (orderedIds) => {
-              // pas sort_order aan volgens de nieuwe volgorde
               const idToOrder: Record<string, number> = {};
               orderedIds.forEach((id, idx) => (idToOrder[id] = idx));
               const updates = outdoor
                 .map(b => ({ ...b, sort_order: idToOrder[b.id] }))
                 .filter(b => b.sort_order !== (beds.find(x => x.id===b.id)?.sort_order ?? 0));
               if (updates.length) {
-                // Optimistisch updaten
                 setBeds(prev => prev.map(b => updates.find(u => u.id===b.id) ?? b));
                 await Promise.all(updates.map(u => updateBed(u.id, { sort_order: u.sort_order })));
                 await onDataChange();
@@ -207,12 +205,9 @@ function Section({
   onDuplicate: (b: GardenBed) => void;
   onReorder: (orderedIds: UUID[]) => void;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(true); // Default open for compact cards
   const [localIds, setLocalIds] = useState<UUID[]>(items.map(i => i.id));
   const count = items.length;
-
-  // Show max 4 stacked cards in closed state
-  const stackedCards = items.slice(0, Math.min(4, count));
 
   useEffect(() => {
     setLocalIds(items.map(i => i.id));
@@ -235,15 +230,15 @@ function Section({
 
   if (count === 0) {
     return (
-      <section className="space-y-3">
-        <h3 className="text-xl font-semibold">{title}</h3>
+      <section className="space-y-2">
+        <h3 className="text-base font-semibold">{title}</h3>
         <p className="text-sm text-muted-foreground">Geen bakken in deze categorie.</p>
       </section>
     );
   }
 
   return (
-    <section className="space-y-3">
+    <section className="space-y-2">
       {/* Clickable header */}
       <button
         onClick={() => setIsOpen(!isOpen)}
@@ -251,110 +246,62 @@ function Section({
       >
         <ChevronDown 
           className={cn(
-            "h-5 w-5 text-muted-foreground transition-transform duration-300",
+            "h-4 w-4 text-muted-foreground transition-transform duration-300",
             isOpen && "rotate-180"
           )} 
         />
-        <h3 className="text-xl font-semibold group-hover:text-primary transition-colors">
+        <h3 className="text-base font-semibold group-hover:text-primary transition-colors">
           {title} <span className="text-sm text-muted-foreground font-normal">({count})</span>
         </h3>
       </button>
 
-      {/* Stacked/Expanded cards */}
-      {!isOpen ? (
-        // Collapsed: stacked cards
-        <div 
-          className="relative cursor-pointer h-28"
-          onClick={() => setIsOpen(true)}
-        >
-          {stackedCards.map((bed, index) => {
-            // Create stacked effect with offset and rotation
-            const offset = index * 8;
-            const rotation = (index - 1.5) * 2;
-            const zIndex = stackedCards.length - index;
-            
-            return (
-              <div
-                key={bed.id}
-                className="absolute left-0 top-0 w-80 max-w-full transition-all duration-300 ease-out"
-                style={{
-                  transform: `translateX(${offset}px) rotate(${rotation}deg)`,
-                  zIndex,
-                }}
-              >
-                <MiniBedCard bed={bed} />
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        // Expanded: full grid with animation and drag-sort
+      {/* Cards grid */}
+      {isOpen && (
         <DndContext onDragEnd={handleDragEnd}>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {localIds.map((id, index) => {
               const b = items.find(x => x.id === id)!;
               return (
                 <SortableCard key={b.id} id={b.id}>
                   {(drag) => (
                     <div
-                      className="animate-scale-in p-5 border rounded-xl bg-card shadow-md hover:shadow-lg transition space-y-3"
-                      style={{ animationDelay: `${index * 30}ms`, animationFillMode: 'backwards' }}
+                      className="flex items-center gap-2 px-3 py-2 border rounded-lg bg-card hover:bg-accent/50 transition cursor-pointer group animate-fade-in"
+                      style={{ animationDelay: `${index * 20}ms`, animationFillMode: 'backwards' }}
+                      onClick={() => onEdit(b)}
                     >
-                      <div className="flex justify-between items-start">
-                        <div className="flex items-center gap-2">
-                          {/* DRAG HANDLE: alleen hier zitten de drag listeners */}
-                          <button
-                            type="button"
-                            className="p-1 rounded hover:bg-muted cursor-grab active:cursor-grabbing"
-                            aria-label="Verslepen"
-                            {...drag.listeners}
-                            {...drag.attributes}
-                          >
-                            <GripVertical className="h-4 w-4 text-muted-foreground" />
-                          </button>
+                      {/* Drag handle */}
+                      <button
+                        type="button"
+                        className="p-0.5 rounded hover:bg-muted cursor-grab active:cursor-grabbing flex-shrink-0"
+                        aria-label="Verslepen"
+                        onClick={(e) => e.stopPropagation()}
+                        {...drag.listeners}
+                        {...drag.attributes}
+                      >
+                        <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
+                      </button>
 
-                          <div>
-                            <h4 className="font-semibold text-lg">{b.name}</h4>
-                            <p className="text-xs text-muted-foreground">
-                              {b.width_cm} × {b.length_cm} cm — {b.segments} segment(en)
-                            </p>
-                          </div>
-                        </div>
+                      <span className="font-medium text-sm truncate flex-1">{b.name}</span>
+                      
+                      <span className="text-xs text-muted-foreground flex-shrink-0">
+                        {b.width_cm}×{b.length_cm}cm • {b.segments} seg
+                      </span>
 
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => onDuplicate(b)}
-                            className="p-1 text-muted-foreground hover:text-primary"
-                            title="Dupliceren"
-                          >
-                            <Copy className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => onEdit(b)}
-                            className="p-1 text-muted-foreground hover:text-primary"
-                            title="Bewerken"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => onDelete(b.id)}
-                            className="p-1 text-muted-foreground hover:text-destructive"
-                            title="Verwijderen"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {b.is_greenhouse && (
-                          <span className="text-xs bg-green-600/90 text-white px-2 py-0.5 rounded">
-                            Kas
-                          </span>
-                        )}
-                        <span className="text-xs text-muted-foreground">
-                          Positie: x {b.location_x ?? 0}, y {b.location_y ?? 0}
-                        </span>
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition flex-shrink-0">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onDuplicate(b); }}
+                          className="p-1 text-muted-foreground hover:text-primary"
+                          title="Dupliceren"
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onDelete(b.id); }}
+                          className="p-1 text-muted-foreground hover:text-destructive"
+                          title="Verwijderen"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                     </div>
                   )}
@@ -365,26 +312,6 @@ function Section({
         </DndContext>
       )}
     </section>
-  );
-}
-
-/* ---------- mini kaartje voor stapel ---------- */
-
-function MiniBedCard({ bed }: { bed: GardenBed }) {
-  return (
-    <div className="p-4 border rounded-xl bg-card shadow-md hover:shadow-lg transition">
-      <div className="flex items-center gap-2">
-        <h4 className="font-semibold truncate flex-1">{bed.name}</h4>
-        {bed.is_greenhouse && (
-          <span className="text-xs bg-green-600/90 text-white px-2 py-0.5 rounded">
-            Kas
-          </span>
-        )}
-      </div>
-      <p className="text-xs text-muted-foreground mt-1">
-        {bed.width_cm} × {bed.length_cm} cm
-      </p>
-    </div>
   );
 }
 
