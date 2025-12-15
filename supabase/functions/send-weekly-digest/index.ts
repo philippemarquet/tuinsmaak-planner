@@ -18,8 +18,38 @@ interface WeeklyTask {
   seedName: string;
   bedName: string;
   dueDate: string;
-  dueDateRaw: string; // ISO date string voor correcte sortering
+  dueDateRaw: string;
   isOverdue: boolean;
+}
+
+interface GardenTaskItem {
+  title: string;
+  dueDate: string;
+  isRecurring: boolean;
+  isOverdue: boolean;
+}
+
+// Helper: get ISO week number
+function getISOWeek(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
+// Helper: get start and end of current ISO week
+function getCurrentWeekBounds(today: Date): { weekStart: Date; weekEnd: Date } {
+  const dayOfWeek = today.getDay() || 7; // Monday = 1, Sunday = 7
+  const weekStart = new Date(today);
+  weekStart.setDate(today.getDate() - dayOfWeek + 1); // Monday
+  weekStart.setHours(0, 0, 0, 0);
+  
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6); // Sunday
+  weekEnd.setHours(23, 59, 59, 999);
+  
+  return { weekStart, weekEnd };
 }
 
 const handler = async (req: Request): Promise<Response> => {
@@ -45,7 +75,10 @@ const handler = async (req: Request): Promise<Response> => {
 
     const today = new Date();
     const currentDay = today.getDay(); // 0=zondag, 1=maandag, etc.
-    const currentTime = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth() + 1; // 1-indexed
+    const currentISOWeek = getISOWeek(today);
+    const { weekStart, weekEnd } = getCurrentWeekBounds(today);
 
     const taskTypeLabels: Record<string, string> = {
       sow: 'Zaaien',
@@ -53,6 +86,9 @@ const handler = async (req: Request): Promise<Response> => {
       harvest_start: 'Start oogst',
       harvest_end: 'Einde oogst',
     };
+
+    const monthNames = ["januari", "februari", "maart", "april", "mei", "juni",
+                        "juli", "augustus", "september", "oktober", "november", "december"];
 
     let emailsSent = 0;
     let errors = 0;
@@ -109,7 +145,7 @@ const handler = async (req: Request): Promise<Response> => {
 
         const gardenIds = gardens.map(g => g.garden_id);
 
-        // Haal alle openstaande taken op
+        // Haal alle openstaande planting taken op
         const oneWeekFromNow = new Date(today);
         oneWeekFromNow.setDate(oneWeekFromNow.getDate() + 7);
 
@@ -130,12 +166,18 @@ const handler = async (req: Request): Promise<Response> => {
 
         if (tasksError) throw tasksError;
 
-        if (!tasks || tasks.length === 0) {
-          console.log(`No tasks found for user ${profile.id}`);
-          continue;
-        }
+        // Haal alle garden_tasks op
+        const { data: gardenTasks, error: gardenTasksError } = await supabase
+          .from('garden_tasks')
+          .select('*')
+          .in('garden_id', gardenIds)
+          .eq('status', 'pending');
 
-        // Definieer taak volgorde per planting
+        if (gardenTasksError) throw gardenTasksError;
+
+        console.log(`Found ${tasks?.length || 0} planting tasks and ${gardenTasks?.length || 0} garden tasks for user ${profile.id}`);
+
+        // Process planting tasks - same logic as before
         const taskOrder: Record<string, number> = {
           'sow': 1,
           'plant_out': 2,
@@ -143,9 +185,8 @@ const handler = async (req: Request): Promise<Response> => {
           'harvest_end': 4,
         };
 
-        // Groepeer taken per planting_id
         const tasksByPlanting = new Map<string, typeof tasks>();
-        for (const task of tasks) {
+        for (const task of tasks || []) {
           const plantingId = task.planting_id;
           if (!tasksByPlanting.has(plantingId)) {
             tasksByPlanting.set(plantingId, []);
@@ -153,17 +194,14 @@ const handler = async (req: Request): Promise<Response> => {
           tasksByPlanting.get(plantingId)!.push(task);
         }
 
-        // Verzamel alle verlate taken (alleen eerste per planting)
         const overdueTasks: WeeklyTask[] = [];
         const processedPlantings = new Set<string>();
 
         for (const [plantingId, plantingTasks] of tasksByPlanting) {
-          // Sorteer taken op volgorde
           const sortedTasks = plantingTasks.sort((a, b) => 
             (taskOrder[a.type] || 999) - (taskOrder[b.type] || 999)
           );
 
-          // Vind de eerste pending taak
           const firstPendingTask = sortedTasks[0];
           if (!firstPendingTask) continue;
 
@@ -188,14 +226,12 @@ const handler = async (req: Request): Promise<Response> => {
           }
         }
 
-        // Verzamel alle aankomende taken (alle niet-verlate taken)
         const upcomingTasks: WeeklyTask[] = [];
         
-        for (const task of tasks) {
+        for (const task of tasks || []) {
           const taskDueDate = new Date(task.due_date);
           const isOverdue = taskDueDate < today;
           
-          // Skip als deze taak overdue is - die staat al in overdueTasks
           if (isOverdue) continue;
 
           upcomingTasks.push({
@@ -213,7 +249,61 @@ const handler = async (req: Request): Promise<Response> => {
           });
         }
 
-        // Sorteer taken op datum (oudste eerst)
+        // Process garden tasks
+        const overdueGardenTasks: GardenTaskItem[] = [];
+        const upcomingGardenTasks: GardenTaskItem[] = [];
+
+        for (const gt of gardenTasks || []) {
+          // Check if garden task is overdue
+          let isOverdue = false;
+          if (gt.due_year < currentYear) {
+            isOverdue = true;
+          } else if (gt.due_year === currentYear) {
+            if (gt.due_month < currentMonth) {
+              isOverdue = true;
+            } else if (gt.due_month === currentMonth && gt.due_week && gt.due_week < currentISOWeek) {
+              isOverdue = true;
+            }
+          }
+
+          // Check if garden task falls within current week
+          const isCurrentWeek = gt.due_year === currentYear && 
+                                gt.due_month === currentMonth &&
+                                (!gt.due_week || gt.due_week === currentISOWeek);
+
+          // Also include tasks for this month without specific week
+          const isCurrentMonth = gt.due_year === currentYear && gt.due_month === currentMonth && !gt.due_week;
+
+          // Format due date
+          let dueDate = `${monthNames[gt.due_month - 1]} ${gt.due_year}`;
+          if (gt.due_week) {
+            dueDate += `, week ${gt.due_week}`;
+          }
+
+          const taskItem: GardenTaskItem = {
+            title: gt.title,
+            dueDate,
+            isRecurring: gt.is_recurring || false,
+            isOverdue,
+          };
+
+          if (isOverdue) {
+            overdueGardenTasks.push(taskItem);
+          } else if (isCurrentWeek || isCurrentMonth) {
+            upcomingGardenTasks.push(taskItem);
+          }
+        }
+
+        // Check if there are any tasks at all
+        const totalTasks = overdueTasks.length + upcomingTasks.length + 
+                          overdueGardenTasks.length + upcomingGardenTasks.length;
+
+        if (totalTasks === 0) {
+          console.log(`No tasks found for user ${profile.id}`);
+          continue;
+        }
+
+        // Sort tasks
         overdueTasks.sort((a, b) => new Date(a.dueDateRaw).getTime() - new Date(b.dueDateRaw).getTime());
         upcomingTasks.sort((a, b) => new Date(a.dueDateRaw).getTime() - new Date(b.dueDateRaw).getTime());
 
@@ -223,13 +313,15 @@ const handler = async (req: Request): Promise<Response> => {
             userName: profile.display_name || 'Tuinier',
             overdueTasks,
             upcomingTasks,
+            overdueGardenTasks,
+            upcomingGardenTasks,
             appUrl: supabaseUrl.replace('.supabase.co', '.lovable.app') || 'https://your-app.lovable.app',
             template: prefs?.email_template || {},
           })
         );
 
         // Verstuur email
-        const emailSubject = `🌱 Wekelijkse tuinagenda: ${overdueTasks.length + upcomingTasks.length} acties`;
+        const emailSubject = `🌱 Wekelijkse tuinagenda: ${totalTasks} acties`;
         const { error: emailError } = await resend.emails.send({
           from: 'Tuinplanner <moestuin@bosgoedt.be>',
           to: [user.email],
@@ -241,7 +333,6 @@ const handler = async (req: Request): Promise<Response> => {
           console.error(`Failed to send email to ${user.email}:`, emailError);
           errors++;
           
-          // Log failed email
           await supabase.from('email_logs').insert({
             user_id: profile.id,
             email_type: 'weekly_digest',
@@ -249,22 +340,21 @@ const handler = async (req: Request): Promise<Response> => {
             subject: emailSubject,
             status: 'failed',
             error_message: emailError.message || 'Unknown error',
-            tasks_count: overdueTasks.length + upcomingTasks.length,
-            overdue_count: overdueTasks.length,
+            tasks_count: totalTasks,
+            overdue_count: overdueTasks.length + overdueGardenTasks.length,
           });
         } else {
           console.log(`Email sent to: ${user.email}`);
           emailsSent++;
           
-          // Log successful email
           await supabase.from('email_logs').insert({
             user_id: profile.id,
             email_type: 'weekly_digest',
             recipient_email: user.email,
             subject: emailSubject,
             status: 'sent',
-            tasks_count: overdueTasks.length + upcomingTasks.length,
-            overdue_count: overdueTasks.length,
+            tasks_count: totalTasks,
+            overdue_count: overdueTasks.length + overdueGardenTasks.length,
           });
         }
       } catch (error: any) {

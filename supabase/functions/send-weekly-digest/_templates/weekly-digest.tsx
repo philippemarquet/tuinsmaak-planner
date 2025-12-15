@@ -20,10 +20,19 @@ interface WeeklyTask {
   isOverdue: boolean;
 }
 
+interface GardenTaskItem {
+  title: string;
+  dueDate: string;
+  isRecurring: boolean;
+  isOverdue: boolean;
+}
+
 interface WeeklyDigestEmailProps {
   userName: string;
   overdueTasks: WeeklyTask[];
   upcomingTasks: WeeklyTask[];
+  overdueGardenTasks: GardenTaskItem[];
+  upcomingGardenTasks: GardenTaskItem[];
   appUrl: string;
   template?: {
     header?: string;
@@ -33,6 +42,7 @@ interface WeeklyDigestEmailProps {
     overdueSubtext?: string;
     upcomingHeader?: string;
     upcomingSubtext?: string;
+    gardenTasksHeader?: string;
     noTasksMessage?: string;
   };
 }
@@ -41,6 +51,8 @@ export const WeeklyDigestEmail = ({
   userName,
   overdueTasks,
   upcomingTasks,
+  overdueGardenTasks = [],
+  upcomingGardenTasks = [],
   appUrl,
   template = {},
 }: WeeklyDigestEmailProps) => {
@@ -51,12 +63,16 @@ export const WeeklyDigestEmail = ({
   const overdueSubtext = template.overdueSubtext || 'Deze acties hadden al gedaan moeten zijn:';
   const upcomingHeader = template.upcomingHeader || '📅 Aankomende acties';
   const upcomingSubtext = template.upcomingSubtext || 'Deze acties staan gepland voor de komende 7 dagen:';
+  const gardenTasksHeader = template.gardenTasksHeader || '🌿 Tuintaken';
   const noTasksMessage = template.noTasksMessage || '✨ Je hebt geen openstaande taken! Geniet van je tuin.';
+
+  const hasAnyTasks = overdueTasks.length > 0 || upcomingTasks.length > 0 || 
+                      overdueGardenTasks.length > 0 || upcomingGardenTasks.length > 0;
 
   return (
   <Html>
     <Head />
-    <Preview>Je wekelijkse tuinagenda: {overdueTasks.length} achterstallig, {upcomingTasks.length} aankomend</Preview>
+    <Preview>Je wekelijkse tuinagenda: {overdueTasks.length + overdueGardenTasks.length} achterstallig, {upcomingTasks.length + upcomingGardenTasks.length} aankomend</Preview>
     <Body style={main}>
       <Container style={container}>
         <Heading style={h1}>{header}</Heading>
@@ -103,7 +119,52 @@ export const WeeklyDigestEmail = ({
           </>
         )}
 
-        {overdueTasks.length === 0 && upcomingTasks.length === 0 && (
+        {/* Tuintaken sectie */}
+        {(overdueGardenTasks.length > 0 || upcomingGardenTasks.length > 0) && (
+          <>
+            <Heading style={h2}>{gardenTasksHeader}</Heading>
+            
+            {overdueGardenTasks.length > 0 && (
+              <>
+                <Text style={{ ...subText, color: '#dc2626' }}>Achterstallig:</Text>
+                <Section style={taskBox}>
+                  {overdueGardenTasks.map((task, idx) => (
+                    <div key={idx} style={{ ...taskItem, borderLeftColor: '#dc2626' }}>
+                      <Text style={{ ...taskTitle, color: '#dc2626' }}>
+                        {task.title}
+                        {task.isRecurring && <span style={recurringBadge}> 🔄</span>}
+                      </Text>
+                      <Text style={{ ...taskDetail, color: '#dc2626', fontWeight: '600' }}>
+                        {task.dueDate}
+                      </Text>
+                    </div>
+                  ))}
+                </Section>
+              </>
+            )}
+
+            {upcomingGardenTasks.length > 0 && (
+              <>
+                <Text style={subText}>Deze week:</Text>
+                <Section style={taskBox}>
+                  {upcomingGardenTasks.map((task, idx) => (
+                    <div key={idx} style={{ ...taskItem, borderLeftColor: '#16a34a' }}>
+                      <Text style={taskTitle}>
+                        {task.title}
+                        {task.isRecurring && <span style={recurringBadge}> 🔄</span>}
+                      </Text>
+                      <Text style={taskDetail}>
+                        {task.dueDate}
+                      </Text>
+                    </div>
+                  ))}
+                </Section>
+              </>
+            )}
+          </>
+        )}
+
+        {!hasAnyTasks && (
           <Section style={taskBox}>
             <Text style={{ ...text, textAlign: 'center' as const, color: '#16a34a' }}>
               {noTasksMessage}
@@ -195,6 +256,10 @@ const taskDetail = {
   fontSize: '14px',
   lineHeight: '20px',
   margin: '2px 0',
+};
+
+const recurringBadge = {
+  fontSize: '12px',
 };
 
 const button = {
