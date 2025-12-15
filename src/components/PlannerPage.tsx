@@ -445,7 +445,8 @@ export function PlannerPage({
     const seed = seeds.find((s) => s.id === seedId);
     if (!seed) return;
     const [prefix, bedId, , segStr] = String(over.id).split("__");
-    if (!prefix.startsWith("bed")) return;
+    // Support both "bed" and "timeline" prefixes
+    if (!prefix.startsWith("bed") && !prefix.startsWith("timeline")) return;
     const bed = beds.find((b) => b.id === bedId);
     if (!bed) return;
     setPopup({ mode: "create", seed, bed, segmentIndex: parseInt(segStr, 10) });
@@ -1107,7 +1108,9 @@ export function PlannerPage({
               >
                 ←
               </button>
-              <span className="px-4 py-2 font-semibold text-sm min-w-[80px] text-center">WK {weekOf(currentWeek)}</span>
+              <span className="px-4 py-2 font-semibold text-sm min-w-[160px] text-center">
+                WK {weekOf(currentWeek)} <span className="text-muted-foreground font-normal">({format(currentWeek, "d MMM", { locale: nl })} - {format(addDays(currentWeek, 6), "d MMM", { locale: nl })})</span>
+              </span>
               <button 
                 className="px-3 py-2 text-sm font-medium rounded-md hover:bg-background transition-colors" 
                 onClick={() => setCurrentWeek(addDays(currentWeek, 7))}
@@ -1174,7 +1177,7 @@ export function PlannerPage({
       <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div className="flex flex-1 min-h-0">
           {/* Fixed sidebar */}
-          {(view === "list" || view === "map") && <SeedsSidebar />}
+          {(view === "list" || view === "map" || view === "timeline") && <SeedsSidebar />}
           
           {/* Main content area - scrollable */}
           <div className="flex-1 overflow-auto">
@@ -1244,7 +1247,7 @@ export function PlannerPage({
                 bed={popup.bed}
                 beds={beds}
                 defaultSegment={popup.segmentIndex}
-                defaultDateISO={popup.mode === "edit" ? popup.planting.planned_date ?? toISO(currentWeek) : toISO(currentWeek)}
+                defaultDateISO={popup.mode === "edit" ? popup.planting.planned_date ?? toISO(addDays(currentWeek, 4)) : toISO(addDays(currentWeek, 4))}
                 existing={popup.mode === "edit" ? popup.planting : undefined}
                 allPlantings={plantings}
                 onCancel={() => setPopup(null)}
