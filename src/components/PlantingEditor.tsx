@@ -5,6 +5,7 @@ import { listSeeds } from '../lib/api/seeds';
 import { listBeds } from '../lib/api/beds';
 import { listPlantings } from '../lib/api/plantings';
 import { createPlanting, updatePlanting } from '../lib/api/plantings';
+import { AlertTriangle } from 'lucide-react';
 
 type Props = {
   gardenId: UUID;
@@ -65,8 +66,11 @@ export default function PlantingEditor({ gardenId, planting, onClose, onSaved }:
   const [plantsPerRow, setPlantsPerRow] = useState<number>(planting?.plants_per_row ?? 1);
   const [status, setStatus] = useState<Planting['status']>(planting?.status ?? 'planned');
   const [notes, setNotes] = useState<string>(planting?.notes ?? '');
+  const [showMonthWarning, setShowMonthWarning] = useState(false);
+  const [monthWarningMessage, setMonthWarningMessage] = useState('');
 
   const curSeed = useMemo(()=>seeds.find(s=>s.id===seedId) ?? null,[seeds, seedId]);
+  const curBed = useMemo(()=>beds.find(b=>b.id===bedId) ?? null,[beds, bedId]);
 
   useEffect(() => {
     Promise.all([listSeeds(gardenId), listBeds(gardenId), listPlantings(gardenId)])
@@ -103,7 +107,54 @@ export default function PlantingEditor({ gardenId, planting, onClose, onSaved }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fittingBeds.map(f=>f.bed.id).join("|")]);
 
+  // Maand validatie: check of de plant-maand past bij kas/volle grond maanden
+  const monthValidation = useMemo(() => {
+    if (!curSeed || !curBed) return null;
+    
+    // De datum die we checken is de planned_date (wanneer het de grond in gaat)
+    const dateToCheck = plantDate || sowDate;
+    if (!dateToCheck) return null;
+    
+    const month = new Date(dateToCheck).getMonth() + 1; // 1-12
+    const isGreenhouse = curBed.is_greenhouse;
+    
+    if (isGreenhouse) {
+      // Check greenhouse_months
+      const allowedMonths = curSeed.greenhouse_months ?? [];
+      if (allowedMonths.length > 0 && !allowedMonths.includes(month)) {
+        return {
+          valid: false,
+          message: `"${curSeed.name}" mag niet in maand ${month} in de kas worden geplant. Toegestane kasmaanden: ${allowedMonths.join(', ')}.`
+        };
+      }
+    } else {
+      // Check direct_plant_months (volle grond)
+      const allowedMonths = (curSeed as any).direct_plant_months ?? [];
+      if (allowedMonths.length > 0 && !allowedMonths.includes(month)) {
+        return {
+          valid: false,
+          message: `"${curSeed.name}" mag niet in maand ${month} in de volle grond worden geplant. Toegestane maanden: ${allowedMonths.join(', ')}.`
+        };
+      }
+    }
+    
+    return { valid: true, message: '' };
+  }, [curSeed, curBed, plantDate, sowDate]);
+
   async function handleSave() {
+    // Check maand validatie en toon waarschuwing indien nodig
+    if (monthValidation && !monthValidation.valid) {
+      setMonthWarningMessage(monthValidation.message);
+      setShowMonthWarning(true);
+      return;
+    }
+    
+    await performSave();
+  }
+  
+  async function performSave() {
+    setShowMonthWarning(false);
+    
     const pd = method === 'presow' ? (plantDate || sowDate) : (sowDate || plantDate);
     const payloadUpdate: Partial<Planting> = {
       method,
@@ -215,12 +266,47 @@ export default function PlantingEditor({ gardenId, planting, onClose, onSaved }:
           </div>
         </div>
 
+        {/* Inline warning als maand niet klopt */}
+        {monthValidation && !monthValidation.valid && (
+          <div className="mt-3 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm flex items-start gap-2">
+            <AlertTriangle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+            <span>{monthValidation.message}</span>
+          </div>
+        )}
+
         <div className="mt-4 flex justify-end gap-2">
           <button onClick={onClose} className="inline-flex items-center rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 px-3 py-2">Annuleren</button>
           <button onClick={handleSave} disabled={fittingBeds.length===0} className="inline-flex items-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-2">
             {editing ? 'Opslaan' : 'Toevoegen'}
           </button>
         </div>
+
+        {/* Waarschuwing modal */}
+        {showMonthWarning && (
+          <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
+            <div className="w-full max-w-md bg-card border border-border rounded-xl shadow-2xl p-6 space-y-4">
+              <div className="flex items-center gap-3 text-amber-600">
+                <AlertTriangle className="h-8 w-8" />
+                <h4 className="text-lg font-semibold">Maand niet geschikt</h4>
+              </div>
+              <p className="text-sm text-muted-foreground">{monthWarningMessage}</p>
+              <div className="flex justify-end gap-2">
+                <button 
+                  onClick={() => setShowMonthWarning(false)} 
+                  className="px-4 py-2 rounded-md border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                >
+                  Terug
+                </button>
+                <button 
+                  onClick={performSave} 
+                  className="px-4 py-2 rounded-md bg-amber-600 text-white hover:bg-amber-700"
+                >
+                  Toch opslaan
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
