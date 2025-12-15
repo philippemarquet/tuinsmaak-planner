@@ -252,7 +252,7 @@ export function InventoryPage({
   const [editorOpen, setEditorOpen] = useState<{ seed: Seed | null } | null>(null);
 
   // filters
-  const [inStockOnly, setInStockOnly] = useState<boolean>(false);
+  const [inStockOnly, setInStockOnly] = useState<boolean>(true);
   const [cropTypeFilter, setCropTypeFilter] = useState<string>("all");
   const [q, setQ] = useState<string>(() => localStorage.getItem("inventoryQ") ?? "");
 
