@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Garden, GardenBed, Planting, Seed, Task } from "../lib/types";
+import type { Garden, GardenBed, Planting, Seed, Task, GardenTask } from "../lib/types";
 import { updatePlanting } from "../lib/api/plantings";
 import { updateTask } from "../lib/api/tasks";
+import { createGardenTask, updateGardenTask, deleteGardenTask, completeGardenTask } from "../lib/api/gardenTasks";
 import { buildConflictsMap, countUniqueConflicts } from "../lib/conflicts";
 import { useConflictFlags } from "../hooks/useConflictFlags";
 import { useIsMobile } from "../hooks/use-mobile";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { CalendarView } from "./CalendarView";
-
+import { GardenTaskModal } from "./GardenTaskModal";
+import { Plus, AlertCircle, Check, Sprout } from "lucide-react";
 /* ---------- helpers ---------- */
 function toISO(d: Date) { return d.toISOString().slice(0, 10); }
 function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
@@ -106,6 +108,7 @@ export function Dashboard({
   seeds: initialSeeds, 
   plantings: initialPlantings, 
   tasks: initialTasks,
+  gardenTasks: initialGardenTasks,
   onDataChange
 }: { 
   garden: Garden;
@@ -113,6 +116,7 @@ export function Dashboard({
   seeds: Seed[];
   plantings: Planting[];
   tasks: Task[];
+  gardenTasks: GardenTask[];
   onDataChange: () => Promise<void>;
 }) {
   const isMobile = useIsMobile();
@@ -122,6 +126,7 @@ export function Dashboard({
   const [plantings, setPlantings] = useState<Planting[]>(initialPlantings);
   const [seeds, setSeeds] = useState<Seed[]>(initialSeeds);
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [gardenTasks, setGardenTasks] = useState<GardenTask[]>(initialGardenTasks);
   const [showAll, setShowAll] = useState(false);
 
   const [dialog, setDialog] = useState<{
@@ -132,13 +137,18 @@ export function Dashboard({
 
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  // Garden task modal state
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [editingGardenTask, setEditingGardenTask] = useState<GardenTask | null>(null);
+
   // Sync met centrale data
   useEffect(() => {
     setBeds(initialBeds);
     setSeeds(initialSeeds);
     setPlantings(initialPlantings);
     setTasks(initialTasks);
-  }, [initialBeds, initialSeeds, initialPlantings, initialTasks]);
+    setGardenTasks(initialGardenTasks);
+  }, [initialBeds, initialSeeds, initialPlantings, initialTasks, initialGardenTasks]);
 
   const bedsById = useMemo(() => Object.fromEntries(beds.map(b => [b.id, b])), [beds]);
   const seedsById = useMemo(() => Object.fromEntries(seeds.map(s => [s.id, s])), [seeds]);
@@ -495,6 +505,156 @@ export function Dashboard({
     );
   };
 
+  /* ---------- helper: check if garden task is overdue ---------- */
+  const isGardenTaskOverdue = (task: GardenTask): boolean => {
+    if (task.status === "done") return false;
+    
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    
+    // Check year first
+    if (task.due_year < currentYear) return true;
+    if (task.due_year > currentYear) return false;
+    
+    // Same year, check month
+    if (task.due_month < currentMonth) return true;
+    if (task.due_month > currentMonth) return false;
+    
+    // Same month, check week if specified
+    if (task.due_week) {
+      const currentWeekOfMonth = Math.ceil(now.getDate() / 7);
+      if (task.due_week < currentWeekOfMonth) return true;
+    }
+    
+    return false;
+  };
+
+  /* ---------- format garden task deadline ---------- */
+  const formatGardenTaskDeadline = (task: GardenTask): string => {
+    const months = ["januari", "februari", "maart", "april", "mei", "juni",
+                    "juli", "augustus", "september", "oktober", "november", "december"];
+    let result = `${months[task.due_month - 1]} ${task.due_year}`;
+    if (task.due_week) {
+      result += `, week ${task.due_week}`;
+    }
+    return result;
+  };
+
+  /* ---------- render garden tasks section ---------- */
+  const GardenTasksSection = ({
+    gardenTasks,
+    isMobile,
+    onAddTask,
+    onEditTask,
+    onCompleteTask,
+  }: {
+    gardenTasks: GardenTask[];
+    isMobile: boolean;
+    onAddTask: () => void;
+    onEditTask: (task: GardenTask) => void;
+    onCompleteTask: (task: GardenTask) => void;
+  }) => {
+    // Filter: pending tasks first, then done ones
+    const pendingTasks = gardenTasks.filter(t => t.status === "pending");
+    const doneTasks = gardenTasks.filter(t => t.status === "done");
+
+    return (
+      <section className="mt-8 pt-6 border-t border-border">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground flex items-center gap-2">
+            <Sprout className="w-4 h-4" />
+            Tuin taken
+          </h3>
+          <button
+            onClick={onAddTask}
+            className="flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+          >
+            <Plus className="w-3 h-3" />
+            Toevoegen
+          </button>
+        </div>
+
+        {pendingTasks.length === 0 && doneTasks.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Geen tuintaken. Voeg een taak toe om te beginnen.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {pendingTasks.map((task) => {
+              const overdue = isGardenTaskOverdue(task);
+              return (
+                <div
+                  key={task.id}
+                  className={`border rounded-lg ${isMobile ? 'p-3' : 'p-3'} bg-card flex items-center gap-3 ${
+                    overdue ? 'border-destructive bg-destructive/5' : ''
+                  }`}
+                >
+                  {/* Complete button */}
+                  <button
+                    onClick={() => onCompleteTask(task)}
+                    className={`flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
+                      overdue 
+                        ? 'border-destructive hover:bg-destructive hover:text-destructive-foreground' 
+                        : 'border-muted-foreground/30 hover:bg-primary hover:border-primary hover:text-primary-foreground'
+                    }`}
+                    title="Markeer als voltooid"
+                  >
+                    <Check className="w-3 h-3 opacity-0 group-hover:opacity-100" />
+                  </button>
+
+                  {/* Task content - clickable to edit */}
+                  <button
+                    onClick={() => onEditTask(task)}
+                    className="flex-1 text-left min-w-0"
+                  >
+                    <div className={`${isMobile ? 'text-base' : 'text-sm'} font-medium flex items-center gap-2`}>
+                      {overdue && (
+                        <AlertCircle className="w-4 h-4 text-destructive flex-shrink-0" />
+                      )}
+                      <span className={overdue ? 'text-destructive' : ''}>{task.title}</span>
+                      {task.is_recurring && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                          🔄
+                        </span>
+                      )}
+                    </div>
+                    <div className={`${isMobile ? 'text-sm' : 'text-xs'} ${overdue ? 'text-destructive/80' : 'text-muted-foreground'}`}>
+                      {formatGardenTaskDeadline(task)}
+                    </div>
+                  </button>
+                </div>
+              );
+            })}
+
+            {/* Done tasks (grayed out) */}
+            {doneTasks.map((task) => (
+              <div
+                key={task.id}
+                className="border rounded-lg p-3 bg-muted/50 flex items-center gap-3 opacity-60"
+              >
+                <div className="flex-shrink-0 w-6 h-6 rounded-full border-2 border-green-500 bg-green-500 flex items-center justify-center">
+                  <Check className="w-3 h-3 text-white" />
+                </div>
+                <button
+                  onClick={() => onEditTask(task)}
+                  className="flex-1 text-left min-w-0"
+                >
+                  <div className={`${isMobile ? 'text-base' : 'text-sm'} font-medium line-through`}>
+                    {task.title}
+                  </div>
+                  <div className={`${isMobile ? 'text-sm' : 'text-xs'} text-muted-foreground`}>
+                    {formatGardenTaskDeadline(task)}
+                  </div>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    );
+  };
+
   /* ---------- render ---------- */
   return (
     <div className={`mx-auto ${isMobile ? 'max-w-full px-4 py-4' : 'max-w-5xl py-6'}`}>
@@ -566,6 +726,52 @@ export function Dashboard({
               </div>
             ) : null}
           </section>
+
+          {/* Tuin taken sectie */}
+          <GardenTasksSection
+            gardenTasks={gardenTasks}
+            isMobile={isMobile}
+            onAddTask={() => {
+              setEditingGardenTask(null);
+              setTaskModalOpen(true);
+            }}
+            onEditTask={(task) => {
+              setEditingGardenTask(task);
+              setTaskModalOpen(true);
+            }}
+            onCompleteTask={async (task) => {
+              try {
+                await completeGardenTask(task.id);
+                await reloadAll();
+              } catch (e: any) {
+                alert("Kon taak niet afronden: " + (e?.message ?? e));
+              }
+            }}
+          />
+
+          {/* Garden Task Modal */}
+          <GardenTaskModal
+            open={taskModalOpen}
+            onOpenChange={setTaskModalOpen}
+            task={editingGardenTask}
+            onSave={async (values) => {
+              if (editingGardenTask) {
+                await updateGardenTask(editingGardenTask.id, values);
+              } else {
+                await createGardenTask({
+                  ...values,
+                  garden_id: garden.id,
+                  status: "pending",
+                  is_recurring: values.is_recurring,
+                });
+              }
+              await reloadAll();
+            }}
+            onDelete={editingGardenTask ? async () => {
+              await deleteGardenTask(editingGardenTask.id);
+              await reloadAll();
+            } : undefined}
+          />
 
           {/* Dialog: actie uitvoeren / bewerken of leegmaken */}
           {dialog && (

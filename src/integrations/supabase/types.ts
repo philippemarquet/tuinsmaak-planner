@@ -127,6 +127,59 @@ export type Database = {
           },
         ]
       }
+      garden_tasks: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          description: string | null
+          due_month: number
+          due_week: number | null
+          due_year: number
+          garden_id: string
+          id: string
+          is_recurring: boolean | null
+          status: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          description?: string | null
+          due_month: number
+          due_week?: number | null
+          due_year: number
+          garden_id: string
+          id?: string
+          is_recurring?: boolean | null
+          status?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          description?: string | null
+          due_month?: number
+          due_week?: number | null
+          due_year?: number
+          garden_id?: string
+          id?: string
+          is_recurring?: boolean | null
+          status?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "garden_tasks_garden_id_fkey"
+            columns: ["garden_id"]
+            isOneToOne: false
+            referencedRelation: "gardens"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       garden_users: {
         Row: {
           created_at: string
