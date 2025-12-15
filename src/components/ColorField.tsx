@@ -19,11 +19,13 @@ export function ColorField({
   value,
   onChange,
   helperText,
+  compact = false,
 }: {
   label?: string;
   value: string;
   onChange: (hexOrRgb: string) => void;
   helperText?: string;
+  compact?: boolean;
 }) {
   const [text, setText] = useState(value || "#22c55e");
   const hex = useMemo(() => toHexSafe(text), [text]);
@@ -31,6 +33,18 @@ export function ColorField({
   useEffect(() => {
     setText(value || "#22c55e");
   }, [value]);
+
+  if (compact) {
+    return (
+      <input
+        type="color"
+        value={hex}
+        onChange={(e) => { setText(e.target.value); onChange(e.target.value); }}
+        className="w-full h-8 p-0 border rounded cursor-pointer bg-transparent"
+        title="Kies een kleur"
+      />
+    );
+  }
 
   return (
     <div>

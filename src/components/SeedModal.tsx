@@ -117,199 +117,198 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-index-50 z-50">
-      <div className="bg-card rounded-lg shadow-lg p-6 w-full max-w-3xl space-y-4 max-h-[90vh] overflow-y-auto">
-        <h3 className="text-lg font-semibold mb-2">
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="bg-card rounded-lg shadow-lg p-4 w-full max-w-xl space-y-3 max-h-[90vh] overflow-y-auto">
+        <h3 className="text-base font-semibold">
           {editing ? "Zaad bewerken" : "Nieuw zaad"}
         </h3>
 
         {error && (
-          <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+          <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1">
             {error}
           </div>
         )}
 
-        {/* Naam + type */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Naam</label>
+        {/* Naam + type + kleur */}
+        <div className="grid grid-cols-3 gap-2">
+          <div className="col-span-2">
+            <label className="block text-xs font-medium mb-0.5">Naam</label>
             <input
               type="text"
               value={form.name ?? ""}
               onChange={(e) => handleChange("name", e.target.value)}
-              className="w-full border rounded-md px-2 py-1"
+              className="w-full border rounded px-2 py-1 text-sm"
               required
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Gewastype</label>
-            <select
-              value={form.crop_type_id ?? ""}
-              onChange={(e) => handleChange("crop_type_id", e.target.value || null)}
-              className="w-full border rounded-md px-2 py-1"
-            >
-              <option value="">— Kies type —</option>
-              {cropTypes.map((ct) => (
-                <option key={ct.id} value={ct.id}>
-                  {ct.name}
-                </option>
-              ))}
-            </select>
+            <label className="block text-xs font-medium mb-0.5">Kleur</label>
+            <ColorField
+              value={form.default_color ?? undefined}
+              onChange={(hex) => handleChange("default_color", hex)}
+              compact
+            />
           </div>
         </div>
 
-        {/* Aankoopdatum + In voorraad + Geschikt voor kas */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Type + Aankoopdatum */}
+        <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="block text-sm font-medium mb-1">Aankoopdatum</label>
+            <label className="block text-xs font-medium mb-0.5">Gewastype</label>
+            <select
+              value={form.crop_type_id ?? ""}
+              onChange={(e) => handleChange("crop_type_id", e.target.value || null)}
+              className="w-full border rounded px-2 py-1 text-sm"
+            >
+              <option value="">— Kies —</option>
+              {cropTypes.map((ct) => (
+                <option key={ct.id} value={ct.id}>{ct.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-0.5">Aankoopdatum</label>
             <input
               type="date"
               value={form.purchase_date ?? ""}
               onChange={(e) => handleChange("purchase_date", e.target.value || null)}
-              className="w-full border rounded-md px-2 py-1"
+              className="w-full border rounded px-2 py-1 text-sm"
             />
-          </div>
-          <div className="flex items-center gap-6">
-            <label className="inline-flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={form.in_stock ?? true}
-                onChange={(e) => handleChange("in_stock", e.target.checked)}
-              />
-              <span className="text-sm font-medium">In voorraad</span>
-            </label>
-
-            {/* ✅ nieuwe checkbox, zelfde rij en stijl */}
-            <label className="inline-flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={!!form.greenhouse_compatible}
-                onChange={(e) => handleChange("greenhouse_compatible", e.target.checked)}
-              />
-              <span className="text-sm font-medium">Geschikt voor kas</span>
-            </label>
           </div>
         </div>
 
-        {/* Afstanden + Zaaitype */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Rijafstand (cm)</label>
+        {/* Checkboxes inline */}
+        <div className="flex items-center gap-4 text-sm">
+          <label className="inline-flex items-center gap-1.5">
             <input
-              type="number"
-              value={form.row_spacing_cm ?? ""}
-              onChange={(e) => handleChange("row_spacing_cm", e.target.value === '' ? null : Number(e.target.value))}
-              className="w-full border rounded-md px-2 py-1"
+              type="checkbox"
+              checked={form.in_stock ?? true}
+              onChange={(e) => handleChange("in_stock", e.target.checked)}
+              className="w-3.5 h-3.5"
             />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Plantafstand (cm)</label>
+            <span className="text-xs">In voorraad</span>
+          </label>
+          <label className="inline-flex items-center gap-1.5">
             <input
-              type="number"
-              value={form.plant_spacing_cm ?? ""}
-              onChange={(e) => handleChange("plant_spacing_cm", e.target.value === '' ? null : Number(e.target.value))}
-              className="w-full border rounded-md px-2 py-1"
+              type="checkbox"
+              checked={!!form.greenhouse_compatible}
+              onChange={(e) => handleChange("greenhouse_compatible", e.target.checked)}
+              className="w-3.5 h-3.5"
             />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Zaaitype</label>
+            <span className="text-xs">Geschikt voor kas</span>
+          </label>
+          <div className="flex items-center gap-1.5 ml-auto">
+            <label className="text-xs">Zaaitype:</label>
             <select
               value={form.sowing_type ?? "direct"}
               onChange={(e) => handleChange("sowing_type", e.target.value)}
-              className="w-full border rounded-md px-2 py-1"
+              className="border rounded px-1.5 py-0.5 text-xs"
             >
-              <option value="direct">Direct zaaien</option>
+              <option value="direct">Direct</option>
               <option value="presow">Voorzaaien</option>
             </select>
           </div>
         </div>
 
-        {/* Duur */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Afstanden + Duur - compact 6-kolommen */}
+        <div className="grid grid-cols-6 gap-2">
           <div>
-            <label className="block text-sm font-medium mb-1">Voorzaai (weken)</label>
+            <label className="block text-xs text-muted-foreground mb-0.5">Rij cm</label>
+            <input
+              type="number"
+              value={form.row_spacing_cm ?? ""}
+              onChange={(e) => handleChange("row_spacing_cm", e.target.value === '' ? null : Number(e.target.value))}
+              className="w-full border rounded px-1.5 py-1 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-muted-foreground mb-0.5">Plant cm</label>
+            <input
+              type="number"
+              value={form.plant_spacing_cm ?? ""}
+              onChange={(e) => handleChange("plant_spacing_cm", e.target.value === '' ? null : Number(e.target.value))}
+              className="w-full border rounded px-1.5 py-1 text-sm"
+            />
+          </div>
+          <div className="border-l pl-2">
+            <label className="block text-xs text-muted-foreground mb-0.5">Voorzaai wk</label>
             <input
               type="number"
               value={form.presow_duration_weeks ?? ""}
               onChange={(e) => handleChange("presow_duration_weeks", e.target.value === '' ? '' : Number(e.target.value))}
-              className="w-full border rounded-md px-2 py-1"
+              className="w-full border rounded px-1.5 py-1 text-sm disabled:opacity-50"
               disabled={form.sowing_type === 'direct'}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Groei (weken)</label>
+            <label className="block text-xs text-muted-foreground mb-0.5">Groei wk</label>
             <input
               type="number"
               value={form.grow_duration_weeks ?? ""}
               onChange={(e) => handleChange("grow_duration_weeks", e.target.value === '' ? '' : Number(e.target.value))}
-              className="w-full border rounded-md px-2 py-1"
+              className="w-full border rounded px-1.5 py-1 text-sm"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Oogstduur (weken)</label>
+            <label className="block text-xs text-muted-foreground mb-0.5">Oogst wk</label>
             <input
               type="number"
               value={form.harvest_duration_weeks ?? ""}
               onChange={(e) => handleChange("harvest_duration_weeks", e.target.value === '' ? '' : Number(e.target.value))}
-              className="w-full border rounded-md px-2 py-1"
+              className="w-full border rounded px-1.5 py-1 text-sm"
             />
           </div>
         </div>
 
-        {/* Maanden-selectors */}
-        <MonthSelector
-          label="Voorzaaien"
-          value={(form.presow_months ?? []) as number[]}
-          onChange={(val) => handleChange("presow_months", val)}
-          disabled={form.sowing_type === 'direct'}
-        />
-        <MonthSelector
-          label="In de kas"
-          value={((form as any).greenhouse_months ?? []) as number[]}
-          onChange={(val) => handleChange("greenhouse_months", val)}
-          disabled={!form.greenhouse_compatible}
-        />
-        <MonthSelector
-          label="In volle grond"
-          value={(form.direct_plant_months ?? []) as number[]}
-          onChange={(val) => handleChange("direct_plant_months", val)}
-        />
-        <MonthSelector
-          label="Oogsten"
-          value={(form.harvest_months ?? []) as number[]}
-          onChange={(val) => handleChange("harvest_months", val)}
-        />
-
-        {/* Kleur */}
-        <ColorField
-          label="Standaardkleur (kaart & planner)"
-          value={form.default_color ?? undefined}
-          onChange={(hex) => handleChange("default_color", hex)}
-          helperText="Je kunt #RRGGBB of rgb(r,g,b) invoeren. We slaan #hex op."
-        />
+        {/* Maanden-selectors - compact */}
+        <div className="space-y-1.5 pt-1 border-t">
+          <MonthSelector
+            label="Voorzaaien"
+            value={(form.presow_months ?? []) as number[]}
+            onChange={(val) => handleChange("presow_months", val)}
+            disabled={form.sowing_type === 'direct'}
+          />
+          <MonthSelector
+            label="In de kas"
+            value={((form as any).greenhouse_months ?? []) as number[]}
+            onChange={(val) => handleChange("greenhouse_months", val)}
+            disabled={!form.greenhouse_compatible}
+          />
+          <MonthSelector
+            label="Volle grond"
+            value={(form.direct_plant_months ?? []) as number[]}
+            onChange={(val) => handleChange("direct_plant_months", val)}
+          />
+          <MonthSelector
+            label="Oogsten"
+            value={(form.harvest_months ?? []) as number[]}
+            onChange={(val) => handleChange("harvest_months", val)}
+          />
+        </div>
 
         {/* Notities */}
         <div>
-          <label className="block text-sm font-medium mb-1">Notities</label>
+          <label className="block text-xs font-medium mb-0.5">Notities</label>
           <textarea
             value={form.notes ?? ""}
             onChange={(e) => handleChange("notes", e.target.value)}
-            className="w-full border rounded-md px-2 py-1"
+            className="w-full border rounded px-2 py-1 text-sm"
+            rows={2}
           />
         </div>
 
         {/* Acties */}
-        <div className="flex justify-end gap-2">
+        <div className="flex justify-end gap-2 pt-2 border-t">
           <button
             onClick={onClose}
-            className="px-3 py-1 rounded-md border border-border bg-muted"
+            className="px-3 py-1 rounded text-sm border border-border bg-muted hover:bg-muted/80"
           >
             Annuleren
           </button>
           <button
             onClick={handleSave}
             disabled={saving || !form.name?.trim()}
-            className="px-3 py-1 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
+            className="px-3 py-1 rounded text-sm bg-primary text-primary-foreground disabled:opacity-50"
           >
             {saving ? "Opslaan..." : editing ? "Opslaan" : "Toevoegen"}
           </button>
