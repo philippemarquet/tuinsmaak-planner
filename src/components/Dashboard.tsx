@@ -866,6 +866,7 @@ export function Dashboard({
             plantings={plantings}
             seeds={seeds}
             tasks={tasks}
+            gardenTasks={gardenTasks}
             bedsById={bedsById}
             seedsById={seedsById}
             plantingsById={plantingsById}

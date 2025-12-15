@@ -1,7 +1,8 @@
 import { useState, useMemo } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, AlertCircle, Sprout } from "lucide-react";
+import { getISOWeek } from "date-fns";
 import { Button } from "./ui/button";
-import type { GardenBed, Planting, Seed, Task } from "../lib/types";
+import type { GardenBed, Planting, Seed, Task, GardenTask } from "../lib/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -11,6 +12,7 @@ interface CalendarViewProps {
   plantings: Planting[];
   seeds: Seed[];
   tasks: Task[];
+  gardenTasks: GardenTask[];
   bedsById: Record<string, GardenBed>;
   seedsById: Record<string, Seed>;
   plantingsById: Record<string, Planting>;
@@ -45,6 +47,7 @@ export function CalendarView({
   plantings,
   seeds,
   tasks,
+  gardenTasks,
   bedsById,
   seedsById,
   plantingsById,
@@ -257,33 +260,131 @@ export function CalendarView({
     );
   }
 
+  // Filter garden tasks voor de huidige maand
+  const gardenTasksForMonth = useMemo(() => {
+    const viewMonth = month + 1; // 1-indexed
+    const viewYear = year;
+    
+    return gardenTasks.filter(t => {
+      // Moet in hetzelfde jaar en maand vallen
+      if (t.due_year !== viewYear || t.due_month !== viewMonth) return false;
+      return true;
+    }).sort((a, b) => {
+      // Sorteer op week (null = geen specifieke week, komt laatst)
+      if (a.due_week === null && b.due_week === null) return 0;
+      if (a.due_week === null) return 1;
+      if (b.due_week === null) return -1;
+      return a.due_week - b.due_week;
+    });
+  }, [gardenTasks, month, year]);
+
+  // Helper: check of garden task overdue is
+  const isGardenTaskOverdue = (task: GardenTask): boolean => {
+    if (task.status === "done") return false;
+    
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const currentISOWeek = getISOWeek(now);
+    
+    if (task.due_year < currentYear) return true;
+    if (task.due_year > currentYear) return false;
+    if (task.due_month < currentMonth) return true;
+    if (task.due_month > currentMonth) return false;
+    if (task.due_week && task.due_week < currentISOWeek) return true;
+    
+    return false;
+  };
+
+  // Format garden task week display
+  const formatTaskWeek = (task: GardenTask): string => {
+    if (!task.due_week) return "";
+    return `Week ${task.due_week}`;
+  };
+
   return (
-    <div className="space-y-4">
-      {/* Maand navigator */}
-      <div className="flex items-center justify-between">
-        <Button variant="outline" size="sm" onClick={previousMonth}>
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <h2 className="text-lg font-semibold capitalize">{monthName}</h2>
-        <Button variant="outline" size="sm" onClick={nextMonth}>
-          <ChevronRight className="h-4 w-4" />
-        </Button>
+    <div className="flex gap-6">
+      {/* Kalender */}
+      <div className="flex-1 space-y-4">
+        {/* Maand navigator */}
+        <div className="flex items-center justify-between">
+          <Button variant="outline" size="sm" onClick={previousMonth}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <h2 className="text-lg font-semibold capitalize">{monthName}</h2>
+          <Button variant="outline" size="sm" onClick={nextMonth}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+
+        {/* Kalender grid */}
+        <div className="border border-border rounded-lg overflow-hidden">
+          {/* Weekdag headers */}
+          <div className="grid grid-cols-7 bg-muted/50">
+            {['Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za', 'Zo'].map(day => (
+              <div key={day} className="p-2 text-center text-xs font-medium text-muted-foreground border-r border-border/50 last:border-r-0">
+                {day}
+              </div>
+            ))}
+          </div>
+          
+          {/* Dagen grid */}
+          <div className="grid grid-cols-7">
+            {calendarDays}
+          </div>
+        </div>
       </div>
 
-      {/* Kalender grid */}
-      <div className="border border-border rounded-lg overflow-hidden">
-        {/* Weekdag headers */}
-        <div className="grid grid-cols-7 bg-muted/50">
-          {['Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za', 'Zo'].map(day => (
-            <div key={day} className="p-2 text-center text-xs font-medium text-muted-foreground border-r border-border/50 last:border-r-0">
-              {day}
+      {/* Tuintaken zijpaneel */}
+      <div className="w-64 flex-shrink-0">
+        <div className="border border-border rounded-lg p-4 bg-card">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground flex items-center gap-2 mb-4">
+            <Sprout className="w-4 h-4" />
+            Tuintaken
+          </h3>
+          
+          {gardenTasksForMonth.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Geen tuintaken deze maand.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {gardenTasksForMonth.map((task) => {
+                const overdue = isGardenTaskOverdue(task);
+                const isDone = task.status === "done";
+                
+                return (
+                  <div
+                    key={task.id}
+                    className={`p-2 rounded-md border text-sm ${
+                      isDone 
+                        ? 'bg-muted/50 border-border opacity-60' 
+                        : overdue 
+                        ? 'bg-destructive/5 border-destructive' 
+                        : 'bg-background border-border'
+                    }`}
+                  >
+                    <div className={`font-medium flex items-center gap-1 ${isDone ? 'line-through' : ''}`}>
+                      {overdue && !isDone && (
+                        <AlertCircle className="w-3 h-3 text-destructive flex-shrink-0" />
+                      )}
+                      <span className={overdue && !isDone ? 'text-destructive' : ''}>{task.title}</span>
+                    </div>
+                    {task.due_week && (
+                      <div className={`text-xs ${overdue && !isDone ? 'text-destructive/80' : 'text-muted-foreground'}`}>
+                        {formatTaskWeek(task)}
+                      </div>
+                    )}
+                    {task.is_recurring && (
+                      <div className="text-[10px] text-muted-foreground mt-1">
+                        🔄 Terugkerend
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          ))}
-        </div>
-        
-        {/* Dagen grid */}
-        <div className="grid grid-cols-7">
-          {calendarDays}
+          )}
         </div>
       </div>
 
