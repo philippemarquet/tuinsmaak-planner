@@ -6,6 +6,7 @@ import { listBeds } from '../lib/api/beds';
 import { listPlantings } from '../lib/api/plantings';
 import { createPlanting, updatePlanting } from '../lib/api/plantings';
 import { AlertTriangle } from 'lucide-react';
+import { toast } from 'sonner';
 
 type Props = {
   gardenId: UUID;
@@ -168,41 +169,55 @@ export default function PlantingEditor({ gardenId, planting, onClose, onSaved }:
   async function performSave() {
     setShowMonthWarning(false);
     
-    const pd = method === 'presow' ? (plantDate || sowDate) : (sowDate || plantDate);
-    const payloadUpdate: Partial<Planting> = {
-      method,
-      planned_date: pd || null,
-      planned_harvest_start: harvestStart || null,
-      planned_harvest_end: harvestEnd || null,
-      rows,
-      plants_per_row: plantsPerRow,
-      status,
-      notes: notes || null,
-      garden_bed_id: bedId || undefined,
-    };
-
-    if (editing) {
-      const saved = await updatePlanting(planting!.id, payloadUpdate as any);
-      onSaved(saved); return;
+    // Check dat we een geldige bak hebben
+    if (!bedId) {
+      toast.error('Geen bak geselecteerd');
+      return;
     }
+    
+    try {
+      const pd = method === 'presow' ? (plantDate || sowDate) : (sowDate || plantDate);
+      const payloadUpdate: Partial<Planting> = {
+        method,
+        planned_date: pd || null,
+        planned_harvest_start: harvestStart || null,
+        planned_harvest_end: harvestEnd || null,
+        rows,
+        plants_per_row: plantsPerRow,
+        status,
+        notes: notes || null,
+        garden_bed_id: bedId || undefined,
+      };
 
-    const today = new Date().toISOString().slice(0,10);
-    const baseDate = pd || today;
+      if (editing) {
+        const saved = await updatePlanting(planting!.id, payloadUpdate as any);
+        toast.success('Teelt opgeslagen');
+        onSaved(saved); 
+        return;
+      }
 
-    const saved = await createPlanting({
-      seed_id: seedId,
-      garden_id: gardenId,
-      garden_bed_id: bedId,
-      method,
-      planned_date: baseDate,
-      planned_harvest_start: harvestStart || baseDate,
-      planned_harvest_end:   harvestEnd   || harvestStart || baseDate,
-      start_segment: 0,
-      segments_used: 1,
-      color: null,
-      status,
-    } as any);
-    onSaved(saved);
+      const today = new Date().toISOString().slice(0,10);
+      const baseDate = pd || today;
+
+      const saved = await createPlanting({
+        seed_id: seedId,
+        garden_id: gardenId,
+        garden_bed_id: bedId,
+        method,
+        planned_date: baseDate,
+        planned_harvest_start: harvestStart || baseDate,
+        planned_harvest_end: harvestEnd || harvestStart || baseDate,
+        start_segment: 0,
+        segments_used: 1,
+        color: null,
+        status,
+      } as any);
+      toast.success('Teelt toegevoegd');
+      onSaved(saved);
+    } catch (error: any) {
+      console.error('Fout bij opslaan planting:', error);
+      toast.error(error?.message || 'Fout bij opslaan');
+    }
   }
 
   return (
