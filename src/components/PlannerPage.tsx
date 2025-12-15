@@ -219,7 +219,16 @@ export function PlannerPage({
     () => (localStorage.getItem("plannerOpenTab") as any) || (localStorage.getItem("plannerView") as any) || "list"
   );
   const [q, setQ] = useState(localStorage.getItem("plannerQ") ?? "");
-  const [inStockOnly, setInStockOnly] = useState(localStorage.getItem("plannerInStock") !== "0");
+  const [inStockOnly, setInStockOnly] = useState(() => {
+    // One-time migration: default to true
+    const migrated = localStorage.getItem("plannerInStockV2");
+    if (!migrated) {
+      localStorage.setItem("plannerInStockV2", "1");
+      localStorage.setItem("plannerInStock", "1");
+      return true;
+    }
+    return localStorage.getItem("plannerInStock") === "1";
+  });
   const [inPlanner, setInPlanner] = useState<InPlanner>((localStorage.getItem("plannerInPlanner") as InPlanner) ?? "all");
   const [greenhouseOnly, setGreenhouseOnly] = useState(localStorage.getItem("plannerGHOnly") === "1");
   const [selectedMonths, setSelectedMonths] = useState<number[]>(() => {
