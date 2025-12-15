@@ -125,20 +125,26 @@ function Chip({ children, tone = "muted" }: { children: React.ReactNode; tone?: 
   return <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] ${map[tone]}`}>{children}</span>;
 }
 function DraggableSeed({ seed, isDragging = false, onInfoClick }: { seed: Seed; isDragging?: boolean; onInfoClick?: () => void }) {
-  const { attributes, listeners, setNodeRef, transform } = useDraggable({ id: `seed-${seed.id}` });
-  const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
+  const { attributes, listeners, setNodeRef, transform, isDragging: dragging } = useDraggable({ id: `seed-${seed.id}` });
   const color = seed.default_color?.startsWith("#") ? seed.default_color : "#22c55e";
+  
   return (
     <div
       ref={setNodeRef}
-      style={style}
-      className={`px-2 py-1 border rounded-md bg-secondary text-sm flex items-center gap-2 ${
-        isDragging ? "opacity-50" : ""
+      className={`group relative px-3 py-2 rounded-lg border bg-card shadow-sm hover:shadow-md transition-all duration-200 ${
+        dragging || isDragging ? "opacity-40 scale-95" : "hover:border-primary/30"
       }`}
     >
-      <div {...listeners} {...attributes} className="flex items-center gap-2 flex-1 cursor-move min-w-0">
-        <span className="inline-block w-3 h-3 rounded flex-shrink-0" style={{ background: color }} />
-        <span className="truncate">{seed.name}</span>
+      <div 
+        {...listeners} 
+        {...attributes} 
+        className="flex items-center gap-3 cursor-grab active:cursor-grabbing"
+      >
+        <div 
+          className="w-4 h-4 rounded-full shadow-inner flex-shrink-0 ring-2 ring-white"
+          style={{ background: color }}
+        />
+        <span className="text-sm font-medium truncate flex-1">{seed.name}</span>
       </div>
       {onInfoClick && (
         <button
@@ -146,31 +152,44 @@ function DraggableSeed({ seed, isDragging = false, onInfoClick }: { seed: Seed; 
             e.stopPropagation();
             onInfoClick();
           }}
-          className="p-1 hover:bg-muted rounded flex-shrink-0"
+          className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md opacity-0 group-hover:opacity-100 hover:bg-muted transition-opacity"
           title="Bekijk zaadgegevens"
         >
-          <Info className="h-3.5 w-3.5" />
+          <Info className="h-4 w-4 text-muted-foreground" />
         </button>
       )}
     </div>
   );
 }
+
 function DroppableSegment({ id, occupied, children }: { id: string; occupied: boolean; children: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
     <div
       ref={setNodeRef}
-      className={`border border-dashed rounded-sm min-h-[28px] flex items-center justify-center transition ${
-        isOver ? "bg-green-200" : occupied ? "bg-emerald-50" : "bg-muted"
+      className={`relative border-2 border-dashed rounded-lg min-h-[36px] flex items-center justify-center transition-all duration-200 ${
+        isOver 
+          ? "border-primary bg-primary/10 scale-[1.02] shadow-lg" 
+          : occupied 
+            ? "border-emerald-300 bg-emerald-50/50" 
+            : "border-muted-foreground/20 bg-muted/30 hover:border-muted-foreground/40"
       }`}
     >
       {children}
     </div>
   );
 }
+
 function MapDroppable({ id }: { id: string }) {
   const { setNodeRef, isOver } = useDroppable({ id });
-  return <div ref={setNodeRef} className={`w-full h-full ${isOver ? "bg-green-200/40" : "bg-transparent"}`} />;
+  return (
+    <div 
+      ref={setNodeRef} 
+      className={`w-full h-full transition-colors duration-150 ${
+        isOver ? "bg-primary/20" : "bg-transparent"
+      }`} 
+    />
+  );
 }
 
 /* ===== main ===== */
@@ -488,163 +507,176 @@ export function PlannerPage({
     }
   }
 
-  /* ===== LIST view ===== */
-  const seedsList = (
-    <div className="sticky top-24">
-      <div className="space-y-3 max-h-[calc(100vh-7rem)] overflow-auto pr-1 pb-3">
-        <h3 className="text-base font-semibold">Zoek/filters</h3>
-        <input className="w-full border rounded px-2 py-1" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Zoek op naam…" />
-        <div className="text-sm space-y-1">
-          <label className="flex items-center gap-2">
-            <input type="checkbox" checked={inStockOnly} onChange={(e) => setInStockOnly(e.target.checked)} />
-            In voorraad
-          </label>
-          <label className="flex items-center gap-2">
-            <input type="checkbox" checked={greenhouseOnly} onChange={(e) => setGreenhouseOnly(e.target.checked)} />
-            Alleen kas-geschikt
-          </label>
-          <div className="flex gap-2">
+  /* ===== Sidebar zaden (vast, buiten scroll) ===== */
+  const SeedsSidebar = () => (
+    <aside className="w-72 flex-shrink-0 bg-card border-r border-border">
+      <div className="sticky top-0 h-screen overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="p-4 border-b bg-muted/30">
+          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Zaden</h3>
+        </div>
+        
+        {/* Filters */}
+        <div className="p-4 border-b space-y-3 bg-background">
+          <input 
+            className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" 
+            value={q} 
+            onChange={(e) => setQ(e.target.value)} 
+            placeholder="Zoek op naam…" 
+          />
+          
+          <div className="flex flex-wrap gap-2">
+            <label className="flex items-center gap-1.5 text-xs bg-muted px-2 py-1 rounded-md cursor-pointer hover:bg-muted/80 transition-colors">
+              <input 
+                type="checkbox" 
+                checked={inStockOnly} 
+                onChange={(e) => setInStockOnly(e.target.checked)}
+                className="rounded"
+              />
+              <span>In voorraad</span>
+            </label>
+            <label className="flex items-center gap-1.5 text-xs bg-muted px-2 py-1 rounded-md cursor-pointer hover:bg-muted/80 transition-colors">
+              <input 
+                type="checkbox" 
+                checked={greenhouseOnly} 
+                onChange={(e) => setGreenhouseOnly(e.target.checked)}
+                className="rounded"
+              />
+              <span>Kas-geschikt</span>
+            </label>
+          </div>
+          
+          <div className="flex gap-1">
             {(["all", "planned", "unplanned"] as InPlanner[]).map((k) => (
               <button
                 key={k}
-                className={`px-2 py-0.5 rounded border text-xs ${
-                  inPlanner === k ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                className={`flex-1 px-2 py-1.5 text-xs rounded-md transition-all ${
+                  inPlanner === k 
+                    ? "bg-primary text-primary-foreground shadow-sm" 
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
                 }`}
                 onClick={() => setInPlanner(k)}
               >
-                {k === "all" ? "Alle" : k === "planned" ? "Gepland" : "Niet gepland"}
+                {k === "all" ? "Alle" : k === "planned" ? "Gepland" : "Ongepland"}
               </button>
             ))}
           </div>
 
-          {/* Categorie (multi-select met popover) */}
-          <div>
-            <label className="block text-xs mb-1">Categorie</label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <button className="w-full border rounded px-2 py-1 text-left text-sm flex justify-between items-center bg-card hover:bg-muted/50">
-                  <span className="truncate">
-                    {cropTypeFilters.length === 0
-                      ? "Alle gewastypen"
-                      : cropTypeFilters.length === 1
-                      ? cropTypes.find((ct) => ct.id === cropTypeFilters[0])?.name || "Overig"
-                      : `${cropTypeFilters.length} geselecteerd`}
-                  </span>
-                  <ChevronDown className="h-4 w-4 ml-2 flex-shrink-0" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent className="w-72 p-3 max-h-64 overflow-y-auto bg-popover z-50">
-                <div className="space-y-2">
-                  {cropTypeFilters.length > 0 && (
-                    <button
-                      onClick={() => setCropTypeFilters([])}
-                      className="text-xs text-primary hover:underline mb-2"
-                    >
-                      Wis selectie
-                    </button>
-                  )}
-                  {cropTypes.map((ct) => (
-                    <label key={ct.id} className="flex items-center gap-2 cursor-pointer">
-                      <Checkbox
-                        checked={cropTypeFilters.includes(ct.id)}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setCropTypeFilters([...cropTypeFilters, ct.id]);
-                          } else {
-                            setCropTypeFilters(cropTypeFilters.filter((id) => id !== ct.id));
-                          }
-                        }}
-                      />
-                      <span className="text-sm">{ct.name}</span>
-                    </label>
-                  ))}
-                  <label className="flex items-center gap-2 cursor-pointer">
+          {/* Categorie filter */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button className="w-full px-3 py-2 text-sm text-left border rounded-lg flex justify-between items-center bg-background hover:bg-muted/50 transition-colors">
+                <span className="truncate text-muted-foreground">
+                  {cropTypeFilters.length === 0
+                    ? "Alle gewastypen"
+                    : cropTypeFilters.length === 1
+                    ? cropTypes.find((ct) => ct.id === cropTypeFilters[0])?.name || "Overig"
+                    : `${cropTypeFilters.length} geselecteerd`}
+                </span>
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64 p-3 max-h-64 overflow-y-auto bg-popover z-50">
+              <div className="space-y-2">
+                {cropTypeFilters.length > 0 && (
+                  <button onClick={() => setCropTypeFilters([])} className="text-xs text-primary hover:underline mb-2">
+                    Wis selectie
+                  </button>
+                )}
+                {cropTypes.map((ct) => (
+                  <label key={ct.id} className="flex items-center gap-2 cursor-pointer">
                     <Checkbox
-                      checked={cropTypeFilters.includes("__none__")}
+                      checked={cropTypeFilters.includes(ct.id)}
                       onCheckedChange={(checked) => {
-                        if (checked) {
-                          setCropTypeFilters([...cropTypeFilters, "__none__"]);
-                        } else {
-                          setCropTypeFilters(cropTypeFilters.filter((id) => id !== "__none__"));
-                        }
+                        if (checked) setCropTypeFilters([...cropTypeFilters, ct.id]);
+                        else setCropTypeFilters(cropTypeFilters.filter((id) => id !== ct.id));
                       }}
                     />
-                    <span className="text-sm">Overig (geen soort)</span>
+                    <span className="text-sm">{ct.name}</span>
                   </label>
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
+                ))}
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={cropTypeFilters.includes("__none__")}
+                    onCheckedChange={(checked) => {
+                      if (checked) setCropTypeFilters([...cropTypeFilters, "__none__"]);
+                      else setCropTypeFilters(cropTypeFilters.filter((id) => id !== "__none__"));
+                    }}
+                  />
+                  <span className="text-sm">Overig</span>
+                </label>
+              </div>
+            </PopoverContent>
+          </Popover>
 
-          {/* Direct/Plant-maand (multi-select met popover) */}
-          <div>
-            <label className="block text-xs mb-1">Direct/Plant maand</label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <button className="w-full border rounded px-2 py-1 text-left text-sm flex justify-between items-center bg-card hover:bg-muted/50">
-                  <span className="truncate">
-                    {selectedMonths.length === 0
-                      ? "Alle maanden"
-                      : selectedMonths.length === 1
-                      ? new Date(2000, selectedMonths[0] - 1, 1).toLocaleString("nl-NL", { month: "long" })
-                      : `${selectedMonths.length} geselecteerd`}
-                  </span>
-                  <ChevronDown className="h-4 w-4 ml-2 flex-shrink-0" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent className="w-72 p-3 max-h-64 overflow-y-auto bg-popover z-50">
-                <div className="space-y-2">
-                  {selectedMonths.length > 0 && (
-                    <button
-                      onClick={() => setSelectedMonths([])}
-                      className="text-xs text-primary hover:underline mb-2"
-                    >
-                      Wis selectie
-                    </button>
-                  )}
-                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                    <label key={m} className="flex items-center gap-2 cursor-pointer">
-                      <Checkbox
-                        checked={selectedMonths.includes(m)}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setSelectedMonths([...selectedMonths, m].sort((a, b) => a - b));
-                          } else {
-                            setSelectedMonths(selectedMonths.filter((month) => month !== m));
-                          }
-                        }}
-                      />
-                      <span className="text-sm">
-                        {new Date(2000, m - 1, 1).toLocaleString("nl-NL", { month: "long" })}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
+          {/* Maand filter */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button className="w-full px-3 py-2 text-sm text-left border rounded-lg flex justify-between items-center bg-background hover:bg-muted/50 transition-colors">
+                <span className="truncate text-muted-foreground">
+                  {selectedMonths.length === 0
+                    ? "Alle maanden"
+                    : selectedMonths.length === 1
+                    ? new Date(2000, selectedMonths[0] - 1, 1).toLocaleString("nl-NL", { month: "long" })
+                    : `${selectedMonths.length} maanden`}
+                </span>
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64 p-3 max-h-64 overflow-y-auto bg-popover z-50">
+              <div className="space-y-2">
+                {selectedMonths.length > 0 && (
+                  <button onClick={() => setSelectedMonths([])} className="text-xs text-primary hover:underline mb-2">
+                    Wis selectie
+                  </button>
+                )}
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                  <label key={m} className="flex items-center gap-2 cursor-pointer">
+                    <Checkbox
+                      checked={selectedMonths.includes(m)}
+                      onCheckedChange={(checked) => {
+                        if (checked) setSelectedMonths([...selectedMonths, m].sort((a, b) => a - b));
+                        else setSelectedMonths(selectedMonths.filter((month) => month !== m));
+                      }}
+                    />
+                    <span className="text-sm capitalize">
+                      {new Date(2000, m - 1, 1).toLocaleString("nl-NL", { month: "long" })}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
-
-        <h3 className="text-base font-semibold mt-2">Zaden</h3>
-        <div className="space-y-1.5">
-          {filteredSeeds.map((seed) => (
-            <DraggableSeed 
-              key={seed.id} 
-              seed={seed} 
-              isDragging={activeDragId === `seed-${seed.id}`}
-              onInfoClick={() => setSeedDetailsModal(seed)}
-            />
-          ))}
-          {filteredSeeds.length === 0 && <p className="text-xs text-muted-foreground">Geen zaden gevonden.</p>}
+        
+        {/* Scrollable seed list */}
+        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          {filteredSeeds.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">Geen zaden gevonden</p>
+          ) : (
+            filteredSeeds.map((seed) => (
+              <DraggableSeed 
+                key={seed.id} 
+                seed={seed} 
+                isDragging={activeDragId === `seed-${seed.id}`}
+                onInfoClick={() => setSeedDetailsModal(seed)}
+              />
+            ))
+          )}
+        </div>
+        
+        {/* Footer count */}
+        <div className="p-3 border-t bg-muted/20 text-xs text-muted-foreground text-center">
+          {filteredSeeds.length} van {seeds.length} zaden
         </div>
       </div>
-    </div>
+    </aside>
   );
 
-  const listView = (
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-      <div>{seedsList}</div>
-      <div className="md:col-span-3 space-y-6">
+  /* ===== LIST view (main area only) ===== */
+  const listViewContent = (
+    <div className="flex-1 overflow-auto p-6">
+      <div className="space-y-8">
         {([["Buiten", outdoorBeds], ["Kas", greenhouseBeds]] as const).map(
           ([label, bedList]) =>
             bedList.length > 0 && (
@@ -781,7 +813,7 @@ export function PlannerPage({
                   })}
                 </div>
               </section>
-            )
+              )
         )}
       </div>
     </div>
@@ -1016,32 +1048,45 @@ export function PlannerPage({
   );
 
   return (
-    <div className="space-y-6">
-      {/* header */}
-      <div className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b">
-        <div className="py-2.5 flex items-center justify-between">
-          <h2 className="text-2xl font-bold flex items-center gap-2">
+    <div className="h-[calc(100vh-6rem)] flex flex-col overflow-hidden -mx-6 -mb-6">
+      {/* Header - fixed at top */}
+      <header className="flex-shrink-0 bg-background border-b z-30 px-6">
+        <div className="py-3 flex items-center justify-between">
+          <h2 className="text-2xl font-bold flex items-center gap-3">
             Planner
             {hasConflicts && (
-              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-100 text-red-800 border border-red-200">
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800 border border-red-200">
                 ⚠️ {conflictCount} conflict{conflictCount !== 1 ? "en" : ""}
               </span>
             )}
           </h2>
-          <div className="flex items-center gap-2 text-sm">
-            <button className="px-2 py-1 border rounded" onClick={() => setCurrentWeek(addDays(currentWeek, -7))}>
-              ← Vorige week
-            </button>
-            <span className="font-medium px-2 py-1 rounded">WK {weekOf(currentWeek)}</span>
-            <button className="px-2 py-1 border rounded" onClick={() => setCurrentWeek(addDays(currentWeek, 7))}>
-              Volgende week →
-            </button>
-            <button className="px-2 py-1 border rounded" onClick={gotoToday}>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center bg-muted rounded-lg p-1">
+              <button 
+                className="px-3 py-1.5 text-sm rounded-md hover:bg-background transition-colors" 
+                onClick={() => setCurrentWeek(addDays(currentWeek, -7))}
+              >
+                ←
+              </button>
+              <span className="px-4 py-1.5 font-semibold text-sm">WK {weekOf(currentWeek)}</span>
+              <button 
+                className="px-3 py-1.5 text-sm rounded-md hover:bg-background transition-colors" 
+                onClick={() => setCurrentWeek(addDays(currentWeek, 7))}
+              >
+                →
+              </button>
+            </div>
+            <button 
+              className="px-3 py-1.5 text-sm border rounded-lg hover:bg-muted transition-colors" 
+              onClick={gotoToday}
+            >
               Vandaag
             </button>
           </div>
         </div>
-        <div className="flex items-center gap-3 pb-2">
+        
+        {/* Tabs */}
+        <div className="pb-3 flex items-center gap-2">
           {(["list", "map", "timeline", "conflicts"] as const).map((k) => {
             const active = view === k;
             const danger = k === "conflicts" && conflictCount > 0;
@@ -1049,52 +1094,70 @@ export function PlannerPage({
               <button
                 key={k}
                 onClick={() => setView(k)}
-                className={`px-3 py-1.5 text-sm rounded-md border ${
-                  active ? (danger ? "bg-red-600 text-white border-red-600" : "bg-primary text-primary-foreground") : danger ? "bg-red-50 text-red-700 border-red-200 hover:bg-red-100" : "bg-card text-muted-foreground hover:text-foreground"
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                  active 
+                    ? (danger ? "bg-red-600 text-white shadow-sm" : "bg-primary text-primary-foreground shadow-sm") 
+                    : danger 
+                      ? "bg-red-50 text-red-700 hover:bg-red-100" 
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
                 }`}
               >
                 {k === "list" ? "Lijstweergave" : k === "map" ? "Plattegrond" : k === "timeline" ? "Timeline" : "Conflicten"}
                 {k === "conflicts" && conflictCount > 0 && (
-                  <span className="ml-1.5 px-1 py-0.5 text-xs rounded-full bg-white/20">{conflictCount}</span>
+                  <span className="ml-2 px-1.5 py-0.5 text-xs rounded-full bg-white/20">{conflictCount}</span>
                 )}
               </button>
             );
           })}
-          <label className="ml-auto mr-1 flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={showGhosts} onChange={(e) => setShowGhosts(e.target.checked)} />
+          <label className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
+            <input 
+              type="checkbox" 
+              checked={showGhosts} 
+              onChange={(e) => setShowGhosts(e.target.checked)}
+              className="rounded"
+            />
             Toon toekomstige plantingen
           </label>
         </div>
-      </div>
+      </header>
 
-      {/* Conflict Warning (zonder auto-resolve-knop) */}
-      {hasConflicts && <ConflictWarning conflictCount={conflictCount} />}
+      {/* Conflict Warning */}
+      {hasConflicts && (
+        <div className="px-6 py-2 flex-shrink-0">
+          <ConflictWarning conflictCount={conflictCount} />
+        </div>
+      )}
 
       <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        {view === "list" && listView}
-        {view === "map" && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-            <div>{seedsList}</div>
-            <div className="md:col-span-3">
-              <PlannerMap />
-            </div>
+        <div className="flex min-h-[calc(100vh-200px)]">
+          {/* Fixed sidebar */}
+          {(view === "list" || view === "map") && <SeedsSidebar />}
+          
+          {/* Main content area */}
+          <div className="flex-1 overflow-hidden">
+            {view === "list" && listViewContent}
+            {view === "map" && (
+              <div className="p-6 h-full">
+                <PlannerMap />
+              </div>
+            )}
+            {view === "timeline" && (
+              <div className="p-6">
+                <TimelineView beds={beds || []} plantings={plantings || []} seeds={seeds || []} conflictsMap={conflictsMap} currentWeek={currentWeek} onReload={reload} />
+              </div>
+            )}
+            {view === "conflicts" && <div className="p-6">{conflictsView}</div>}
           </div>
-        )}
-        {view === "timeline" && (
-          <div className="space-y-4">
-            <TimelineView beds={beds || []} plantings={plantings || []} seeds={seeds || []} conflictsMap={conflictsMap} currentWeek={currentWeek} onReload={reload} />
-          </div>
-        )}
-        {view === "conflicts" && conflictsView}
+        </div>
 
-        <DragOverlay dropAnimation={null}>
+        <DragOverlay dropAnimation={{ duration: 200, easing: "ease-out" }}>
           {activeSeed ? (
-            <div className="px-2 py-1 border rounded-md bg-secondary text-sm flex items-center gap-2 pointer-events-none shadow-lg">
-              <span
-                className="inline-block w-3 h-3 rounded"
+            <div className="px-3 py-2 rounded-lg border-2 border-primary bg-card text-sm flex items-center gap-3 pointer-events-none shadow-xl">
+              <div
+                className="w-4 h-4 rounded-full shadow-inner ring-2 ring-white"
                 style={{ background: activeSeed.default_color?.startsWith("#") ? activeSeed.default_color : "#22c55e" }}
               />
-              <span className="truncate">{activeSeed.name}</span>
+              <span className="font-medium">{activeSeed.name}</span>
             </div>
           ) : null}
         </DragOverlay>
