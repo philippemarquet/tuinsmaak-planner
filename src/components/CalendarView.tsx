@@ -184,6 +184,14 @@ export function CalendarView({
     setCurrentDate(new Date(year, month + 1, 1));
   }
 
+  function goToToday() {
+    setCurrentDate(new Date());
+  }
+
+  // Check of een dag vandaag is
+  const today = new Date();
+  const todayISO = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
   function handleActionClick(action: { planting: Planting; milestone: Milestone; isFirst: boolean }) {
     if (!action.isFirst || !action.milestone.task) return;
     
@@ -223,10 +231,11 @@ export function CalendarView({
   for (let day = 1; day <= daysInMonth; day++) {
     const dateISO = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const actions = actionsByDate.get(dateISO) || [];
+    const isToday = dateISO === todayISO;
     
     currentWeek.push(
-      <div key={day} className="min-h-[80px] p-1 border border-border/50 bg-card">
-        <div className="text-xs font-medium text-muted-foreground mb-1">{day}</div>
+      <div key={day} className={`min-h-[80px] p-1 border border-border/50 ${isToday ? 'bg-green-50 dark:bg-green-950/30' : 'bg-card'}`}>
+        <div className={`text-xs font-medium mb-1 ${isToday ? 'text-green-700 dark:text-green-400' : 'text-muted-foreground'}`}>{day}</div>
         <div className="space-y-0.5">
           {actions.map((action, idx) => {
             const seed = seedsById[action.planting.seed_id];
@@ -320,9 +329,14 @@ export function CalendarView({
       <div className="flex-1 space-y-4">
         {/* Maand navigator */}
         <div className="flex items-center justify-between">
-          <Button variant="outline" size="sm" onClick={previousMonth}>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={previousMonth}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={goToToday} className="text-xs">
+              Vandaag
+            </Button>
+          </div>
           <h2 className="text-lg font-semibold capitalize">{monthName}</h2>
           <Button variant="outline" size="sm" onClick={nextMonth}>
             <ChevronRight className="h-4 w-4" />
