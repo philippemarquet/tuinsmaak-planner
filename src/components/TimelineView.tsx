@@ -1,9 +1,19 @@
 // src/components/TimelineView.tsx
 import { useMemo, useState, useEffect } from "react";
 import type { GardenBed, Planting, Seed } from "../lib/types";
-import { deletePlanting, updatePlanting } from "../lib/api/plantings";
+import { deletePlanting, updatePlanting, createPlanting } from "../lib/api/plantings";
 import { occupancyWindow } from "../lib/conflicts";
-import { Trash2, Edit3, AlertTriangle } from "lucide-react";
+import { Trash2, Edit3, AlertTriangle, X, CalendarIcon } from "lucide-react";
+import { useDroppable } from "@dnd-kit/core";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { Calendar } from "./ui/calendar";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { Button } from "./ui/button";
+import { format, addDays as dateAddDays } from "date-fns";
+import { nl } from "date-fns/locale";
+import { cn } from "../lib/utils";
+import { toast } from "sonner";
 
 interface TimelineViewProps {
   beds: GardenBed[];
@@ -12,6 +22,7 @@ interface TimelineViewProps {
   conflictsMap: Map<string, Planting[]>;
   currentWeek: Date;
   onReload: () => Promise<void>;
+  gardenId?: string;
 }
 
 interface TimelineSegment {
@@ -88,6 +99,22 @@ function findFirstFreeSegment(
   return null;
 }
 
+// Droppable segment for timeline
+function TimelineDroppable({ id, children }: { id: string; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "flex-1 relative h-12 transition-colors duration-150",
+        isOver ? "bg-primary/20" : "bg-muted/10"
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function TimelineView({
   beds = [],
   plantings = [],
@@ -95,6 +122,7 @@ export function TimelineView({
   conflictsMap = new Map(),
   currentWeek,
   onReload,
+  gardenId,
 }: TimelineViewProps) {
   const [editPlanting, setEditPlanting] = useState<Planting | null>(null);
 
@@ -200,18 +228,25 @@ export function TimelineView({
   const handleDelete = async (p: Planting) => {
     const name = seeds.find(s => s.id === p.seed_id)?.name || "planting";
     if (!confirm(`Weet je zeker dat je "${name}" wilt verwijderen?`)) return;
-    try { await deletePlanting(p.id); await onReload(); } catch (e) { alert("Kon planting niet verwijderen: " + e); }
+    try { 
+      await deletePlanting(p.id); 
+      toast.success("Planting verwijderd");
+      await onReload(); 
+    } catch (e) { 
+      toast.error("Kon planting niet verwijderen");
+    }
   };
 
   /* ======= Edit popup logic: bed wisselen met alleen passende opties ======= */
-  const [editDate, setEditDate] = useState<string>("");
+  const [editDate, setEditDate] = useState<Date | undefined>(undefined);
   const [bedOptions, setBedOptions] = useState<Array<{ bed: GardenBed; seg: number }>>([]);
   const [selectedBedId, setSelectedBedId] = useState<string>("");
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
 
   useEffect(() => {
     if (!editPlanting) return;
-    setEditDate(editPlanting.planned_date || "");
-    setSelectedBedId(editPlanting.garden_bed_id);
+    setEditDate(parseISO(editPlanting.planned_date) || undefined);
+    setSelectedBedId(editPlanting.garden_bed_id || "");
   }, [editPlanting?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -220,7 +255,7 @@ export function TimelineView({
     if (!seed) { setBedOptions([]); return; }
 
     // Bereken bezettingsperiode o.b.v. gekozen datum + grow/harvest (einddag inclusief)
-    const plantDate = parseISO(editDate || editPlanting.planned_date);
+    const plantDate = editDate || parseISO(editPlanting.planned_date);
     if (!plantDate) { setBedOptions([]); return; }
     const harvestStart = new Date(plantDate.getTime() + (seed.grow_duration_weeks ?? 0) * 7 * DAY);
     const harvestEnd   = new Date(harvestStart.getTime() + (seed.harvest_duration_weeks ?? 0) * 7 * DAY - DAY);
@@ -241,33 +276,124 @@ export function TimelineView({
   }, [editPlanting, editDate, beds, plantings, seeds, selectedBedId]);
 
   const handleSaveEdit = async () => {
-    if (!editPlanting) return;
+    if (!editPlanting || !editDate) return;
     const seed = seeds.find(s => s.id === editPlanting.seed_id);
     if (!seed) return;
 
-    const plantDate = parseISO(editDate || editPlanting.planned_date);
-    if (!plantDate) return;
-
-    const harvestStart = new Date(plantDate.getTime() + (seed.grow_duration_weeks ?? 0) * 7 * DAY);
+    const harvestStart = new Date(editDate.getTime() + (seed.grow_duration_weeks ?? 0) * 7 * DAY);
     const harvestEnd   = new Date(harvestStart.getTime() + (seed.harvest_duration_weeks ?? 0) * 7 * DAY - DAY);
 
     const choice = bedOptions.find(o => o.bed.id === selectedBedId);
-    if (!choice) { alert("Geen passende bak beschikbaar voor deze datum."); return; }
+    if (!choice) { 
+      toast.error("Geen passende bak beschikbaar voor deze datum");
+      return; 
+    }
 
     try {
       await updatePlanting(editPlanting.id, {
         garden_bed_id: choice.bed.id,
         start_segment: choice.seg,
-        planned_date: plantDate.toISOString().slice(0,10),
+        planned_date: editDate.toISOString().slice(0,10),
         planned_harvest_start: harvestStart.toISOString().slice(0,10),
         planned_harvest_end: harvestEnd.toISOString().slice(0,10),
       } as any);
+      toast.success("Planting bijgewerkt");
       setEditPlanting(null);
       await onReload();
     } catch (e) {
-      alert("Kon planting niet bijwerken: " + e);
+      toast.error("Kon planting niet bijwerken");
     }
   };
+
+  const renderBedRows = (bedList: GardenBed[], isGreenhouse: boolean) => (
+    <>
+      {bedList.map(bed => {
+        const segs = segmentsByBed.get(bed.id) || [];
+        return (
+          <div key={`bed-${bed.id}`} className="border-b border-border/30">
+            {/* Bed header */}
+            <div className="bg-muted/20 border-b border-border/20">
+              <div className="flex items-center">
+                <div className="w-40 px-3 py-2 border-r border-border/30 font-medium text-sm flex items-center gap-2">
+                  {bed.name}
+                  {isGreenhouse && (
+                    <span className="px-1.5 py-0.5 text-[10px] bg-emerald-100 text-emerald-700 rounded font-medium">Kas</span>
+                  )}
+                </div>
+                <div className="flex-1" />
+              </div>
+            </div>
+
+            {/* Segments */}
+            {segs.map(segment => {
+              const segmentKey = `${segment.bedId}-${segment.segmentIndex}`;
+              const segEvents = weekEvents.filter(e => e.segmentKey === segmentKey);
+              const droppableId = `timeline__${bed.id}__segment__${segment.segmentIndex}`;
+              
+              return (
+                <div key={`seg-${segment.bedId}-${segment.segmentIndex}`} className="relative">
+                  <div className="flex items-center min-h-[48px]">
+                    <div className="w-40 px-3 py-2 border-r border-border/30 text-xs text-muted-foreground">
+                      Segment {segment.segmentIndex + 1}
+                    </div>
+
+                    <TimelineDroppable id={droppableId}>
+                      {/* Day dividers */}
+                      {Array.from({ length: 7 }, (_, i) => (
+                        <div 
+                          key={`div-${segment.bedId}-${segment.segmentIndex}-${i}`} 
+                          className="absolute top-0 bottom-0 border-r border-border/20" 
+                          style={{ left: `${(i / 7) * 100}%` }} 
+                        />
+                      ))}
+
+                      {/* Events */}
+                      {segEvents.map((ev, idx) => {
+                        const style = calculateEventStyle(ev);
+                        return (
+                          <div
+                            key={ev.id}
+                            className={cn(
+                              "absolute top-1.5 h-9 rounded-lg px-2 text-white text-xs flex items-center justify-between cursor-pointer shadow-sm transition-all duration-150 hover:shadow-md hover:scale-[1.01]",
+                              ev.hasConflict && "ring-2 ring-red-500 ring-offset-1"
+                            )}
+                            style={{ ...style, backgroundColor: ev.color, zIndex: 10 + idx }}
+                            title={`${ev.seedName}\n${formatDate(ev.startDate)} - ${formatDate(ev.endDate)}\nWeken ${getWeekNumber(ev.startDate)}-${getWeekNumber(ev.endDate)}`}
+                          >
+                            <div className="flex items-center gap-1 min-w-0">
+                              <span className="truncate font-medium">{ev.seedName}</span>
+                              {ev.hasConflict && <AlertTriangle className="w-3 h-3 text-yellow-300 flex-shrink-0" />}
+                            </div>
+
+                            <div className="flex items-center gap-0.5 ml-1 flex-shrink-0">
+                              <button 
+                                onClick={e => { e.stopPropagation(); handleEdit(ev.planting); }} 
+                                className="p-1 hover:bg-white/20 rounded-md transition-colors" 
+                                aria-label="Bewerken"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                              </button>
+                              <button 
+                                onClick={e => { e.stopPropagation(); handleDelete(ev.planting); }} 
+                                className="p-1 hover:bg-white/20 rounded-md transition-colors" 
+                                aria-label="Verwijderen"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </TimelineDroppable>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </>
+  );
 
   /* ================================ RENDER ================================ */
 
@@ -275,31 +401,40 @@ export function TimelineView({
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h3 className="text-xl font-semibold">Timeline Weergave</h3>
-        <div className="flex items-center gap-3 text-sm">
-          <span className="text-muted-foreground">
-            Week {getWeekNumber(weekBounds.start)} - {formatDate(weekBounds.start)} t/m {formatDate(weekBounds.end)}
-          </span>
-        </div>
+        <h3 className="text-lg font-semibold">Timeline Weergave</h3>
+        <p className="text-sm text-muted-foreground">
+          Week {getWeekNumber(weekBounds.start)} • {format(weekBounds.start, "d MMM", { locale: nl })} - {format(weekBounds.end, "d MMM yyyy", { locale: nl })}
+        </p>
       </div>
 
       {!beds || beds.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground">Geen bedden gevonden. Voeg eerst bedden toe in de instellingen.</div>
+        <div className="text-center py-12 text-muted-foreground bg-muted/20 rounded-xl border border-dashed border-border">
+          Geen bedden gevonden. Voeg eerst bedden toe in de instellingen.
+        </div>
       ) : (
-        <div className="border rounded-lg overflow-hidden bg-white">
+        <div className="border border-border/50 rounded-xl overflow-hidden bg-card shadow-sm">
           {/* Day Headers */}
-          <div className="bg-muted border-b">
+          <div className="bg-muted/30 border-b border-border/30">
             <div className="flex">
-              <div className="w-48 p-3 border-r bg-muted-foreground/5 font-medium text-sm">Bak / Segment</div>
+              <div className="w-40 px-3 py-2.5 border-r border-border/30 bg-muted/20 font-medium text-sm text-muted-foreground">
+                Bak / Segment
+              </div>
               <div className="flex-1 flex">
                 {Array.from({ length: 7 }, (_, i) => {
                   const dayDate = new Date(weekBounds.start.getTime() + i * DAY);
                   const dayName = dayDate.toLocaleDateString("nl-NL", { weekday: "short" });
                   const dayNumber = dayDate.getDate();
+                  const isToday = new Date().toDateString() === dayDate.toDateString();
                   return (
-                    <div key={`day-${i}`} className="flex-1 p-2 border-r text-center text-sm font-medium">
-                      <div>{dayName}</div>
-                      <div className="text-xs text-muted-foreground">{dayNumber}</div>
+                    <div 
+                      key={`day-${i}`} 
+                      className={cn(
+                        "flex-1 py-2 border-r border-border/20 text-center text-sm",
+                        isToday && "bg-primary/10"
+                      )}
+                    >
+                      <div className={cn("font-medium", isToday && "text-primary")}>{dayName}</div>
+                      <div className={cn("text-xs", isToday ? "text-primary" : "text-muted-foreground")}>{dayNumber}</div>
                     </div>
                   );
                 })}
@@ -308,147 +443,34 @@ export function TimelineView({
           </div>
 
           {/* Rows */}
-          <div className="max-h-96 overflow-y-auto">
+          <div className="max-h-[calc(100vh-320px)] overflow-y-auto">
             {/* Outdoor */}
             {orderedBedGroups.outdoor.length > 0 && (
               <div>
-                <div className="bg-blue-50 border-b">
+                <div className="bg-blue-50/50 border-b border-blue-100">
                   <div className="flex items-center">
-                    <div className="w-48 p-2 border-r font-semibold text-sm text-blue-700">🌱 Buitenbakken</div>
+                    <div className="w-40 px-3 py-2 border-r border-blue-100 font-semibold text-sm text-blue-700 flex items-center gap-2">
+                      🌱 Buitenbakken
+                    </div>
                     <div className="flex-1" />
                   </div>
                 </div>
-
-                {orderedBedGroups.outdoor.map(bed => {
-                  const segs = segmentsByBed.get(bed.id) || [];
-                  return (
-                    <div key={`bed-${bed.id}`} className="border-b">
-                      <div className="bg-muted/30 border-b">
-                        <div className="flex items-center">
-                          <div className="w-48 p-2 border-r font-medium text-sm">{bed.name}</div>
-                          <div className="flex-1" />
-                        </div>
-                      </div>
-
-                      {segs.map(segment => {
-                        const segmentKey = `${segment.bedId}-${segment.segmentIndex}`;
-                        const segEvents = weekEvents.filter(e => e.segmentKey === segmentKey);
-                        return (
-                          <div key={`seg-${segment.bedId}-${segment.segmentIndex}`} className="relative">
-                            <div className="flex items-center min-h-[48px]">
-                              <div className="w-48 p-3 border-r text-sm text-muted-foreground">Segment {segment.segmentIndex + 1}</div>
-
-                              <div className="flex-1 relative h-12 bg-muted/10">
-                                {Array.from({ length: 7 }, (_, i) => (
-                                  <div key={`div-${segment.bedId}-${segment.segmentIndex}-${i}`} className="absolute top-0 bottom-0 border-r border-muted-foreground/20" style={{ left: `${(i / 7) * 100}%` }} />
-                                ))}
-
-                                {segEvents.map((ev, idx) => {
-                                  const style = calculateEventStyle(ev);
-                                  return (
-                                    <div
-                                      key={ev.id}
-                                      className={`absolute top-1 h-10 rounded px-2 text-white text-xs flex items-center justify-between cursor-pointer hover:opacity-90 transition-opacity ${ev.hasConflict ? "ring-2 ring-red-500 ring-offset-1" : ""}`}
-                                      style={{ ...style, backgroundColor: ev.color, zIndex: 10 + idx }}
-                                      title={`${ev.seedName}\n${formatDate(ev.startDate)} - ${formatDate(ev.endDate)}\nWeken ${getWeekNumber(ev.startDate)}-${getWeekNumber(ev.endDate)}`}
-                                    >
-                                      <div className="flex items-center gap-1 min-w-0">
-                                        <span className="truncate">{ev.seedName}</span>
-                                        {ev.hasConflict && <AlertTriangle className="w-3 h-3 text-yellow-300" />}
-                                      </div>
-
-                                      <div className="flex items-center gap-1 ml-1">
-                                        <button onClick={e => { e.stopPropagation(); handleEdit(ev.planting); }} className="p-0.5 hover:bg-white/20 rounded" aria-label="Bewerken">
-                                          <Edit3 className="w-3 h-3" />
-                                        </button>
-                                        <button onClick={e => { e.stopPropagation(); handleDelete(ev.planting); }} className="p-0.5 hover:bg-white/20 rounded" aria-label="Verwijderen">
-                                          <Trash2 className="w-3 h-3" />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
+                {renderBedRows(orderedBedGroups.outdoor, false)}
               </div>
             )}
 
             {/* Greenhouse */}
             {orderedBedGroups.greenhouse.length > 0 && (
               <div>
-                <div className="bg-green-50 border-b">
+                <div className="bg-emerald-50/50 border-b border-emerald-100">
                   <div className="flex items-center">
-                    <div className="w-48 p-2 border-r font-semibold text-sm text-green-700">🏠 Kasbakken</div>
+                    <div className="w-40 px-3 py-2 border-r border-emerald-100 font-semibold text-sm text-emerald-700 flex items-center gap-2">
+                      🏠 Kasbakken
+                    </div>
                     <div className="flex-1" />
                   </div>
                 </div>
-
-                {orderedBedGroups.greenhouse.map(bed => {
-                  const segs = segmentsByBed.get(bed.id) || [];
-                  return (
-                    <div key={`bed-${bed.id}`} className="border-b">
-                      <div className="bg-muted/30 border-b">
-                        <div className="flex items-center">
-                          <div className="w-48 p-2 border-r font-medium text-sm">
-                            {bed.name} <span className="ml-2 px-1.5 py-0.5 text-xs bg-green-100 text-green-700 rounded">Kas</span>
-                          </div>
-                          <div className="flex-1" />
-                        </div>
-                      </div>
-
-                      {segs.map(segment => {
-                        const segmentKey = `${segment.bedId}-${segment.segmentIndex}`;
-                        const segEvents = weekEvents.filter(e => e.segmentKey === segmentKey);
-
-                        return (
-                          <div key={`seg-${segment.bedId}-${segment.segmentIndex}`} className="relative">
-                            <div className="flex items-center min-h-[48px]">
-                              <div className="w-48 p-3 border-r text-sm text-muted-foreground">Segment {segment.segmentIndex + 1}</div>
-
-                              <div className="flex-1 relative h-12 bg-muted/10">
-                                {Array.from({ length: 7 }, (_, i) => (
-                                  <div key={`div-${segment.bedId}-${segment.segmentIndex}-${i}`} className="absolute top-0 bottom-0 border-r border-muted-foreground/20" style={{ left: `${(i / 7) * 100}%` }} />
-                                ))}
-
-                                {segEvents.map((ev, idx) => {
-                                  const style = calculateEventStyle(ev);
-                                  return (
-                                    <div
-                                      key={ev.id}
-                                      className={`absolute top-1 h-10 rounded px-2 text-white text-xs flex items-center justify-between cursor-pointer hover:opacity-90 transition-opacity ${ev.hasConflict ? "ring-2 ring-red-500 ring-offset-1" : ""}`}
-                                      style={{ ...style, backgroundColor: ev.color, zIndex: 10 + idx }}
-                                      title={`${ev.seedName}\n${formatDate(ev.startDate)} - ${formatDate(ev.endDate)}\nWeken ${getWeekNumber(ev.startDate)}-${getWeekNumber(ev.endDate)}`}
-                                    >
-                                      <div className="flex items-center gap-1 min-w-0">
-                                        <span className="truncate">{ev.seedName}</span>
-                                        {ev.hasConflict && <AlertTriangle className="w-3 h-3 text-yellow-300" />}
-                                      </div>
-
-                                      <div className="flex items-center gap-1 ml-1">
-                                        <button onClick={e => { e.stopPropagation(); handleEdit(ev.planting); }} className="p-0.5 hover:bg-white/20 rounded" aria-label="Bewerken">
-                                          <Edit3 className="w-3 h-3" />
-                                        </button>
-                                        <button onClick={e => { e.stopPropagation(); handleDelete(ev.planting); }} className="p-0.5 hover:bg-white/20 rounded" aria-label="Verwijderen">
-                                          <Trash2 className="w-3 h-3" />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
+                {renderBedRows(orderedBedGroups.greenhouse, true)}
               </div>
             )}
           </div>
@@ -456,49 +478,100 @@ export function TimelineView({
       )}
 
       {/* Legend */}
-      <div className="bg-muted/30 rounded-lg p-4">
-        <h4 className="font-medium text-sm mb-2">Legend</h4>
-        <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-          <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-red-500" /><span>Conflict gedetecteerd</span></div>
-          <div className="flex items-center gap-2"><Edit3 className="w-4 h-4" /><span>Bewerk planting</span></div>
-          <div className="flex items-center gap-2"><Trash2 className="w-4 h-4" /><span>Verwijder planting</span></div>
+      <div className="flex flex-wrap gap-6 text-xs text-muted-foreground px-1">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
+          <span>Conflict</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Edit3 className="w-3.5 h-3.5" />
+          <span>Bewerken</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Trash2 className="w-3.5 h-3.5" />
+          <span>Verwijderen</span>
         </div>
       </div>
 
-      {/* Edit Dialog — nu met bak-wissel (alleen passende bakken zichtbaar) */}
-      {editPlanting && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">
-              Planting bewerken: {seeds.find(s => s.id === editPlanting.seed_id)?.name || "—"}
-            </h3>
+      {/* Edit Dialog - Modern Style */}
+      <Dialog open={!!editPlanting} onOpenChange={(open) => !open && setEditPlanting(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div 
+                className="w-4 h-4 rounded-full ring-2 ring-white shadow-md"
+                style={{ background: editPlanting?.color || "#22c55e" }}
+              />
+              <span>Planting bewerken</span>
+            </DialogTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              {seeds.find(s => s.id === editPlanting?.seed_id)?.name || "Onbekend"}
+            </p>
+          </DialogHeader>
 
-            <div className="space-y-3">
-              <label className="block text-sm font-medium">Nieuwe plantdatum</label>
-              <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} className="w-full border rounded px-3 py-2" />
-
-              <label className="block text-sm font-medium mt-2">Bak (alleen waar het past)</label>
-              <select className="w-full border rounded px-3 py-2"
-                value={selectedBedId} onChange={e => setSelectedBedId(e.target.value)}>
-                {bedOptions.map(o => (
-                  <option key={o.bed.id} value={o.bed.id}>
-                    {o.bed.name} — vrije start: segment {o.seg + 1}
-                  </option>
-                ))}
-                {bedOptions.length === 0 && <option value="">(geen passende bakken)</option>}
-              </select>
-
-              <div className="flex justify-end gap-3 pt-2">
-                <button type="button" onClick={() => setEditPlanting(null)} className="px-4 py-2 border rounded hover:bg-muted">Annuleren</button>
-                <button type="button" onClick={handleSaveEdit} disabled={!selectedBedId || bedOptions.length===0} className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50">
-                  Opslaan
-                </button>
-              </div>
+          <div className="space-y-4 py-4">
+            {/* Date picker */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Plantdatum</label>
+              <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm border-b border-border/50 hover:border-primary/50 transition-colors bg-transparent text-left"
+                  >
+                    <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                    {editDate ? format(editDate, "EEEE d MMMM yyyy", { locale: nl }) : "Selecteer datum"}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={editDate}
+                    onSelect={(d) => { setEditDate(d); setDatePickerOpen(false); }}
+                    initialFocus
+                    className="pointer-events-auto"
+                    locale={nl}
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
 
+            {/* Bed selector */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Bak (alleen waar het past)</label>
+              <Select value={selectedBedId} onValueChange={setSelectedBedId}>
+                <SelectTrigger className="w-full border-0 border-b border-border/50 rounded-none hover:border-primary/50 transition-colors">
+                  <SelectValue placeholder="Selecteer bak" />
+                </SelectTrigger>
+                <SelectContent>
+                  {bedOptions.map(o => (
+                    <SelectItem key={o.bed.id} value={o.bed.id}>
+                      {o.bed.name} — segment {o.seg + 1}
+                      {o.bed.is_greenhouse && " (kas)"}
+                    </SelectItem>
+                  ))}
+                  {bedOptions.length === 0 && (
+                    <SelectItem value="none" disabled>
+                      Geen passende bakken
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-        </div>
-      )}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setEditPlanting(null)}>
+              Annuleren
+            </Button>
+            <Button 
+              onClick={handleSaveEdit} 
+              disabled={!selectedBedId || bedOptions.length === 0}
+            >
+              Opslaan
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
