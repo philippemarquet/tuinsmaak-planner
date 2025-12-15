@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Garden, GardenBed, UUID } from "../lib/types";
 import { deleteBed, updateBed, createBed } from "../lib/api/beds";
 import { BedModal } from "./BedModal";
-import { Pencil, Trash2, Map as MapIcon, PlusCircle, ZoomIn, ZoomOut, Maximize2, Copy, GripVertical } from "lucide-react";
+import { Pencil, Trash2, Map as MapIcon, PlusCircle, ZoomIn, ZoomOut, Maximize2, Copy, GripVertical, ChevronDown } from "lucide-react";
 import { DndContext, DragEndEvent, useDraggable, useDroppable } from "@dnd-kit/core";
+import { cn } from "../lib/utils";
 
 export function BedsPage({ 
   garden,
@@ -188,7 +189,7 @@ export function BedsPage({
 }
 
 /* ===========
- * Section (kaartweergave met drag-sort via handle)
+ * Section (kaartweergave met stapel-effect en drag-sort via handle)
  * =========== */
 
 function Section({
@@ -206,7 +207,12 @@ function Section({
   onDuplicate: (b: GardenBed) => void;
   onReorder: (orderedIds: UUID[]) => void;
 }) {
+  const [isOpen, setIsOpen] = useState(false);
   const [localIds, setLocalIds] = useState<UUID[]>(items.map(i => i.id));
+  const count = items.length;
+
+  // Show max 4 stacked cards in closed state
+  const stackedCards = items.slice(0, Math.min(4, count));
 
   useEffect(() => {
     setLocalIds(items.map(i => i.id));
@@ -227,82 +233,158 @@ function Section({
     onReorder(next);
   }
 
+  if (count === 0) {
+    return (
+      <section className="space-y-3">
+        <h3 className="text-xl font-semibold">{title}</h3>
+        <p className="text-sm text-muted-foreground">Geen bakken in deze categorie.</p>
+      </section>
+    );
+  }
+
   return (
     <section className="space-y-3">
-      <h3 className="text-xl font-semibold">{title}</h3>
+      {/* Clickable header */}
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-2 text-left group"
+      >
+        <ChevronDown 
+          className={cn(
+            "h-5 w-5 text-muted-foreground transition-transform duration-300",
+            isOpen && "rotate-180"
+          )} 
+        />
+        <h3 className="text-xl font-semibold group-hover:text-primary transition-colors">
+          {title} <span className="text-sm text-muted-foreground font-normal">({count})</span>
+        </h3>
+      </button>
 
-      <DndContext onDragEnd={handleDragEnd}>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {localIds.map((id) => {
-            const b = items.find(x => x.id === id)!;
+      {/* Stacked/Expanded cards */}
+      {!isOpen ? (
+        // Collapsed: stacked cards
+        <div 
+          className="relative cursor-pointer h-28"
+          onClick={() => setIsOpen(true)}
+        >
+          {stackedCards.map((bed, index) => {
+            // Create stacked effect with offset and rotation
+            const offset = index * 8;
+            const rotation = (index - 1.5) * 2;
+            const zIndex = stackedCards.length - index;
+            
             return (
-              <SortableCard key={b.id} id={b.id}>
-                {(drag) => (
-                  <div className="p-5 border rounded-xl bg-card shadow-md hover:shadow-lg transition space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div className="flex items-center gap-2">
-                        {/* DRAG HANDLE: alleen hier zitten de drag listeners */}
-                        <button
-                          type="button"
-                          className="p-1 rounded hover:bg-muted cursor-grab active:cursor-grabbing"
-                          aria-label="Verslepen"
-                          {...drag.listeners}
-                          {...drag.attributes}
-                        >
-                          <GripVertical className="h-4 w-4 text-muted-foreground" />
-                        </button>
-
-                        <div>
-                          <h4 className="font-semibold text-lg">{b.name}</h4>
-                          <p className="text-xs text-muted-foreground">
-                            {b.width_cm} × {b.length_cm} cm — {b.segments} segment(en)
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => onDuplicate(b)}
-                          className="p-1 text-muted-foreground hover:text-primary"
-                          title="Dupliceren"
-                        >
-                          <Copy className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => onEdit(b)}
-                          className="p-1 text-muted-foreground hover:text-primary"
-                          title="Bewerken"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => onDelete(b.id)}
-                          className="p-1 text-muted-foreground hover:text-destructive"
-                          title="Verwijderen"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {b.is_greenhouse && (
-                        <span className="text-xs bg-green-600/90 text-white px-2 py-0.5 rounded">
-                          Kas
-                        </span>
-                      )}
-                      <span className="text-xs text-muted-foreground">
-                        Positie: x {b.location_x ?? 0}, y {b.location_y ?? 0}
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </SortableCard>
+              <div
+                key={bed.id}
+                className="absolute left-0 top-0 w-80 max-w-full transition-all duration-300 ease-out"
+                style={{
+                  transform: `translateX(${offset}px) rotate(${rotation}deg)`,
+                  zIndex,
+                }}
+              >
+                <MiniBedCard bed={bed} />
+              </div>
             );
           })}
         </div>
-      </DndContext>
+      ) : (
+        // Expanded: full grid with animation and drag-sort
+        <DndContext onDragEnd={handleDragEnd}>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {localIds.map((id, index) => {
+              const b = items.find(x => x.id === id)!;
+              return (
+                <SortableCard key={b.id} id={b.id}>
+                  {(drag) => (
+                    <div
+                      className="animate-scale-in p-5 border rounded-xl bg-card shadow-md hover:shadow-lg transition space-y-3"
+                      style={{ animationDelay: `${index * 30}ms`, animationFillMode: 'backwards' }}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div className="flex items-center gap-2">
+                          {/* DRAG HANDLE: alleen hier zitten de drag listeners */}
+                          <button
+                            type="button"
+                            className="p-1 rounded hover:bg-muted cursor-grab active:cursor-grabbing"
+                            aria-label="Verslepen"
+                            {...drag.listeners}
+                            {...drag.attributes}
+                          >
+                            <GripVertical className="h-4 w-4 text-muted-foreground" />
+                          </button>
+
+                          <div>
+                            <h4 className="font-semibold text-lg">{b.name}</h4>
+                            <p className="text-xs text-muted-foreground">
+                              {b.width_cm} × {b.length_cm} cm — {b.segments} segment(en)
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => onDuplicate(b)}
+                            className="p-1 text-muted-foreground hover:text-primary"
+                            title="Dupliceren"
+                          >
+                            <Copy className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => onEdit(b)}
+                            className="p-1 text-muted-foreground hover:text-primary"
+                            title="Bewerken"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => onDelete(b.id)}
+                            className="p-1 text-muted-foreground hover:text-destructive"
+                            title="Verwijderen"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {b.is_greenhouse && (
+                          <span className="text-xs bg-green-600/90 text-white px-2 py-0.5 rounded">
+                            Kas
+                          </span>
+                        )}
+                        <span className="text-xs text-muted-foreground">
+                          Positie: x {b.location_x ?? 0}, y {b.location_y ?? 0}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </SortableCard>
+              );
+            })}
+          </div>
+        </DndContext>
+      )}
     </section>
+  );
+}
+
+/* ---------- mini kaartje voor stapel ---------- */
+
+function MiniBedCard({ bed }: { bed: GardenBed }) {
+  return (
+    <div className="p-4 border rounded-xl bg-card shadow-md hover:shadow-lg transition">
+      <div className="flex items-center gap-2">
+        <h4 className="font-semibold truncate flex-1">{bed.name}</h4>
+        {bed.is_greenhouse && (
+          <span className="text-xs bg-green-600/90 text-white px-2 py-0.5 rounded">
+            Kas
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground mt-1">
+        {bed.width_cm} × {bed.length_cm} cm
+      </p>
+    </div>
   );
 }
 
