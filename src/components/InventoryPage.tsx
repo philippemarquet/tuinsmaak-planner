@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Garden, Seed, CropType } from "../lib/types";
 import { createSeed, updateSeed, deleteSeed } from "../lib/api/seeds";
-import { Pencil, Trash2, Copy, PlusCircle, ChevronDown } from "lucide-react";
+import { Copy, Trash2, PlusCircle, ChevronDown } from "lucide-react";
 import { SeedModal } from "./SeedModal";
 import { cn } from "../lib/utils";
 
@@ -35,83 +35,56 @@ function SeedCard({
   onDelete: (s: Seed) => void;
   onDuplicate: (s: Seed) => void;
 }) {
-  // na migratie -> boolean in_stock
   const inStock = (seed as any).in_stock !== false;
-
-  const stockBadgeText = inStock ? "In voorraad" : "Niet op voorraad";
-  const stockBadgeClass = inStock ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700";
 
   const colorDot =
     seed.default_color && seed.default_color.startsWith("#") ? (
       <span
-        className="inline-block w-3.5 h-3.5 rounded"
+        className="inline-block w-3 h-3 rounded-sm flex-shrink-0"
         style={{ backgroundColor: seed.default_color }}
-        title="Standaardkleur"
       />
     ) : (
-      <span
-        className={`inline-block w-3.5 h-3.5 rounded ${seed.default_color ?? "bg-green-500"}`}
-        title="Standaardkleur"
-      />
+      <span className={`inline-block w-3 h-3 rounded-sm flex-shrink-0 ${seed.default_color ?? "bg-green-500"}`} />
     );
 
   return (
-    <div className="p-5 border rounded-xl bg-card shadow-md hover:shadow-lg transition space-y-3">
-      <div className="flex justify-between items-start">
-        <div className="flex items-center gap-2 min-w-0">
-          {colorDot}
-          <div className="min-w-0">
-            <h4 className="font-semibold text-lg truncate">{seed.name}</h4>
-            <p className="text-xs text-muted-foreground">
-              {seed.purchase_date ? `Aangekocht: ${seed.purchase_date}` : "Aankoopdatum: —"}
-            </p>
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => onDuplicate(seed)}
-            className="p-1 text-muted-foreground hover:text-primary"
-            title="Dupliceren"
-          >
-            <Copy className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => onEdit(seed)}
-            className="p-1 text-muted-foreground hover:text-primary"
-            title="Bewerken"
-          >
-            <Pencil className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => onDelete(seed)}
-            className="p-1 text-muted-foreground hover:text-destructive"
-            title="Verwijderen"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <span className={`text-xs px-2 py-0.5 rounded ${stockBadgeClass}`}>{stockBadgeText}</span>
-        {seed.sowing_type && (
-          <span className="text-xs px-2 py-0.5 rounded bg-secondary text-secondary-foreground">
-            Zaaitype: {sowingTypeLabel(seed.sowing_type)}
-          </span>
-        )}
-        {seed.greenhouse_compatible && (
-          <span className="text-xs px-2 py-0.5 rounded bg-green-600 text-white">
-            Geschikt voor kas
-          </span>
-        )}
-      </div>
-
-      <div className="text-xs text-muted-foreground grid grid-cols-2 gap-x-4 gap-y-1">
-        <div>Rijafstand: {seed.row_spacing_cm ?? "—"} cm</div>
-        <div>Plantafstand: {seed.plant_spacing_cm ?? "—"} cm</div>
-        <div>Voorzaai: {seed.presow_duration_weeks ?? "—"} wkn</div>
-        <div>Groei→oogst: {seed.grow_duration_weeks ?? "—"} wkn</div>
-        <div>Oogstduur: {seed.harvest_duration_weeks ?? "—"} wkn</div>
+    <div 
+      className={cn(
+        "flex items-center gap-2 px-3 py-2 border rounded-lg bg-card hover:bg-accent/50 transition cursor-pointer group",
+        !inStock && "opacity-60"
+      )}
+      onClick={() => onEdit(seed)}
+    >
+      {colorDot}
+      <span className="font-medium text-sm truncate flex-1">{seed.name}</span>
+      
+      {seed.greenhouse_compatible && (
+        <span className="text-xs px-1.5 py-0.5 rounded bg-green-600 text-white flex-shrink-0">
+          Kas
+        </span>
+      )}
+      
+      {!inStock && (
+        <span className="text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-700 flex-shrink-0">
+          ✗
+        </span>
+      )}
+      
+      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition flex-shrink-0">
+        <button
+          onClick={(e) => { e.stopPropagation(); onDuplicate(seed); }}
+          className="p-1 text-muted-foreground hover:text-primary"
+          title="Dupliceren"
+        >
+          <Copy className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(seed); }}
+          className="p-1 text-muted-foreground hover:text-destructive"
+          title="Verwijderen"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
       </div>
     </div>
   );
@@ -130,15 +103,11 @@ function SeedGroup({
   onDelete: (s: Seed) => void;
   onDuplicate: (s: Seed) => void;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(true); // Default open for compact cards
   const count = group.items.length;
-  
-  // Show max 4 stacked cards in closed state
-  const stackedCards = group.items.slice(0, Math.min(4, count));
-  const hasMore = count > 4;
 
   return (
-    <section className="space-y-3">
+    <section className="space-y-2">
       {/* Clickable header */}
       <button
         onClick={() => setIsOpen(!isOpen)}
@@ -146,50 +115,23 @@ function SeedGroup({
       >
         <ChevronDown 
           className={cn(
-            "h-5 w-5 text-muted-foreground transition-transform duration-300",
+            "h-4 w-4 text-muted-foreground transition-transform duration-300",
             isOpen && "rotate-180"
           )} 
         />
-        <h3 className="text-xl font-semibold group-hover:text-primary transition-colors">
+        <h3 className="text-base font-semibold group-hover:text-primary transition-colors">
           {group.label} <span className="text-sm text-muted-foreground font-normal">({count})</span>
         </h3>
       </button>
 
-      {/* Stacked/Expanded cards */}
-      {!isOpen ? (
-        // Collapsed: stacked cards
-        <div 
-          className="relative cursor-pointer h-28"
-          onClick={() => setIsOpen(true)}
-        >
-          {stackedCards.map((seed, index) => {
-            // Create stacked effect with offset and rotation
-            const offset = index * 8;
-            const rotation = (index - 1.5) * 2;
-            const zIndex = stackedCards.length - index;
-            
-            return (
-              <div
-                key={seed.id}
-                className="absolute left-0 top-0 w-80 max-w-full transition-all duration-300 ease-out"
-                style={{
-                  transform: `translateX(${offset}px) rotate(${rotation}deg)`,
-                  zIndex,
-                }}
-              >
-                <MiniSeedCard seed={seed} />
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        // Expanded: full grid with animation
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {/* Cards grid */}
+      {isOpen && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
           {group.items.map((seed, index) => (
             <div
               key={seed.id}
-              className="animate-scale-in"
-              style={{ animationDelay: `${index * 30}ms`, animationFillMode: 'backwards' }}
+              className="animate-fade-in"
+              style={{ animationDelay: `${index * 20}ms`, animationFillMode: 'backwards' }}
             >
               <SeedCard
                 seed={seed}
@@ -202,35 +144,6 @@ function SeedGroup({
         </div>
       )}
     </section>
-  );
-}
-
-/* ---------- mini kaartje voor stapel ---------- */
-
-function MiniSeedCard({ seed }: { seed: Seed }) {
-  const inStock = (seed as any).in_stock !== false;
-  const stockBadgeClass = inStock ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700";
-
-  const colorDot =
-    seed.default_color && seed.default_color.startsWith("#") ? (
-      <span
-        className="inline-block w-3 h-3 rounded"
-        style={{ backgroundColor: seed.default_color }}
-      />
-    ) : (
-      <span className={`inline-block w-3 h-3 rounded ${seed.default_color ?? "bg-green-500"}`} />
-    );
-
-  return (
-    <div className="p-4 border rounded-xl bg-card shadow-md hover:shadow-lg transition">
-      <div className="flex items-center gap-2">
-        {colorDot}
-        <h4 className="font-semibold truncate flex-1">{seed.name}</h4>
-        <span className={`text-xs px-2 py-0.5 rounded ${stockBadgeClass}`}>
-          {inStock ? "✓" : "✗"}
-        </span>
-      </div>
-    </div>
   );
 }
 
@@ -364,10 +277,10 @@ export function InventoryPage({
   }, [filtered, cropTypes]);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* header + filters */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-3xl font-bold">Voorraad</h2>
+        <h2 className="text-2xl font-bold">Voorraad</h2>
 
         <div className="flex flex-wrap items-center gap-3">
           {/* zoekveld */}
@@ -409,19 +322,21 @@ export function InventoryPage({
         </div>
       </div>
 
-      {/* gegroepeerde kaarten met stapel-effect */}
+      {/* gegroepeerde kaarten - twee kolommen op grote schermen */}
       {groups.length === 0 ? (
         <p className="text-sm text-muted-foreground">Geen zaden gevonden.</p>
       ) : (
-        groups.map((g) => (
-          <SeedGroup
-            key={g.id}
-            group={g}
-            onEdit={(s) => setEditorOpen({ seed: s })}
-            onDelete={handleDelete}
-            onDuplicate={handleDuplicate}
-          />
-        ))
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {groups.map((g) => (
+            <SeedGroup
+              key={g.id}
+              group={g}
+              onEdit={(s) => setEditorOpen({ seed: s })}
+              onDelete={handleDelete}
+              onDuplicate={handleDuplicate}
+            />
+          ))}
+        </div>
       )}
 
       {editorOpen && (
