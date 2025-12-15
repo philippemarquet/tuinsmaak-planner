@@ -30,8 +30,9 @@ export async function updateBed(id: UUID, patch: Partial<GardenBed>): Promise<Ga
     .update(patch)
     .eq("id", id)
     .select("*")
-    .single();
+    .maybeSingle();
   if (error) throw error;
+  if (!data) throw new Error("Bak niet gevonden of geen toegang");
   return data as GardenBed;
 }
 
