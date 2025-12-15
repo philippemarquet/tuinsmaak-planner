@@ -7,11 +7,17 @@ import { supabase } from "../lib/supabaseClient";
 import { TimelineView } from "./TimelineView";
 import { buildConflictsMap, countUniqueConflicts } from "../lib/conflicts";
 import { ConflictWarning } from "./ConflictWarning";
-import { Edit3, Trash2, ChevronDown, Info, AlertTriangle } from "lucide-react";
+import { Edit3, Trash2, ChevronDown, Info, AlertTriangle, X, CalendarIcon, Search } from "lucide-react";
 import { useConflictFlags } from "../hooks/useConflictFlags";
 import { SeedModal } from "./SeedModal";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Checkbox } from "./ui/checkbox";
+import { Calendar } from "./ui/calendar";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import { format } from "date-fns";
+import { nl } from "date-fns/locale";
+import { cn } from "../lib/utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -518,52 +524,63 @@ export function PlannerPage({
 
   /* ===== Sidebar zaden (vast, buiten scroll) ===== */
   const SeedsSidebar = () => (
-    <aside className="w-56 flex-shrink-0 bg-card border-r border-border ml-3 rounded-l-lg">
+    <aside className="w-60 flex-shrink-0 bg-card/50 backdrop-blur-sm border-r border-border/50 ml-3 rounded-l-xl overflow-hidden">
       <div className="sticky top-0 h-screen overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="px-3 py-2.5 border-b bg-muted/30">
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Zaden</h3>
+        <div className="px-4 py-3 border-b border-border/30 bg-gradient-to-r from-primary/5 to-transparent">
+          <h3 className="text-sm font-semibold text-foreground tracking-tight">Zaden</h3>
         </div>
         
         {/* Filters */}
-        <div className="px-3 py-2.5 border-b space-y-2 bg-background">
-          <input 
-            className="w-full px-2 py-1.5 text-xs border rounded bg-background focus:ring-1 focus:ring-primary/20 focus:border-primary transition-all" 
-            value={q} 
-            onChange={(e) => setQ(e.target.value)} 
-            placeholder="Zoek op naam…" 
-          />
-          
-          <div className="flex flex-wrap gap-1.5">
-            <label className="flex items-center gap-1 text-[11px] bg-muted px-1.5 py-0.5 rounded cursor-pointer hover:bg-muted/80 transition-colors">
-              <input 
-                type="checkbox" 
-                checked={inStockOnly} 
-                onChange={(e) => setInStockOnly(e.target.checked)}
-                className="rounded w-3 h-3"
-              />
-              <span>Voorraad</span>
-            </label>
-            <label className="flex items-center gap-1 text-[11px] bg-muted px-1.5 py-0.5 rounded cursor-pointer hover:bg-muted/80 transition-colors">
-              <input 
-                type="checkbox" 
-                checked={greenhouseOnly} 
-                onChange={(e) => setGreenhouseOnly(e.target.checked)}
-                className="rounded w-3 h-3"
-              />
-              <span>Kas</span>
-            </label>
+        <div className="px-3 py-3 border-b border-border/30 space-y-3">
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60" />
+            <input 
+              className="w-full pl-8 pr-3 py-2 text-xs bg-muted/30 border-0 rounded-lg focus:ring-2 focus:ring-primary/20 focus:bg-background transition-all placeholder:text-muted-foreground/50" 
+              value={q} 
+              onChange={(e) => setQ(e.target.value)} 
+              placeholder="Zoek op naam…" 
+            />
           </div>
           
-          <div className="flex gap-0.5">
+          {/* Toggle Pills */}
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              onClick={() => setInStockOnly(!inStockOnly)}
+              className={cn(
+                "px-2.5 py-1 text-[10px] font-medium rounded-full transition-all",
+                inStockOnly 
+                  ? "bg-primary text-primary-foreground shadow-sm" 
+                  : "bg-muted/50 text-muted-foreground hover:bg-muted"
+              )}
+            >
+              Voorraad
+            </button>
+            <button
+              onClick={() => setGreenhouseOnly(!greenhouseOnly)}
+              className={cn(
+                "px-2.5 py-1 text-[10px] font-medium rounded-full transition-all",
+                greenhouseOnly 
+                  ? "bg-emerald-500 text-white shadow-sm" 
+                  : "bg-muted/50 text-muted-foreground hover:bg-muted"
+              )}
+            >
+              Kas
+            </button>
+          </div>
+          
+          {/* Segmented Control - In Planner */}
+          <div className="flex p-0.5 bg-muted/40 rounded-lg">
             {(["all", "planned", "unplanned"] as InPlanner[]).map((k) => (
               <button
                 key={k}
-                className={`flex-1 px-1 py-1 text-[10px] rounded transition-all ${
+                className={cn(
+                  "flex-1 px-2 py-1.5 text-[10px] font-medium rounded-md transition-all",
                   inPlanner === k 
-                    ? "bg-primary text-primary-foreground shadow-sm" 
-                    : "bg-muted text-muted-foreground hover:bg-muted/80"
-                }`}
+                    ? "bg-background text-foreground shadow-sm" 
+                    : "text-muted-foreground hover:text-foreground"
+                )}
                 onClick={() => setInPlanner(k)}
               >
                 {k === "all" ? "Alle" : k === "planned" ? "Gepland" : "Ongepland"}
@@ -571,87 +588,93 @@ export function PlannerPage({
             ))}
           </div>
 
-          {/* Categorie filter */}
+          {/* Categorie filter - Modern dropdown */}
           <Popover>
             <PopoverTrigger asChild>
-              <button className="w-full px-2 py-1 text-[11px] text-left border rounded flex justify-between items-center bg-background hover:bg-muted/50 transition-colors">
-                <span className="truncate text-muted-foreground">
+              <button className="w-full px-3 py-2 text-xs text-left rounded-lg flex justify-between items-center bg-muted/30 hover:bg-muted/50 transition-all group">
+                <span className={cn(
+                  "truncate",
+                  cropTypeFilters.length === 0 ? "text-muted-foreground" : "text-foreground font-medium"
+                )}>
                   {cropTypeFilters.length === 0
                     ? "Alle gewastypen"
                     : cropTypeFilters.length === 1
                     ? cropTypes.find((ct) => ct.id === cropTypeFilters[0])?.name || "Overig"
-                    : `${cropTypeFilters.length} geselect.`}
+                    : `${cropTypeFilters.length} geselecteerd`}
                 </span>
-                <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
               </button>
             </PopoverTrigger>
-            <PopoverContent className="w-48 p-2 max-h-48 overflow-y-auto bg-popover z-50">
-              <div className="space-y-1">
+            <PopoverContent className="w-52 p-2 max-h-56 overflow-y-auto bg-popover/95 backdrop-blur-sm border-border/50 z-50">
+              <div className="space-y-0.5">
                 {cropTypeFilters.length > 0 && (
-                  <button onClick={() => setCropTypeFilters([])} className="text-[10px] text-primary hover:underline mb-1">
+                  <button onClick={() => setCropTypeFilters([])} className="w-full text-left text-[11px] text-primary hover:underline px-2 py-1 mb-1">
                     Wis selectie
                   </button>
                 )}
                 {cropTypes.map((ct) => (
-                  <label key={ct.id} className="flex items-center gap-1.5 cursor-pointer">
+                  <label key={ct.id} className="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-muted/50 transition-colors">
                     <Checkbox
                       checked={cropTypeFilters.includes(ct.id)}
                       onCheckedChange={(checked) => {
                         if (checked) setCropTypeFilters([...cropTypeFilters, ct.id]);
                         else setCropTypeFilters(cropTypeFilters.filter((id) => id !== ct.id));
                       }}
-                      className="h-3 w-3"
+                      className="h-3.5 w-3.5 rounded"
                     />
-                    <span className="text-[11px]">{ct.name}</span>
+                    <span className="text-xs">{ct.name}</span>
                   </label>
                 ))}
-                <label className="flex items-center gap-1.5 cursor-pointer">
+                <label className="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-muted/50 transition-colors">
                   <Checkbox
                     checked={cropTypeFilters.includes("__none__")}
                     onCheckedChange={(checked) => {
                       if (checked) setCropTypeFilters([...cropTypeFilters, "__none__"]);
                       else setCropTypeFilters(cropTypeFilters.filter((id) => id !== "__none__"));
                     }}
-                    className="h-3 w-3"
+                    className="h-3.5 w-3.5 rounded"
                   />
-                  <span className="text-[11px]">Overig</span>
+                  <span className="text-xs text-muted-foreground">Overig</span>
                 </label>
               </div>
             </PopoverContent>
           </Popover>
 
-          {/* Maand filter */}
+          {/* Maand filter - Modern dropdown */}
           <Popover>
             <PopoverTrigger asChild>
-              <button className="w-full px-2 py-1 text-[11px] text-left border rounded flex justify-between items-center bg-background hover:bg-muted/50 transition-colors">
-                <span className="truncate text-muted-foreground">
+              <button className="w-full px-3 py-2 text-xs text-left rounded-lg flex justify-between items-center bg-muted/30 hover:bg-muted/50 transition-all group">
+                <span className={cn(
+                  "truncate",
+                  selectedMonths.length === 0 ? "text-muted-foreground" : "text-foreground font-medium"
+                )}>
                   {selectedMonths.length === 0
                     ? "Alle maanden"
                     : selectedMonths.length === 1
                     ? new Date(2000, selectedMonths[0] - 1, 1).toLocaleString("nl-NL", { month: "long" })
                     : `${selectedMonths.length} maanden`}
                 </span>
-                <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
               </button>
             </PopoverTrigger>
-            <PopoverContent className="w-48 p-2 max-h-48 overflow-y-auto bg-popover z-50">
-              <div className="space-y-1">
+            <PopoverContent className="w-52 p-2 max-h-56 overflow-y-auto bg-popover/95 backdrop-blur-sm border-border/50 z-50">
+              <div className="space-y-0.5">
                 {selectedMonths.length > 0 && (
-                  <button onClick={() => setSelectedMonths([])} className="text-[10px] text-primary hover:underline mb-1">
+                  <button onClick={() => setSelectedMonths([])} className="w-full text-left text-[11px] text-primary hover:underline px-2 py-1 mb-1">
                     Wis selectie
                   </button>
                 )}
                 {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                  <label key={m} className="flex items-center gap-1.5 cursor-pointer">
+                  <label key={m} className="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-muted/50 transition-colors">
                     <Checkbox
                       checked={selectedMonths.includes(m)}
                       onCheckedChange={(checked) => {
                         if (checked) setSelectedMonths([...selectedMonths, m].sort((a, b) => a - b));
                         else setSelectedMonths(selectedMonths.filter((month) => month !== m));
                       }}
-                      className="h-3 w-3"
+                      className="h-3.5 w-3.5 rounded"
                     />
-                    <span className="text-[11px] capitalize">
+                    <span className="text-xs capitalize">
                       {new Date(2000, m - 1, 1).toLocaleString("nl-NL", { month: "long" })}
                     </span>
                   </label>
@@ -662,9 +685,11 @@ export function PlannerPage({
         </div>
         
         {/* Scrollable seed list */}
-        <div className="flex-1 overflow-y-auto px-2 py-1.5 space-y-1">
+        <div className="flex-1 overflow-y-auto px-2 py-2 space-y-1">
           {filteredSeeds.length === 0 ? (
-            <p className="text-[11px] text-muted-foreground text-center py-4">Geen zaden gevonden</p>
+            <div className="text-center py-8">
+              <p className="text-xs text-muted-foreground">Geen zaden gevonden</p>
+            </div>
           ) : (
             filteredSeeds.map((seed) => (
               <DraggableSeed 
@@ -678,8 +703,10 @@ export function PlannerPage({
         </div>
         
         {/* Footer count */}
-        <div className="px-2 py-1.5 border-t bg-muted/20 text-[10px] text-muted-foreground text-center">
-          {filteredSeeds.length} / {seeds.length} zaden
+        <div className="px-3 py-2 border-t border-border/30 bg-muted/20">
+          <p className="text-[10px] text-muted-foreground text-center">
+            <span className="font-medium text-foreground">{filteredSeeds.length}</span> / {seeds.length} zaden
+          </p>
         </div>
       </div>
     </aside>
@@ -1174,37 +1201,65 @@ export function PlannerPage({
         </DragOverlay>
       </DndContext>
 
-      {/* Planting popup */}
+      {/* Planting popup - Modern Modal */}
       {popup && (
-        <div className="fixed inset-0 bg-black/40 grid place-items-center z-50" onClick={() => setPopup(null)}>
-          <div className="bg-card p-5 rounded-lg shadow-lg w-full max-w-md space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold">{popup.mode === "create" ? "Nieuwe planting" : "Planting bewerken"}</h3>
-            <PlantingForm
-              mode={popup.mode}
-              seed={popup.seed}
-              bed={popup.bed}
-              beds={beds}
-              defaultSegment={popup.segmentIndex}
-              defaultDateISO={popup.mode === "edit" ? popup.planting.planned_date ?? toISO(currentWeek) : toISO(currentWeek)}
-              existing={popup.mode === "edit" ? popup.planting : undefined}
-              allPlantings={plantings}
-              onCancel={() => setPopup(null)}
-              onConfirm={(startSegment, segmentsUsed, method, date, color, bedId) =>
-                handleConfirmPlanting({
-                  mode: popup.mode,
-                  target:
-                    popup.mode === "create"
-                      ? { seed: popup.seed, bed: popup.bed, segmentIndex: popup.segmentIndex }
-                      : { seed: popup.seed, bed: popup.bed, segmentIndex: popup.segmentIndex, planting: popup.planting },
-                  startSegment,
-                  segmentsUsed,
-                  method,
-                  dateISO: date,
-                  color,
-                  bedIdOverride: bedId,
-                })
-              }
-            />
+        <div 
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" 
+          onClick={() => setPopup(null)}
+        >
+          <div 
+            className="bg-card/95 backdrop-blur-md rounded-2xl shadow-2xl w-full max-w-lg border border-border/50 overflow-hidden animate-in fade-in-0 zoom-in-95 duration-200" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border/30 bg-gradient-to-r from-primary/5 to-transparent">
+              <div className="flex items-center gap-3">
+                <div 
+                  className="w-4 h-4 rounded-full ring-2 ring-white shadow-md"
+                  style={{ background: popup.seed.default_color?.startsWith("#") ? popup.seed.default_color : "#22c55e" }}
+                />
+                <div>
+                  <h3 className="text-lg font-semibold">{popup.mode === "create" ? "Nieuwe planting" : "Planting bewerken"}</h3>
+                  <p className="text-xs text-muted-foreground">{popup.seed.name}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setPopup(null)}
+                className="p-2 rounded-full hover:bg-muted/50 transition-colors"
+              >
+                <X className="h-4 w-4 text-muted-foreground" />
+              </button>
+            </div>
+            
+            {/* Form */}
+            <div className="p-5">
+              <PlantingForm
+                mode={popup.mode}
+                seed={popup.seed}
+                bed={popup.bed}
+                beds={beds}
+                defaultSegment={popup.segmentIndex}
+                defaultDateISO={popup.mode === "edit" ? popup.planting.planned_date ?? toISO(currentWeek) : toISO(currentWeek)}
+                existing={popup.mode === "edit" ? popup.planting : undefined}
+                allPlantings={plantings}
+                onCancel={() => setPopup(null)}
+                onConfirm={(startSegment, segmentsUsed, method, date, color, bedId) =>
+                  handleConfirmPlanting({
+                    mode: popup.mode,
+                    target:
+                      popup.mode === "create"
+                        ? { seed: popup.seed, bed: popup.bed, segmentIndex: popup.segmentIndex }
+                        : { seed: popup.seed, bed: popup.bed, segmentIndex: popup.segmentIndex, planting: popup.planting },
+                    startSegment,
+                    segmentsUsed,
+                    method,
+                    dateISO: date,
+                    color,
+                    bedIdOverride: bedId,
+                  })
+                }
+              />
+            </div>
           </div>
         </div>
       )}
@@ -1278,6 +1333,7 @@ function PlantingForm({
   const [bedId, setBedId] = useState<string>(existing?.garden_bed_id ?? bed.id);
   const [startSegment, setStartSegment] = useState<number>(existing?.start_segment ?? defaultSegment);
   const [monthDialogOpen, setMonthDialogOpen] = useState(false);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
 
   const selectedBed = useMemo(() => beds.find((x) => x.id === bedId) ?? bed, [beds, bedId, bed]);
   // bereken einddatum o.b.v. seed-waarden
@@ -1356,22 +1412,23 @@ function PlantingForm({
         }
         onConfirm(startSegment, segmentsUsed, method, date, color, bedId);
       }}
-      className="space-y-4"
+      className="space-y-5"
     >
       <AlertDialog open={monthDialogOpen} onOpenChange={setMonthDialogOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent className="bg-card/95 backdrop-blur-md border-border/50">
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
+            <AlertDialogTitle className="flex items-center gap-2 text-amber-600">
               <AlertTriangle className="h-5 w-5" />
               {monthWarning?.title ?? "Maand niet geschikt"}
             </AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogDescription className="text-muted-foreground">
               {monthWarning?.description ?? "Deze maand lijkt niet te kloppen voor dit gewas."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Terug</AlertDialogCancel>
+            <AlertDialogCancel className="rounded-lg">Terug</AlertDialogCancel>
             <AlertDialogAction
+              className="bg-amber-600 hover:bg-amber-700 rounded-lg"
               onClick={() => {
                 setMonthDialogOpen(false);
                 onConfirm(startSegment, segmentsUsed, method, date, color, bedId);
@@ -1382,99 +1439,187 @@ function PlantingForm({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      {/* Bed wisselen */}
-      <div>
-        <label className="block text-sm font-medium mb-1">Bak</label>
-        <select className="border rounded px-2 py-1 w-full" value={bedId} onChange={(e) => setBedId(e.target.value)}>
-          {validBeds.length === 0 && <option value={bed.id}>{bed.name}</option>}
-          {validBeds.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name} {b.is_greenhouse ? "(kas)" : ""}
-            </option>
-          ))}
-        </select>
-        {validBeds.length === 0 && <p className="text-xs text-red-700 mt-1">Geen alternatieve bakken beschikbaar op deze datum.</p>}
-      </div>
 
-      {/* Startsegment keuze */}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-sm font-medium mb-1">Startsegment</label>
-          <select
-            className="border rounded px-2 py-1 w-full"
-            value={startSegment}
-            onChange={(e) => setStartSegment(parseInt(e.target.value, 10))}
-          >
-            {startSegmentOptions.map((s) => (
-              <option key={s} value={s}>
-                Segment {s + 1}
-              </option>
+      {/* Bak - Modern Select */}
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Bak</label>
+        <Select value={bedId} onValueChange={setBedId}>
+          <SelectTrigger className="w-full bg-muted/30 border-0 rounded-lg h-10 focus:ring-2 focus:ring-primary/20">
+            <SelectValue placeholder="Selecteer bak" />
+          </SelectTrigger>
+          <SelectContent className="bg-popover/95 backdrop-blur-md border-border/50">
+            {validBeds.length === 0 && (
+              <SelectItem value={bed.id}>{bed.name}</SelectItem>
+            )}
+            {validBeds.map((b) => (
+              <SelectItem key={b.id} value={b.id}>
+                <span className="flex items-center gap-2">
+                  {b.name}
+                  {b.is_greenhouse && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-600">kas</span>
+                  )}
+                </span>
+              </SelectItem>
             ))}
-          </select>
-          {startSegmentOptions.length === 0 && (
-            <p className="text-xs text-red-700 mt-1">Geen vrij startsegment in deze bak voor deze datums.</p>
-          )}
-        </div>
-
-        {/* Aantal segmenten (spinner) */}
-        <div>
-          <label className="block text-sm font-medium mb-1">Aantal segmenten</label>
-          <input
-            type="number"
-            min={1}
-            max={maxSegSpinner}
-            value={segmentsUsed}
-            onChange={(e) => setSegmentsUsed(clamp(parseInt(e.target.value || "1", 10), 1, maxSegSpinner))}
-            className="border rounded px-2 py-1 w-full"
-          />
-          <p className="text-xs text-muted-foreground mt-1">
-            Beslaat {segmentsUsed} segment(en) vanaf segment {startSegment + 1}.
-          </p>
-        </div>
-      </div>
-
-      {/* Methode */}
-      <div>
-        <label className="block text-sm font-medium mb-1">Zaaimethode</label>
-        {seed.sowing_type === "both" ? (
-          <select className="border rounded px-2 py-1 w-full" value={method} onChange={(e) => setMethod(e.target.value as any)}>
-            <option value="direct">Direct</option>
-            <option value="presow">Voorzaaien</option>
-          </select>
-        ) : (
-          <div className="text-sm">{seed.sowing_type === "presow" ? "Voorzaaien" : "Direct"}</div>
+          </SelectContent>
+        </Select>
+        {validBeds.length === 0 && (
+          <p className="text-[11px] text-red-500">Geen alternatieve bakken beschikbaar op deze datum.</p>
         )}
       </div>
 
-      {/* Datum + kleur */}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-sm font-medium mb-1">Zaai/Plantdatum</label>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="border rounded px-2 py-1 w-full" />
-          <p className="text-xs text-muted-foreground mt-1">
-            Bezetting telt vanaf deze datum t/m {fmtDMY(toISO(he))}.
-          </p>
+      {/* Grid: Segment + Aantal */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* Startsegment */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Startsegment</label>
+          <Select value={String(startSegment)} onValueChange={(v) => setStartSegment(parseInt(v, 10))}>
+            <SelectTrigger className="w-full bg-muted/30 border-0 rounded-lg h-10 focus:ring-2 focus:ring-primary/20">
+              <SelectValue placeholder="Segment" />
+            </SelectTrigger>
+            <SelectContent className="bg-popover/95 backdrop-blur-md border-border/50">
+              {startSegmentOptions.map((s) => (
+                <SelectItem key={s} value={String(s)}>
+                  Segment {s + 1}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {startSegmentOptions.length === 0 && (
+            <p className="text-[11px] text-red-500">Geen vrij segment beschikbaar.</p>
+          )}
         </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Kleur in planner</label>
-          <div className="flex items-center gap-2">
-            <input value={color} onChange={(e) => setColor(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="#22c55e" />
-            <span className="inline-block w-6 h-6 rounded border" style={{ background: color }} />
+
+        {/* Aantal segmenten */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Segmenten</label>
+          <div className="relative">
+            <input
+              type="number"
+              min={1}
+              max={maxSegSpinner}
+              value={segmentsUsed}
+              onChange={(e) => setSegmentsUsed(clamp(parseInt(e.target.value || "1", 10), 1, maxSegSpinner))}
+              className="w-full bg-muted/30 border-0 rounded-lg h-10 px-3 pr-12 text-sm focus:ring-2 focus:ring-primary/20 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">stuks</span>
           </div>
         </div>
       </div>
 
-      {/* Acties */}
-      <div className="flex justify-end gap-2">
-        <button type="button" className="px-3 py-1 border rounded bg-muted" onClick={onCancel}>
+      {/* Zaaimethode - Segmented Control */}
+      {seed.sowing_type === "both" ? (
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Zaaimethode</label>
+          <div className="flex p-1 bg-muted/30 rounded-lg">
+            <button
+              type="button"
+              onClick={() => setMethod("direct")}
+              className={cn(
+                "flex-1 px-3 py-2 text-xs font-medium rounded-md transition-all",
+                method === "direct"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Direct zaaien
+            </button>
+            <button
+              type="button"
+              onClick={() => setMethod("presow")}
+              className={cn(
+                "flex-1 px-3 py-2 text-xs font-medium rounded-md transition-all",
+                method === "presow"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Voorzaaien
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Zaaimethode</label>
+          <p className="text-sm px-3 py-2 bg-muted/20 rounded-lg">
+            {seed.sowing_type === "presow" ? "Voorzaaien" : "Direct zaaien"}
+          </p>
+        </div>
+      )}
+
+      {/* Grid: Datum + Kleur */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* Datum - Modern Date Picker */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Zaai/Plantdatum</label>
+          <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "w-full bg-muted/30 border-0 rounded-lg h-10 px-3 text-left text-sm flex items-center gap-2 focus:ring-2 focus:ring-primary/20 transition-all hover:bg-muted/50",
+                  !date && "text-muted-foreground"
+                )}
+              >
+                <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                {date ? format(new Date(date), "d MMM yyyy", { locale: nl }) : "Kies datum"}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0 bg-popover/95 backdrop-blur-md border-border/50" align="start">
+              <Calendar
+                mode="single"
+                selected={date ? new Date(date) : undefined}
+                onSelect={(d) => {
+                  if (d) {
+                    setDate(toISO(d));
+                    setDatePickerOpen(false);
+                  }
+                }}
+                initialFocus
+                className="pointer-events-auto"
+              />
+            </PopoverContent>
+          </Popover>
+          <p className="text-[10px] text-muted-foreground">
+            Bezet t/m {fmtDMY(toISO(he))}
+          </p>
+        </div>
+
+        {/* Kleur - Round picker */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Kleur</label>
+          <div className="flex items-center gap-3">
+            <input
+              type="color"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              className="w-10 h-10 rounded-full cursor-pointer border-2 border-white shadow-md overflow-hidden [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-none [&::-webkit-color-swatch]:rounded-full appearance-none bg-transparent"
+            />
+            <input
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              className="flex-1 bg-muted/30 border-0 rounded-lg h-10 px-3 text-sm focus:ring-2 focus:ring-primary/20 focus:outline-none font-mono"
+              placeholder="#22c55e"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="flex justify-end gap-2 pt-2 border-t border-border/30">
+        <button 
+          type="button" 
+          onClick={onCancel}
+          className="px-4 py-2 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted transition-colors"
+        >
           Annuleren
         </button>
         <button
           type="submit"
-          className="px-3 py-1 rounded bg-primary text-primary-foreground disabled:opacity-50"
           disabled={startSegmentOptions.length === 0}
+          className="px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {mode === "create" ? "Opslaan" : "Bijwerken"}
+          {mode === "create" ? "Planting toevoegen" : "Wijzigingen opslaan"}
         </button>
       </div>
     </form>
