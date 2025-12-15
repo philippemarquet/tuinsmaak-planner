@@ -209,12 +209,14 @@ export function CalendarView({
     setDialog(null);
   }
 
-  // Render kalender grid
-  const calendarDays = [];
+  // Render kalender grid - nu met weeknummers
+  const calendarWeeks: React.ReactNode[][] = [];
+  let currentWeek: React.ReactNode[] = [];
   
   // Empty cells voor dagen vóór de eerste dag van de maand
-  for (let i = 0; i < (startingDayOfWeek === 0 ? 6 : startingDayOfWeek - 1); i++) {
-    calendarDays.push(<div key={`empty-${i}`} className="min-h-[80px] p-1 border border-border/50" />);
+  const emptyDays = startingDayOfWeek === 0 ? 6 : startingDayOfWeek - 1;
+  for (let i = 0; i < emptyDays; i++) {
+    currentWeek.push(<div key={`empty-${i}`} className="min-h-[80px] p-1 border border-border/50" />);
   }
   
   // Dagen van de maand
@@ -222,7 +224,7 @@ export function CalendarView({
     const dateISO = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const actions = actionsByDate.get(dateISO) || [];
     
-    calendarDays.push(
+    currentWeek.push(
       <div key={day} className="min-h-[80px] p-1 border border-border/50 bg-card">
         <div className="text-xs font-medium text-muted-foreground mb-1">{day}</div>
         <div className="space-y-0.5">
@@ -258,6 +260,16 @@ export function CalendarView({
         </div>
       </div>
     );
+    
+    // Als we 7 dagen hebben of het is de laatste dag, sluit de week af
+    if (currentWeek.length === 7 || day === daysInMonth) {
+      // Vul resterende dagen op als het de laatste week is
+      while (currentWeek.length < 7) {
+        currentWeek.push(<div key={`empty-end-${currentWeek.length}`} className="min-h-[80px] p-1 border border-border/50" />);
+      }
+      calendarWeeks.push(currentWeek);
+      currentWeek = [];
+    }
   }
 
   // Filter garden tasks voor de huidige maand
@@ -319,8 +331,11 @@ export function CalendarView({
 
         {/* Kalender grid */}
         <div className="border border-border rounded-lg overflow-hidden">
-          {/* Weekdag headers */}
-          <div className="grid grid-cols-7 bg-muted/50">
+          {/* Weekdag headers - met extra kolom voor weeknummer */}
+          <div className="grid grid-cols-[auto_repeat(7,1fr)] bg-muted/50">
+            <div className="w-8 p-2 text-center text-[10px] font-medium text-muted-foreground border-r border-border/50">
+              Wk
+            </div>
             {['Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za', 'Zo'].map(day => (
               <div key={day} className="p-2 text-center text-xs font-medium text-muted-foreground border-r border-border/50 last:border-r-0">
                 {day}
@@ -328,10 +343,29 @@ export function CalendarView({
             ))}
           </div>
           
-          {/* Dagen grid */}
-          <div className="grid grid-cols-7">
-            {calendarDays}
-          </div>
+          {/* Weken met weeknummer */}
+          {calendarWeeks.map((week, weekIdx) => {
+            // Bereken het weeknummer gebaseerd op de eerste dag met een nummer in deze week
+            let weekNumber = 0;
+            const emptyDays = startingDayOfWeek === 0 ? 6 : startingDayOfWeek - 1;
+            const firstDayOfWeek = weekIdx === 0 ? 1 : (weekIdx * 7) - emptyDays + 1;
+            if (firstDayOfWeek >= 1 && firstDayOfWeek <= daysInMonth) {
+              const dateForWeek = new Date(year, month, firstDayOfWeek);
+              weekNumber = getISOWeek(dateForWeek);
+            } else if (weekIdx === 0) {
+              // Eerste week, pak eerste dag van maand
+              weekNumber = getISOWeek(new Date(year, month, 1));
+            }
+            
+            return (
+              <div key={weekIdx} className="grid grid-cols-[auto_repeat(7,1fr)]">
+                <div className="w-8 p-1 flex items-start justify-center text-[10px] font-medium text-muted-foreground bg-muted/30 border-r border-border/50 border-b border-border/50">
+                  {weekNumber}
+                </div>
+                {week}
+              </div>
+            );
+          })}
         </div>
       </div>
 
