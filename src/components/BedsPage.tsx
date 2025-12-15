@@ -91,15 +91,20 @@ export function BedsPage({
         <div className="flex items-center gap-2">
           <button
             onClick={() => setLayoutMode((v) => !v)}
-            className="inline-flex items-center gap-2 px-3 py-1 rounded-md border border-border bg-secondary hover:bg-secondary/80"
+            className={cn(
+              "inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-all",
+              layoutMode
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+            )}
             title="Plattegrond bewerken"
           >
             <MapIcon className="h-4 w-4" />
-            {layoutMode ? "Plattegrond sluiten" : "Plattegrond bewerken"}
+            {layoutMode ? "Plattegrond sluiten" : "Plattegrond"}
           </button>
           <button
             onClick={() => setUpsertOpen({})}
-            className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-3 py-1 rounded-md"
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
           >
             <PlusCircle className="h-4 w-4" />
             Nieuwe bak
@@ -258,14 +263,14 @@ function Section({
       {/* Cards grid */}
       {isOpen && (
         <DndContext onDragEnd={handleDragEnd}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
             {localIds.map((id, index) => {
               const b = items.find(x => x.id === id)!;
               return (
                 <SortableCard key={b.id} id={b.id}>
                   {(drag) => (
                     <div
-                      className="flex items-center gap-2 px-3 py-2 border rounded-lg bg-card hover:bg-accent/50 transition cursor-pointer group animate-fade-in"
+                      className="flex items-center gap-1.5 px-2 py-1.5 border rounded-lg bg-card hover:bg-accent/50 transition cursor-pointer group animate-fade-in"
                       style={{ animationDelay: `${index * 20}ms`, animationFillMode: 'backwards' }}
                       onClick={() => onEdit(b)}
                     >
@@ -278,29 +283,29 @@ function Section({
                         {...drag.listeners}
                         {...drag.attributes}
                       >
-                        <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
+                        <GripVertical className="h-3 w-3 text-muted-foreground" />
                       </button>
 
-                      <span className="font-medium text-sm truncate flex-1">{b.name}</span>
+                      <span className="font-medium text-xs truncate flex-1">{b.name}</span>
                       
-                      <span className="text-xs text-muted-foreground flex-shrink-0">
-                        {b.width_cm}×{b.length_cm}cm • {b.segments} seg
+                      <span className="text-[10px] text-muted-foreground flex-shrink-0 hidden sm:inline">
+                        {b.segments}s
                       </span>
 
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition flex-shrink-0">
+                      <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition flex-shrink-0">
                         <button
                           onClick={(e) => { e.stopPropagation(); onDuplicate(b); }}
-                          className="p-1 text-muted-foreground hover:text-primary"
+                          className="p-0.5 text-muted-foreground hover:text-primary"
                           title="Dupliceren"
                         >
-                          <Copy className="h-3.5 w-3.5" />
+                          <Copy className="h-3 w-3" />
                         </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); onDelete(b.id); }}
-                          className="p-1 text-muted-foreground hover:text-destructive"
+                          className="p-0.5 text-muted-foreground hover:text-destructive"
                           title="Verwijderen"
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <Trash2 className="h-3 w-3" />
                         </button>
                       </div>
                     </div>

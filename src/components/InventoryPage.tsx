@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import type { Garden, Seed, CropType } from "../lib/types";
 import { createSeed, updateSeed, deleteSeed } from "../lib/api/seeds";
 import { listCropTypes } from "../lib/api/cropTypes";
-import { Copy, Trash2, PlusCircle, ChevronDown } from "lucide-react";
+import { Copy, Trash2, PlusCircle, ChevronDown, Search, Carrot, Leaf, Apple, Cherry, Flower2, Salad, Bean, Wheat } from "lucide-react";
 import { SeedModal } from "./SeedModal";
 import { cn } from "../lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { Checkbox } from "./ui/checkbox";
 
 /* ---------- helpers ---------- */
 
@@ -21,6 +23,19 @@ function nextCopyName(name: string) {
   if (!name) return "Nieuw zaad (kopie)";
   if (/\(kopie\)$/i.test(name)) return `${name} 2`;
   return `${name} (kopie)`;
+}
+
+// Icon mapping for crop types
+function getCropTypeIcon(name: string) {
+  const lower = name.toLowerCase();
+  if (lower.includes('wortel') || lower.includes('knol')) return Carrot;
+  if (lower.includes('sla') || lower.includes('blad')) return Salad;
+  if (lower.includes('fruit') || lower.includes('bes')) return Cherry;
+  if (lower.includes('appel') || lower.includes('peer')) return Apple;
+  if (lower.includes('boon') || lower.includes('erwt')) return Bean;
+  if (lower.includes('graan') || lower.includes('mais')) return Wheat;
+  if (lower.includes('bloem')) return Flower2;
+  return Leaf;
 }
 
 /* ---------- kaartje ---------- */
@@ -104,12 +119,13 @@ function SeedGroup({
   onDelete: (s: Seed) => void;
   onDuplicate: (s: Seed) => void;
 }) {
-  const [isOpen, setIsOpen] = useState(true); // Default open for compact cards
+  const [isOpen, setIsOpen] = useState(true);
   const count = group.items.length;
+  const Icon = getCropTypeIcon(group.label);
 
   return (
     <section className="space-y-2">
-      {/* Clickable header */}
+      {/* Clickable header with icon */}
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 text-left group"
@@ -120,6 +136,7 @@ function SeedGroup({
             isOpen && "rotate-180"
           )} 
         />
+        <Icon className="h-4 w-4 text-primary/70" />
         <h3 className="text-base font-semibold group-hover:text-primary transition-colors">
           {group.label} <span className="text-sm text-muted-foreground font-normal">({count})</span>
         </h3>
@@ -294,39 +311,91 @@ export function InventoryPage({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-2xl font-bold">Voorraad</h2>
 
-        <div className="flex flex-wrap items-center gap-3">
-          {/* zoekveld */}
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Zoek op naam…"
-            className="w-48 md:w-64 border rounded-md px-2 py-1 text-sm"
-          />
-
-          <label className="inline-flex items-center gap-2 text-sm border rounded-md px-2 py-1">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Modern search field */}
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60" />
             <input
-              type="checkbox"
-              checked={inStockOnly}
-              onChange={(e) => setInStockOnly(e.target.checked)}
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Zoek op naam…"
+              className="w-48 md:w-56 pl-9 pr-3 py-2 text-sm bg-muted/30 border-0 rounded-lg focus:ring-2 focus:ring-primary/20 focus:bg-background transition-all placeholder:text-muted-foreground/50"
             />
-            In voorraad
-          </label>
+          </div>
 
-          <select
-            className="border rounded-md px-2 py-1 text-sm"
-            value={cropTypeFilter}
-            onChange={(e) => setCropTypeFilter(e.target.value)}
+          {/* In voorraad - Toggle Pill */}
+          <button
+            onClick={() => setInStockOnly(!inStockOnly)}
+            className={cn(
+              "px-3 py-2 text-sm font-medium rounded-lg transition-all",
+              inStockOnly 
+                ? "bg-primary text-primary-foreground shadow-sm" 
+                : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+            )}
           >
-            <option value="all">Alle gewastypen</option>
-            {cropTypes.map((ct) => (
-              <option key={ct.id} value={ct.id}>{ct.name}</option>
-            ))}
-            <option value="__none__">Overig (geen soort)</option>
-          </select>
+            In voorraad
+          </button>
+
+          {/* Gewastype filter - Modern Popover */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button className="px-3 py-2 text-sm rounded-lg flex items-center gap-2 bg-muted/30 hover:bg-muted/50 transition-all">
+                <span className={cn(
+                  "truncate max-w-32",
+                  cropTypeFilter === "all" ? "text-muted-foreground" : "text-foreground font-medium"
+                )}>
+                  {cropTypeFilter === "all"
+                    ? "Gewastype"
+                    : cropTypeFilter === "__none__"
+                    ? "Overig"
+                    : cropTypes.find((ct) => ct.id === cropTypeFilter)?.name || "Gewastype"}
+                </span>
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-52 p-2 max-h-64 overflow-y-auto bg-popover/95 backdrop-blur-sm border-border/50">
+              <div className="space-y-0.5">
+                <button 
+                  onClick={() => setCropTypeFilter("all")}
+                  className={cn(
+                    "w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors",
+                    cropTypeFilter === "all" ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted/50"
+                  )}
+                >
+                  Alle gewastypen
+                </button>
+                {cropTypes.map((ct) => {
+                  const Icon = getCropTypeIcon(ct.name);
+                  return (
+                    <button 
+                      key={ct.id} 
+                      onClick={() => setCropTypeFilter(ct.id)}
+                      className={cn(
+                        "w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors flex items-center gap-2",
+                        cropTypeFilter === ct.id ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted/50"
+                      )}
+                    >
+                      <Icon className="h-3.5 w-3.5 text-primary/70" />
+                      {ct.name}
+                    </button>
+                  );
+                })}
+                <button 
+                  onClick={() => setCropTypeFilter("__none__")}
+                  className={cn(
+                    "w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors text-muted-foreground",
+                    cropTypeFilter === "__none__" ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted/50"
+                  )}
+                >
+                  Overig (geen soort)
+                </button>
+              </div>
+            </PopoverContent>
+          </Popover>
 
           <button
             onClick={() => setEditorOpen({ seed: null })}
-            className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-3 py-1 rounded-md"
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
           >
             <PlusCircle className="h-4 w-4" />
             Nieuw zaad
