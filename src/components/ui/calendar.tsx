@@ -11,12 +11,20 @@ function Calendar({
   className,
   classNames,
   showOutsideDays = true,
+  fixedWeeks = true,
   ...props
 }: CalendarProps) {
+  // Default to selected date's month, or today if no selection
+  const defaultMonth = props.selected instanceof Date 
+    ? props.selected 
+    : props.defaultMonth;
+
   return (
     <DayPicker
       showOutsideDays={showOutsideDays}
       weekStartsOn={1}
+      fixedWeeks={fixedWeeks}
+      defaultMonth={defaultMonth}
       className={cn("p-3 pointer-events-auto", className)}
       classNames={{
         months: "flex flex-col sm:flex-row space-y-4 sm:space-x-4 sm:space-y-0",
