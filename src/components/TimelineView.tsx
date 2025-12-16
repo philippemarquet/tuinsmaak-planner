@@ -399,13 +399,6 @@ export function TimelineView({
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">Timeline Weergave</h3>
-        <p className="text-sm text-muted-foreground">
-          Week {getWeekNumber(weekBounds.start)} • {format(weekBounds.start, "d MMM", { locale: nl })} - {format(weekBounds.end, "d MMM yyyy", { locale: nl })}
-        </p>
-      </div>
 
       {!beds || beds.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground bg-muted/20 rounded-xl border border-dashed border-border">
