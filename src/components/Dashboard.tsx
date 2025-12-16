@@ -4,7 +4,7 @@ import { nl } from "date-fns/locale";
 import type { Garden, GardenBed, Planting, Seed, Task, GardenTask } from "../lib/types";
 import { updatePlanting } from "../lib/api/plantings";
 import { updateTask } from "../lib/api/tasks";
-import { createGardenTask, updateGardenTask, deleteGardenTask, completeGardenTask, deleteCompletedGardenTasks } from "../lib/api/gardenTasks";
+import { createGardenTask, updateGardenTask, deleteGardenTask, completeGardenTask, reopenGardenTask, deleteCompletedGardenTasks } from "../lib/api/gardenTasks";
 import { buildConflictsMap, countUniqueConflicts } from "../lib/conflicts";
 import { useConflictFlags } from "../hooks/useConflictFlags";
 import { useIsMobile } from "../hooks/use-mobile";
@@ -553,6 +553,7 @@ export function Dashboard({
     onAddTask,
     onEditTask,
     onCompleteTask,
+    onReopenTask,
     onDeleteTask,
     onDeleteAllCompleted,
   }: {
@@ -561,6 +562,7 @@ export function Dashboard({
     onAddTask: () => void;
     onEditTask: (task: GardenTask) => void;
     onCompleteTask: (task: GardenTask) => void;
+    onReopenTask: (task: GardenTask) => void;
     onDeleteTask: (task: GardenTask) => void;
     onDeleteAllCompleted: () => void;
   }) => {
@@ -651,9 +653,14 @@ export function Dashboard({
                 key={task.id}
                 className="border rounded-lg p-3 bg-muted/50 flex items-center gap-3 opacity-60"
               >
-                <div className="flex-shrink-0 w-6 h-6 rounded-full border-2 border-green-500 bg-green-500 flex items-center justify-center">
+                {/* Green circle - clickable to reopen */}
+                <button
+                  onClick={() => onReopenTask(task)}
+                  className="flex-shrink-0 w-6 h-6 rounded-full border-2 border-green-500 bg-green-500 flex items-center justify-center hover:bg-green-600 hover:border-green-600 transition-colors"
+                  title="Klik om taak te heropenen"
+                >
                   <Check className="w-3 h-3 text-white" />
-                </div>
+                </button>
                 <button
                   onClick={() => onEditTask(task)}
                   className="flex-1 text-left min-w-0"
@@ -842,6 +849,14 @@ export function Dashboard({
                 await reloadAll();
               } catch (e: any) {
                 alert("Kon taak niet afronden: " + (e?.message ?? e));
+              }
+            }}
+            onReopenTask={async (task) => {
+              try {
+                await reopenGardenTask(task.id);
+                await reloadAll();
+              } catch (e: any) {
+                alert("Kon taak niet heropenen: " + (e?.message ?? e));
               }
             }}
             onDeleteTask={async (task) => {
