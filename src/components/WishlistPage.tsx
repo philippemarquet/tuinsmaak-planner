@@ -20,11 +20,13 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
   const [items, setItems] = useState<WishlistItem[]>(wishlistItems);
   const [editing, setEditing] = useState<WishlistItem | null>(null);
   const [creating, setCreating] = useState(false);
-  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setItems(wishlistItems);
   }, [wishlistItems]);
+
+  // Derive checked IDs from the database field
+  const checkedIds = new Set(items.filter(it => it.is_checked).map(it => it.id));
 
   async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -63,27 +65,22 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
     if (!confirm("Weet je zeker dat je dit item wilt verwijderen?")) return;
     try {
       await deleteWishlistItem(id);
-      setCheckedIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
       await onDataChange();
     } catch (err: any) {
       alert("Verwijderen mislukt: " + err.message);
     }
   }
 
-  function toggleCheck(id: string) {
-    setCheckedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
+  async function toggleCheck(id: string) {
+    const item = items.find(it => it.id === id);
+    if (!item) return;
+    
+    try {
+      await updateWishlistItem(id, { is_checked: !item.is_checked });
+      await onDataChange();
+    } catch (err: any) {
+      alert("Bijwerken mislukt: " + err.message);
+    }
   }
 
   async function deleteAllChecked() {
@@ -92,7 +89,6 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
     
     try {
       await Promise.all(Array.from(checkedIds).map((id) => deleteWishlistItem(id)));
-      setCheckedIds(new Set());
       await onDataChange();
     } catch (err: any) {
       alert("Verwijderen mislukt: " + err.message);

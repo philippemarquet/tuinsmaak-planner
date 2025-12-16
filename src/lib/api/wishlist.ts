@@ -5,6 +5,7 @@ export type WishlistItem = {
   garden_id: string;
   name: string;
   notes: string | null;
+  is_checked: boolean;
   created_at: string;
 };
 
