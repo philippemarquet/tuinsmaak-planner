@@ -247,7 +247,7 @@ export function PlannerPage({
   });
   const [seedDetailsModal, setSeedDetailsModal] = useState<Seed | null>(null);
 
-  const [showGhosts, setShowGhosts] = useState(localStorage.getItem("plannerShowGhosts") === "0" ? false : true);
+  const [showGhosts, setShowGhosts] = useState(localStorage.getItem("plannerShowGhosts") === "1");
   const [currentWeek, setCurrentWeek] = useState<Date>(() => {
     const saved = localStorage.getItem("plannerWeekISO");
     if (saved) return new Date(saved);
