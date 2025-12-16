@@ -180,10 +180,14 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
               key={it.id}
               className="border rounded-lg p-3 bg-muted/50 flex items-center gap-3 opacity-60"
             >
-              {/* Checked indicator */}
-              <div className="flex-shrink-0 w-6 h-6 rounded-full border-2 border-green-500 bg-green-500 flex items-center justify-center">
+              {/* Checked indicator - clickable to uncheck */}
+              <button
+                onClick={() => toggleCheck(it.id)}
+                className="flex-shrink-0 w-6 h-6 rounded-full border-2 border-green-500 bg-green-500 flex items-center justify-center hover:bg-green-600 hover:border-green-600 transition-colors"
+                title="Klik om af te vinken ongedaan te maken"
+              >
                 <Check className="w-3 h-3 text-white" />
-              </div>
+              </button>
 
               {/* Content */}
               <button

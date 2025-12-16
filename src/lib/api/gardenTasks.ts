@@ -70,3 +70,15 @@ export async function completeGardenTask(id: string): Promise<GardenTask> {
   if (error) throw error;
   return data as GardenTask;
 }
+
+export async function reopenGardenTask(id: string): Promise<GardenTask> {
+  const { data, error } = await supabase
+    .from("garden_tasks")
+    .update({ status: "pending", completed_at: null })
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as GardenTask;
+}
