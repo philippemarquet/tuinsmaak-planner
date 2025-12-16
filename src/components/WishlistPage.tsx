@@ -157,9 +157,12 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
                 onClick={() => setEditing(it)}
                 className="flex-1 text-left min-w-0"
               >
-                <div className="text-sm font-medium">{it.name}</div>
+                <div className="text-sm font-medium flex items-center gap-2">
+                  <Star className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                  <span>{it.name}</span>
+                </div>
                 {it.notes && (
-                  <div className="text-xs text-muted-foreground truncate">{it.notes}</div>
+                  <div className="text-xs text-muted-foreground truncate pl-[22px]">{it.notes}</div>
                 )}
               </button>
 
@@ -195,9 +198,12 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
                 className="flex-1 text-left min-w-0"
                 title="Klik om af te vinken ongedaan te maken"
               >
-                <div className="text-sm font-medium line-through">{it.name}</div>
+                <div className="text-sm font-medium line-through flex items-center gap-2">
+                  <Star className="w-3.5 h-3.5 text-amber-500/50 flex-shrink-0" />
+                  <span>{it.name}</span>
+                </div>
                 {it.notes && (
-                  <div className="text-xs text-muted-foreground truncate line-through">{it.notes}</div>
+                  <div className="text-xs text-muted-foreground truncate line-through pl-[22px]">{it.notes}</div>
                 )}
               </button>
 
