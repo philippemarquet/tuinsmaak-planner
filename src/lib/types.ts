@@ -151,3 +151,43 @@ export interface GardenTask {
   created_at: string;
   updated_at: string;
 }
+
+// Audit types
+export type AuditStatus = 'open' | 'onderhanden' | 'afwachting' | 'goedgekeurd';
+
+export interface Audit {
+  id: UUID;
+  garden_id: UUID;
+  requested_by: UUID;
+  requested_at: string;
+  deadline: string;
+  status: AuditStatus;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuditItem {
+  id: UUID;
+  audit_id: UUID;
+  item_type: 'planting' | 'moestuin_task' | 'garden_task' | 'voorzaai';
+  reference_id: UUID | null;
+  bed_name: string | null;
+  segment_info: string | null;
+  description: string;
+  phase: string | null;
+  is_validated: boolean;
+  is_correct: boolean | null;
+  notes: string | null;
+  validated_at: string | null;
+  created_at: string;
+}
+
+export interface AuditStatusHistory {
+  id: UUID;
+  audit_id: UUID;
+  old_status: AuditStatus | null;
+  new_status: AuditStatus;
+  changed_at: string;
+  changed_by: UUID | null;
+}

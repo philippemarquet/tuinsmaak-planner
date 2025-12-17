@@ -14,6 +14,141 @@ export type Database = {
   }
   public: {
     Tables: {
+      audit_items: {
+        Row: {
+          audit_id: string
+          bed_name: string | null
+          created_at: string
+          description: string
+          id: string
+          is_correct: boolean | null
+          is_validated: boolean | null
+          item_type: string
+          notes: string | null
+          phase: string | null
+          reference_id: string | null
+          segment_info: string | null
+          validated_at: string | null
+        }
+        Insert: {
+          audit_id: string
+          bed_name?: string | null
+          created_at?: string
+          description: string
+          id?: string
+          is_correct?: boolean | null
+          is_validated?: boolean | null
+          item_type: string
+          notes?: string | null
+          phase?: string | null
+          reference_id?: string | null
+          segment_info?: string | null
+          validated_at?: string | null
+        }
+        Update: {
+          audit_id?: string
+          bed_name?: string | null
+          created_at?: string
+          description?: string
+          id?: string
+          is_correct?: boolean | null
+          is_validated?: boolean | null
+          item_type?: string
+          notes?: string | null
+          phase?: string | null
+          reference_id?: string | null
+          segment_info?: string | null
+          validated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_items_audit_id_fkey"
+            columns: ["audit_id"]
+            isOneToOne: false
+            referencedRelation: "audits"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      audit_status_history: {
+        Row: {
+          audit_id: string
+          changed_at: string
+          changed_by: string | null
+          id: string
+          new_status: Database["public"]["Enums"]["audit_status"]
+          old_status: Database["public"]["Enums"]["audit_status"] | null
+        }
+        Insert: {
+          audit_id: string
+          changed_at?: string
+          changed_by?: string | null
+          id?: string
+          new_status: Database["public"]["Enums"]["audit_status"]
+          old_status?: Database["public"]["Enums"]["audit_status"] | null
+        }
+        Update: {
+          audit_id?: string
+          changed_at?: string
+          changed_by?: string | null
+          id?: string
+          new_status?: Database["public"]["Enums"]["audit_status"]
+          old_status?: Database["public"]["Enums"]["audit_status"] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_status_history_audit_id_fkey"
+            columns: ["audit_id"]
+            isOneToOne: false
+            referencedRelation: "audits"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      audits: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          deadline: string
+          garden_id: string
+          id: string
+          requested_at: string
+          requested_by: string
+          status: Database["public"]["Enums"]["audit_status"]
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          deadline: string
+          garden_id: string
+          id?: string
+          requested_at?: string
+          requested_by: string
+          status?: Database["public"]["Enums"]["audit_status"]
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          deadline?: string
+          garden_id?: string
+          id?: string
+          requested_at?: string
+          requested_by?: string
+          status?: Database["public"]["Enums"]["audit_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audits_garden_id_fkey"
+            columns: ["garden_id"]
+            isOneToOne: false
+            referencedRelation: "gardens"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       crop_types: {
         Row: {
           created_at: string
@@ -766,7 +901,7 @@ export type Database = {
       show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
-      [_ in never]: never
+      audit_status: "open" | "onderhanden" | "afwachting" | "goedgekeurd"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -893,6 +1028,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      audit_status: ["open", "onderhanden", "afwachting", "goedgekeurd"],
+    },
   },
 } as const
