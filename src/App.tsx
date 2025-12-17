@@ -10,6 +10,7 @@ import { InventoryPage } from "./components/InventoryPage";
 import { PlannerPage } from "./components/PlannerPage";
 import { SettingsPage } from "./components/SettingsPage";
 import { WishlistPage } from "./components/WishlistPage";
+import { AuditPage } from "./components/AuditPage";
 import { AuthGate } from "./components/AuthGate";
 
 import { listBeds } from "./lib/api/beds";
@@ -22,7 +23,7 @@ import { getMyProfile } from "./lib/api/profile";
 import { listGardenTasks } from "./lib/api/gardenTasks";
 import type { GardenBed, Seed, Planting, Task, CropType, Profile, GardenTask } from "./lib/types";
 
-type TabKey = "dashboard" | "beds" | "inventory" | "planner" | "wishlist" | "settings";
+type TabKey = "dashboard" | "beds" | "inventory" | "planner" | "wishlist" | "audit" | "settings";
 
 // Gebruik een vaste garden ID - iedereen heeft toegang tot dezelfde tuin
 const GARDEN_ID = "c2ebf1fb-5aa9-4eac-87a8-099e9cea8790";
@@ -33,6 +34,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "inventory", label: "Voorraad" },
   { key: "planner", label: "Planner" },
   { key: "wishlist", label: "Wishlist" },
+  { key: "audit", label: "Audit" },
   { key: "settings", label: "Instellingen" },
 ];
 
@@ -162,12 +164,14 @@ export default function App() {
         return <PlannerPage garden={garden} beds={beds} seeds={seeds} plantings={plantings} cropTypes={cropTypes} onDataChange={reloadAll} />;
       case "wishlist":
         return <WishlistPage garden={garden} wishlistItems={wishlistItems} onDataChange={reloadAll} />;
+      case "audit":
+        return <AuditPage garden={garden} beds={beds} seeds={seeds} plantings={plantings} tasks={tasks} gardenTasks={gardenTasks} onDataChange={reloadAll} />;
       case "settings":
         return <SettingsPage garden={garden} profile={profile} onDataChange={reloadAll} />;
       default:
         return null;
     }
-  }, [activeTab, beds, seeds, plantings, tasks, cropTypes, gardenTasks]);
+  }, [activeTab, beds, seeds, plantings, tasks, cropTypes, gardenTasks, wishlistItems, profile]);
 
   return (
     <AuthGate>
