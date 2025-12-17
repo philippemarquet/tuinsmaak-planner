@@ -1,3 +1,4 @@
+// src/components/wishlistpage.tsx
 import { useEffect, useState } from "react";
 import type { Garden } from "../lib/types";
 import {
@@ -9,6 +10,7 @@ import {
 import { Plus, Check, Trash2, Star, AlertCircle } from "lucide-react";
 import { Dialog, DialogContent } from "./ui/dialog";
 import { cn } from "../lib/utils";
+import SupabaseDebugBadge from "./SupabaseDebugBadge"; // ← toegevoegd
 
 interface WishlistPageProps {
   garden: Garden;
@@ -295,7 +297,7 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 Opslaan
               </button>
@@ -303,6 +305,9 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* ← debug badge, alleen op deze pagina zichtbaar */}
+      <SupabaseDebugBadge testTable="wishlist_items" />
     </div>
   );
 }
