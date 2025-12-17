@@ -22,7 +22,6 @@ import {
   validateAuditItem,
   updateAuditStatus,
   getAuditStatusHistory,
-  // ✅ nieuw vereist:
   deleteAudit,
 } from "../lib/api/audits";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
@@ -84,6 +83,7 @@ export function AuditPage({
   plantings,
   tasks,
   gardenTasks,
+  onDataChange,
 }: AuditPageProps) {
   const [activeTab, setActiveTab] = useState("new");
   const [openAudits, setOpenAudits] = useState<Audit[]>([]);
@@ -91,14 +91,18 @@ export function AuditPage({
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
 
+  // Selected audit state
   const [selectedAudit, setSelectedAudit] = useState<Audit | null>(null);
   const [auditItems, setAuditItems] = useState<AuditItem[]>([]);
   const [statusHistory, setStatusHistory] = useState<any[]>([]);
+
+  // Notes modal state (for ❌ items)
   const [notesModal, setNotesModal] = useState<{ item: AuditItem; notes: string } | null>(null);
 
   const seedMap = useMemo(() => new Map(seeds.map((s) => [s.id, s])), [seeds]);
   const bedMap = useMemo(() => new Map(beds.map((b) => [b.id, b])), [beds]);
 
+  // Load audits
   useEffect(() => {
     loadAudits();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -119,11 +123,12 @@ export function AuditPage({
     }
   };
 
+  // Generate audit items based on current garden state
   const generateAuditItems = (): Omit<AuditItem, "id" | "created_at">[] => {
-    const today = new Date();
+    const now = new Date(); // (fix) avoid duplicate 'today' declarations
     const items: Omit<AuditItem, "id" | "created_at">[] = [];
 
-    // 1) Actieve plantingen
+    // 1. Active plantings (groeiend or in oogst)
     plantings.forEach((p) => {
       const seed = seedMap.get(p.seed_id);
       const bed = bedMap.get(p.garden_bed_id);
@@ -132,21 +137,23 @@ export function AuditPage({
       const groundDate = p.actual_ground_date || p.planned_date;
       const harvestStart = p.actual_harvest_start || p.planned_harvest_start;
       const harvestEnd = p.actual_harvest_end || p.planned_harvest_end;
+
       if (!groundDate) return;
 
       const ground = new Date(groundDate);
       const hStart = harvestStart ? new Date(harvestStart) : null;
       const hEnd = harvestEnd ? new Date(harvestEnd) : null;
 
+      // Determine phase
       let phase: string | null = null;
-      if (hEnd && isAfter(today, hEnd)) {
-        return; // voorbij
-      } else if (hStart && isAfter(today, hStart)) {
+      if (hEnd && isAfter(now, hEnd)) {
+        return; // Past harvest, skip
+      } else if (hStart && isAfter(now, hStart)) {
         phase = "in_oogst";
-      } else if (isAfter(today, ground)) {
+      } else if (isAfter(now, ground)) {
         phase = "groeiend";
       } else {
-        return;
+        return; // Not yet planted
       }
 
       const segmentInfo =
@@ -157,7 +164,7 @@ export function AuditPage({
           : null;
 
       items.push({
-        audit_id: "",
+        audit_id: "", // Will be set when creating
         item_type: "planting",
         reference_id: p.id,
         bed_name: bed.name,
@@ -171,7 +178,7 @@ export function AuditPage({
       });
     });
 
-    // 2) Voorzaai
+    // 2. Plantings in voorzaai phase
     plantings.forEach((p) => {
       if (p.method !== "presow") return;
 
@@ -180,12 +187,14 @@ export function AuditPage({
 
       const presowDate = p.actual_presow_date || p.planned_presow_date;
       const groundDate = p.actual_ground_date || p.planned_date;
+
       if (!presowDate) return;
 
       const presow = new Date(presowDate);
       const ground = groundDate ? new Date(groundDate) : null;
 
-      if (isAfter(today, presow) && ground && isBefore(today, ground) && !p.actual_ground_date) {
+      // If currently in presow phase (after presow, before ground, and not yet planted out)
+      if (isAfter(now, presow) && ground && isBefore(now, ground) && !p.actual_ground_date) {
         items.push({
           audit_id: "",
           item_type: "voorzaai",
@@ -202,12 +211,11 @@ export function AuditPage({
       }
     });
 
-    // 3) Over-datum moestuin taken
+    // 3. Overdue moestuin tasks
     const pendingTasks = tasks.filter((t) => t.status === "pending");
-    const today = new Date();
     pendingTasks.forEach((t) => {
       const dueDate = new Date(t.due_date);
-      if (isAfter(today, dueDate)) {
+      if (isAfter(now, dueDate)) {
         const planting = plantings.find((p) => p.id === t.planting_id);
         const seed = planting ? seedMap.get(planting.seed_id) : null;
         const bed = planting ? bedMap.get(planting.garden_bed_id) : null;
@@ -235,20 +243,24 @@ export function AuditPage({
       }
     });
 
-    // 4) Over-datum tuin taken
-    const currentWeek = getISOWeek(today);
-    const currentYear = today.getFullYear();
-    const currentMonth = today.getMonth() + 1;
+    // 4. Overdue garden tasks
+    const currentWeek = getISOWeek(now);
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
 
     gardenTasks
       .filter((gt) => gt.status === "pending")
       .forEach((gt) => {
         let isOverdue = false;
-        if (gt.due_year < currentYear) isOverdue = true;
-        else if (gt.due_year === currentYear) {
-          if (gt.due_month < currentMonth) isOverdue = true;
-          else if (gt.due_month === currentMonth && gt.due_week != null && gt.due_week < currentWeek)
+
+        if (gt.due_year < currentYear) {
+          isOverdue = true;
+        } else if (gt.due_year === currentYear) {
+          if (gt.due_month < currentMonth) {
             isOverdue = true;
+          } else if (gt.due_month === currentMonth && gt.due_week != null && gt.due_week < currentWeek) {
+            isOverdue = true;
+          }
         }
 
         if (isOverdue) {
@@ -271,7 +283,7 @@ export function AuditPage({
     return items;
   };
 
-  // Nieuwe audit aanvragen
+  // Request new audit
   const handleRequestAudit = async () => {
     setCreating(true);
     try {
@@ -280,6 +292,7 @@ export function AuditPage({
       } = await supabase.auth.getUser();
       if (!user) throw new Error("Niet ingelogd");
 
+      // Get user display name
       const { data: profile } = await supabase
         .from("profiles")
         .select("display_name")
@@ -288,12 +301,17 @@ export function AuditPage({
 
       const audit = await createAudit(garden.id, user.id);
 
+      // Generate and create items
       const itemsData = generateAuditItems().map((item) => ({
         ...item,
         audit_id: audit.id,
       }));
-      if (itemsData.length > 0) await createAuditItems(itemsData);
 
+      if (itemsData.length > 0) {
+        await createAuditItems(itemsData);
+      }
+
+      // Send email notification (best-effort)
       try {
         await supabase.functions.invoke("send-audit-notification", {
           body: {
@@ -307,7 +325,7 @@ export function AuditPage({
 
       toast.success("Audit aangevraagd!");
       await loadAudits();
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to create audit:", err);
       toast.error("Kon audit niet aanmaken");
     } finally {
@@ -315,14 +333,11 @@ export function AuditPage({
     }
   };
 
-  // Detail openen
+  // Open audit detail
   const handleOpenAudit = async (audit: Audit) => {
     setSelectedAudit(audit);
     try {
-      const [items, history] = await Promise.all([
-        listAuditItems(audit.id),
-        getAuditStatusHistory(audit.id),
-      ]);
+      const [items, history] = await Promise.all([listAuditItems(audit.id), getAuditStatusHistory(audit.id)]);
       setAuditItems(items);
       setStatusHistory(history);
     } catch (err) {
@@ -330,15 +345,18 @@ export function AuditPage({
     }
   };
 
-  // ✅ Valideren/togglen — altijd toegestaan zolang niet goedgekeurd
+  // Validate / re-validate item
   const handleValidateItem = async (item: AuditItem, isCorrect: boolean) => {
-    // Bij ❌ altijd notities vragen (ook als je het aanpast)
+    if (selectedAudit?.status === "goedgekeurd") return; // read-only when completed
+
     if (!isCorrect) {
+      // Ask for (or edit) notes when ❌
       setNotesModal({ item, notes: item.notes || "" });
       return;
     }
+
     try {
-      const updated = await validateAuditItem(item.id, true);
+      const updated = await validateAuditItem(item.id, true, null);
       setAuditItems((prev) => prev.map((i) => (i.id === item.id ? updated : i)));
     } catch (err) {
       console.error("Failed to validate item:", err);
@@ -346,14 +364,11 @@ export function AuditPage({
     }
   };
 
+  // Save notes and mark as incorrect
   const handleSaveNotes = async () => {
     if (!notesModal) return;
     try {
-      const updated = await validateAuditItem(
-        notesModal.item.id,
-        false,
-        (notesModal.notes || "").trim()
-      );
+      const updated = await validateAuditItem(notesModal.item.id, false, notesModal.notes);
       setAuditItems((prev) => prev.map((i) => (i.id === notesModal.item.id ? updated : i)));
       setNotesModal(null);
     } catch (err) {
@@ -362,9 +377,10 @@ export function AuditPage({
     }
   };
 
-  // Status wijzigen (knoppen altijd beschikbaar)
+  // Update audit status (Onderhanden/Afwachting/Goedgekeurd)
   const handleUpdateStatus = async (status: AuditStatus) => {
     if (!selectedAudit) return;
+
     try {
       const {
         data: { user },
@@ -372,13 +388,13 @@ export function AuditPage({
       if (!user) throw new Error("Niet ingelogd");
 
       await updateAuditStatus(selectedAudit.id, status, user.id);
-      toast.success(`Status gewijzigd naar: ${STATUS_LABELS[status]}`);
 
-      // Bij goedkeuren terug naar lijst & herladen
       if (status === "goedgekeurd") {
+        toast.success("Audit goedgekeurd!");
         setSelectedAudit(null);
         await loadAudits();
       } else {
+        toast.success(`Status gewijzigd naar: ${STATUS_LABELS[status]}`);
         setSelectedAudit({ ...selectedAudit, status });
         await loadAudits();
       }
@@ -388,23 +404,25 @@ export function AuditPage({
     }
   };
 
-  const handleDeleteAudit = async (audit: Audit, fromDetail?: boolean) => {
-    const confirmed = confirm(
-      "Weet je zeker dat je deze audit wilt verwijderen? Dit kan niet ongedaan worden gemaakt."
-    );
-    if (!confirmed) return;
+  // Delete audit
+  const handleDeleteAudit = async (audit: Audit, fromDetail = false) => {
+    const proceed = confirm("Weet je zeker dat je deze audit wilt verwijderen?");
+    if (!proceed) return;
+
     try {
       await deleteAudit(audit.id);
-      toast.success("Audit verwijderd");
-      if (fromDetail) setSelectedAudit(null);
+      toast.success("Audit verwijderd.");
+      if (fromDetail) {
+        setSelectedAudit(null);
+      }
       await loadAudits();
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to delete audit:", err);
       toast.error("Kon audit niet verwijderen");
     }
   };
 
-  // Lijst-item render (met delete-knop)
+  // Render audit list item (with trailing delete)
   const renderAuditListItem = (audit: Audit, showStatus = true) => {
     const deadline = new Date(audit.deadline);
     const isOverdue = isAfter(new Date(), deadline) && audit.status === "open";
@@ -413,59 +431,53 @@ export function AuditPage({
       <div
         key={audit.id}
         className={cn(
-          "w-full p-4 rounded-lg border transition-all",
+          "w-full p-4 rounded-lg border transition-all hover:border-primary/50 flex items-center justify-between gap-3",
           isOverdue ? "bg-red-50 border-red-200" : "bg-card border-border"
         )}
+        onClick={() => handleOpenAudit(audit)}
+        role="button"
       >
-        <div className="flex items-center justify-between gap-3">
-          <button
-            onClick={() => handleOpenAudit(audit)}
-            className="flex-1 text-left flex items-center gap-3"
-            title="Open audit"
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className={cn(
+              "w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0",
+              audit.status === "goedgekeurd" ? "bg-green-100" : isOverdue ? "bg-red-100" : "bg-blue-100"
+            )}
           >
-            <div
-              className={cn(
-                "w-10 h-10 rounded-full flex items-center justify-center",
-                audit.status === "goedgekeurd"
-                  ? "bg-green-100"
-                  : isOverdue
-                  ? "bg-red-100"
-                  : "bg-blue-100"
-              )}
-            >
-              {audit.status === "goedgekeurd" ? (
-                <CheckCircle2 className="w-5 h-5 text-green-600" />
-              ) : (
-                <ClipboardCheck
-                  className={cn("w-5 h-5", isOverdue ? "text-red-600" : "text-blue-600")}
-                />
-              )}
+            {audit.status === "goedgekeurd" ? (
+              <CheckCircle2 className="w-5 h-5 text-green-600" />
+            ) : (
+              <ClipboardCheck className={cn("w-5 h-5", isOverdue ? "text-red-600" : "text-blue-600")} />
+            )}
+          </div>
+          <div className="min-w-0">
+            <div className="font-medium text-sm truncate">
+              Audit van {format(new Date(audit.requested_at), "d MMMM yyyy", { locale: nl })}
             </div>
-            <div className="min-w-0">
-              <div className="font-medium text-sm">
-                Audit van {format(new Date(audit.requested_at), "d MMMM yyyy", { locale: nl })}
-              </div>
-              <div className="text-xs text-muted-foreground flex items-center gap-2">
-                <Clock className="w-3 h-3" />
-                Deadline: {format(deadline, "d MMM yyyy", { locale: nl })}
-                {isOverdue && <span className="text-red-600 font-medium">(verlopen)</span>}
-              </div>
+            <div className="text-xs text-muted-foreground flex items-center gap-2">
+              <Clock className="w-3 h-3" />
+              Deadline: {format(deadline, "d MMM yyyy", { locale: nl })}
+              {isOverdue && <span className="text-red-600 font-medium">(verlopen)</span>}
             </div>
-            <div className="flex items-center gap-2 ml-auto">
-              {showStatus && (
-                <span className={cn("text-xs px-2 py-1 rounded-full", STATUS_COLORS[audit.status])}>
-                  {STATUS_LABELS[audit.status]}
-                </span>
-              )}
-              <ChevronRight className="w-4 h-4 text-muted-foreground" />
-            </div>
-          </button>
+          </div>
+        </div>
 
-          {/* Delete knop rechts */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {showStatus && (
+            <span className={cn("text-xs px-2 py-1 rounded-full", STATUS_COLORS[audit.status])}>
+              {STATUS_LABELS[audit.status]}
+            </span>
+          )}
+          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+
+          {/* Delete button (stop propagation, matches style) */}
           <button
-            onClick={() => handleDeleteAudit(audit)}
-            className="flex-shrink-0 p-2 rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-            title="Audit verwijderen"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDeleteAudit(audit);
+            }}
+            className="p-1.5 rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+            title="Verwijderen"
           >
             <Trash2 className="w-4 h-4" />
           </button>
@@ -474,24 +486,25 @@ export function AuditPage({
     );
   };
 
-  // Detailweergave
+  // Render audit detail view
   const renderAuditDetail = () => {
     if (!selectedAudit) return null;
 
-    const plantingItems = auditItems.filter(
-      (i) => i.item_type === "planting" || i.item_type === "voorzaai"
-    );
+    const plantingItems = auditItems.filter((i) => i.item_type === "planting" || i.item_type === "voorzaai");
     const overdueMoestuin = auditItems.filter((i) => i.item_type === "moestuin_task");
     const overdueGarden = auditItems.filter((i) => i.item_type === "garden_task");
 
     const isCompleted = selectedAudit.status === "goedgekeurd";
 
-    // ✅ Striktere validatie-eis voor "Goedgekeurd"
-    const allValidatedStrict =
-      auditItems.length > 0 &&
-      auditItems.every(
-        (i) => i.is_validated && (i.is_correct === true || (i.is_correct === false && !!i.notes))
-      );
+    // Only enable "Goedgekeurd" when every item is validated and every ❌ has notes
+    const allReadyForApproval =
+      auditItems.length === 0
+        ? true
+        : auditItems.every(
+            (i) =>
+              i.is_validated &&
+              (i.is_correct === true || (i.is_correct === false && !!(i.notes && i.notes.trim().length)))
+          );
 
     return (
       <div className="space-y-6">
@@ -501,22 +514,21 @@ export function AuditPage({
             <Button variant="ghost" size="sm" onClick={() => setSelectedAudit(null)}>
               ← Terug
             </Button>
-            <span
-              className={cn("text-xs px-2 py-1 rounded-full", STATUS_COLORS[selectedAudit.status])}
-            >
+            <span className={cn("text-xs px-2 py-1 rounded-full", STATUS_COLORS[selectedAudit.status])}>
               {STATUS_LABELS[selectedAudit.status]}
             </span>
           </div>
+
           <button
             onClick={() => handleDeleteAudit(selectedAudit, true)}
             className="p-2 rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
             title="Audit verwijderen"
           >
-            <Trash2 className="w-4 h-4" />
+            <Trash2 className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Info */}
+        {/* Audit info */}
         <div className="bg-muted/50 rounded-lg p-4">
           <div className="text-sm font-medium mb-2">
             Audit van {format(new Date(selectedAudit.requested_at), "d MMMM yyyy", { locale: nl })}
@@ -526,7 +538,7 @@ export function AuditPage({
           </div>
         </div>
 
-        {/* Plantingen & Voorzaai (alleen tonen als er items zijn — zoals voorheen) */}
+        {/* Plantings section (only if present, same as before) */}
         {plantingItems.length > 0 && (
           <div>
             <div className="flex items-center gap-2 mb-3">
@@ -539,37 +551,31 @@ export function AuditPage({
           </div>
         )}
 
-        {/* Moestuin taken — altijd tonen */}
+        {/* Overdue moestuin tasks (always show section) */}
         <div>
           <div className="flex items-center gap-2 mb-3">
             <AlertCircle className="w-4 h-4 text-red-500" />
             <h3 className="text-sm font-semibold">Over-datum moestuin taken</h3>
           </div>
           {overdueMoestuin.length > 0 ? (
-            <div className="space-y-2">
-              {overdueMoestuin.map((item) => renderAuditItemRow(item, isCompleted))}
-            </div>
+            <div className="space-y-2">{overdueMoestuin.map((item) => renderAuditItemRow(item, isCompleted))}</div>
           ) : (
-            <div className="text-xs text-muted-foreground bg-muted/30 rounded p-3">
+            <div className="text-xs text-muted-foreground bg-muted/40 rounded p-3">
               Geen moestuin taken over datum.
             </div>
           )}
         </div>
 
-        {/* Tuin taken — altijd tonen */}
+        {/* Overdue garden tasks (always show section) */}
         <div>
           <div className="flex items-center gap-2 mb-3">
             <Sprout className="w-4 h-4 text-amber-600" />
             <h3 className="text-sm font-semibold">Over-datum tuin taken</h3>
           </div>
           {overdueGarden.length > 0 ? (
-            <div className="space-y-2">
-              {overdueGarden.map((item) => renderAuditItemRow(item, isCompleted))}
-            </div>
+            <div className="space-y-2">{overdueGarden.map((item) => renderAuditItemRow(item, isCompleted))}</div>
           ) : (
-            <div className="text-xs text-muted-foreground bg-muted/30 rounded p-3">
-              Geen tuin taken over datum.
-            </div>
+            <div className="text-xs text-muted-foreground bg-muted/40 rounded p-3">Geen tuin taken over datum.</div>
           )}
         </div>
 
@@ -579,8 +585,8 @@ export function AuditPage({
           </div>
         )}
 
-        {/* Historie */}
-        {selectedAudit.status === "goedgekeurd" && statusHistory.length > 0 && (
+        {/* Status history (only for completed audits) */}
+        {isCompleted && statusHistory.length > 0 && (
           <div>
             <div className="flex items-center gap-2 mb-3">
               <History className="w-4 h-4 text-muted-foreground" />
@@ -598,34 +604,27 @@ export function AuditPage({
           </div>
         )}
 
-        {/* Acties — ALTIJD zichtbaar zolang niet goedgekeurd */}
-        {selectedAudit.status !== "goedgekeurd" && (
+        {/* Actions (for non-completed audits) */}
+        {!isCompleted && (
           <div className="pt-4 border-t border-border">
             <div className="text-xs text-muted-foreground mb-3">Audit afronden:</div>
             <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleUpdateStatus("onderhanden")}
-              >
+              {/* Always enabled per requirement */}
+              <Button size="sm" variant="outline" onClick={() => handleUpdateStatus("onderhanden")}>
                 Onderhanden
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleUpdateStatus("afwachting")}
-              >
+              <Button size="sm" variant="outline" onClick={() => handleUpdateStatus("afwachting")}>
                 In afwachting
               </Button>
               <Button
                 size="sm"
                 onClick={() => handleUpdateStatus("goedgekeurd")}
                 className="bg-green-600 hover:bg-green-700 text-white"
-                disabled={!allValidatedStrict}
+                disabled={!allReadyForApproval}
                 title={
-                  allValidatedStrict
-                    ? "Markeer als goedgekeurd"
-                    : "Beoordeel eerst alle regels (❌ met notitie verplicht)"
+                  allReadyForApproval
+                    ? "Audit goedkeuren"
+                    : "Kies eerst voor alle regels ✅ of ❌ (met notitie)."
                 }
               >
                 <CheckCircle2 className="w-4 h-4 mr-1" />
@@ -638,7 +637,7 @@ export function AuditPage({
     );
   };
 
-  // Item-rij (buttons altijd beschikbaar tenzij audit is afgerond)
+  // Render individual audit item row
   const renderAuditItemRow = (item: AuditItem, readOnly: boolean) => {
     const phaseColors: Record<string, string> = {
       groeiend: "bg-green-100 text-green-700",
@@ -647,8 +646,8 @@ export function AuditPage({
       overdue: "bg-red-100 text-red-700",
     };
 
-    const correctSelected = item.is_correct === true;
-    const incorrectSelected = item.is_correct === false;
+    const isCorrect = item.is_validated && item.is_correct === true;
+    const isIncorrect = item.is_validated && item.is_correct === false;
 
     return (
       <div
@@ -694,36 +693,34 @@ export function AuditPage({
             )}
           </div>
 
-          {/* Acties: altijd beschikbaar zolang niet readOnly */}
-          {!readOnly ? (
+          {/* Action buttons — always available until approved */}
+          {!readOnly && (
             <div className="flex items-center gap-1">
               <button
                 onClick={() => handleValidateItem(item, true)}
                 className={cn(
-                  "p-2 rounded-full hover:bg-green-100 transition-colors",
-                  correctSelected && "bg-green-100"
+                  "p-2 rounded-full transition-colors",
+                  isCorrect ? "bg-green-100" : "hover:bg-green-100"
                 )}
                 title="Klopt"
               >
-                <CheckCircle2
-                  className={cn("w-5 h-5", correctSelected ? "text-green-700" : "text-green-600")}
-                />
+                <CheckCircle2 className="w-5 h-5 text-green-600" />
               </button>
               <button
                 onClick={() => handleValidateItem(item, false)}
                 className={cn(
-                  "p-2 rounded-full hover:bg-red-100 transition-colors",
-                  incorrectSelected && "bg-red-100"
+                  "p-2 rounded-full transition-colors",
+                  isIncorrect ? "bg-red-100" : "hover:bg-red-100"
                 )}
-                title={incorrectSelected ? "Wijzig notitie / blijft onjuist" : "Klopt niet – voeg notitie toe"}
+                title={isIncorrect ? "Bewerk opmerking" : "Klopt niet (opmerking toevoegen)"}
               >
-                <XCircle
-                  className={cn("w-5 h-5", incorrectSelected ? "text-red-700" : "text-red-500")}
-                />
+                <XCircle className="w-5 h-5 text-red-500" />
               </button>
             </div>
-          ) : (
-            // Alleen bij readOnly (goedgekeurd) tonen we iconisch resultaat
+          )}
+
+          {/* Read-only icon when completed */}
+          {readOnly && (
             <div className="flex items-center">
               {item.is_correct ? (
                 <CheckCircle2 className="w-5 h-5 text-green-600" />
@@ -745,7 +742,7 @@ export function AuditPage({
     );
   }
 
-  // Detail
+  // If viewing audit detail
   if (selectedAudit) {
     return (
       <div className="space-y-4">
@@ -769,9 +766,6 @@ export function AuditPage({
                 placeholder="Beschrijf wat er niet klopt..."
                 rows={4}
               />
-              <div className="text-xs text-muted-foreground mt-2">
-                Een notitie is verplicht bij een ❌ beoordeling.
-              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setNotesModal(null)}>
@@ -785,9 +779,9 @@ export function AuditPage({
     );
   }
 
-  // Lijsten
   return (
     <div className="space-y-4">
+      {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="w-full grid grid-cols-2 h-10 p-1 bg-muted rounded-lg">
           <TabsTrigger
@@ -807,7 +801,7 @@ export function AuditPage({
         </TabsList>
 
         <TabsContent value="new" className="space-y-4 mt-4">
-          {/* Aanvragen */}
+          {/* Request new audit */}
           <div className="bg-muted/50 rounded-lg p-4">
             <h3 className="text-sm font-semibold mb-2">Audit aanvragen</h3>
             <p className="text-xs text-muted-foreground mb-4">
