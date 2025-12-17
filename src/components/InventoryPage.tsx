@@ -407,7 +407,7 @@ export function InventoryPage({
       {groups.length === 0 ? (
         <p className="text-sm text-muted-foreground">Geen zaden gevonden.</p>
       ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div className="space-y-6">
           {groups.map((g) => (
             <SeedGroup
               key={g.id}
