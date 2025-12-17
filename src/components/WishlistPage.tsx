@@ -6,10 +6,9 @@ import {
   deleteWishlistItem,
   type WishlistItem,
 } from "../lib/api/wishlist";
-import { Plus, Check, Trash2, Star } from "lucide-react";
+import { Plus, Check, Trash2, Star, AlertCircle } from "lucide-react";
 import { Dialog, DialogContent } from "./ui/dialog";
-import { cn } from "../lib/utils";
-import { supabase } from "../lib/supabaseClient"; // ← toegevoegd
+import { supabase } from "../lib/supabaseClient";
 
 interface WishlistPageProps {
   garden: Garden;
@@ -22,76 +21,85 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
   const [editing, setEditing] = useState<WishlistItem | null>(null);
   const [creating, setCreating] = useState(false);
 
-  // ---- Status/diagnose (toegevoegd) ----
-  const [lastPingAt, setLastPingAt] = useState<string>("—");
-  const [pingStatus, setPingStatus] = useState<"idle"|"ok"|"err"|"busy">("idle");
-  const [sessionInfo, setSessionInfo] = useState<{ has: boolean; exp?: string }>(
-    { has: false, exp: undefined }
-  );
+  // ---------- Supabase sessie debug ----------
+  type PingState = "idle" | "busy" | "ok" | "err";
+  const [pingStatus, setPingStatus] = useState<PingState>("idle");
+  const [lastPingAt, setLastPingAt] = useState<string | null>(null);
+  const [refreshResult, setRefreshResult] = useState<string | null>(null);
+  const [sessionInfo, setSessionInfo] = useState<{ has: boolean; exp?: string; userEmail?: string }>({
+    has: false,
+    exp: undefined,
+    userEmail: undefined,
+  });
 
-  useEffect(() => {
-    setItems(wishlistItems);
-  }, [wishlistItems]);
-
-  // Afgevinkte IDs uit DB-veld
-  const checkedIds = new Set(items.filter(it => it.is_checked).map(it => it.id));
-
-  // ---- Helpers (toegevoegd) ----
-  async function checkSessionOnly() {
-    const { data, error } = await supabase.auth.getSession();
-    if (error) throw error;
-    const s = data.session;
-    setSessionInfo({
-      has: !!s,
-      exp: s?.expires_at ? new Date(s.expires_at * 1000).toLocaleTimeString() : undefined,
+  function withTimeout<T>(p: Promise<T>, ms = 3000): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error("timeout")), ms);
+      p.then(
+        (v) => {
+          clearTimeout(t);
+          resolve(v);
+        },
+        (e) => {
+          clearTimeout(t);
+          reject(e);
+        }
+      );
     });
-    return s;
-  }
-
-  async function ensureSession() {
-    const s = await checkSessionOnly();
-    if (!s) {
-      const { data, error } = await supabase.auth.refreshSession();
-      if (error) throw error;
-      const ss = data.session;
-      setSessionInfo({
-        has: !!ss,
-        exp: ss?.expires_at ? new Date(ss.expires_at * 1000).toLocaleTimeString() : undefined,
-      });
-    }
   }
 
   async function pingNow() {
     try {
       setPingStatus("busy");
-      // Alleen auth ping (tabel-permissies verschillen per project)
-      await checkSessionOnly();
+      const [{ data: sData, error: sErr }, { data: uData, error: uErr }] = await Promise.all([
+        withTimeout(supabase.auth.getSession(), 3000),
+        withTimeout(supabase.auth.getUser(), 3000),
+      ]);
+      if (sErr) throw sErr;
+      if (uErr) throw uErr;
+
+      const s = sData.session;
+      setSessionInfo({
+        has: !!s,
+        exp: s?.expires_at ? new Date(s.expires_at * 1000).toLocaleTimeString() : undefined,
+        userEmail: uData.user?.email ?? undefined,
+      });
       setPingStatus("ok");
-    } catch (e) {
+    } catch {
       setPingStatus("err");
     } finally {
       setLastPingAt(new Date().toLocaleTimeString());
-      // kleine delay om ‘busy’ niet te laten blijven hangen bij exceptions
-      setTimeout(() => setPingStatus((s)=> s==="busy" ? "idle" : s), 150);
     }
   }
 
-  // Automatisch opnieuw pingen wanneer je terugkomt op de tab
-  useEffect(() => {
-    const onFocusOrVisible = () => {
-      if (document.visibilityState === "visible") pingNow().catch(()=>{});
-    };
-    window.addEventListener("focus", onFocusOrVisible);
-    document.addEventListener("visibilitychange", onFocusOrVisible);
-    // eerste ping bij mount
-    pingNow().catch(()=>{});
-    return () => {
-      window.removeEventListener("focus", onFocusOrVisible);
-      document.removeEventListener("visibilitychange", onFocusOrVisible);
-    };
-  }, []);
+  async function refreshOnce() {
+    setRefreshResult("…");
+    try {
+      const { data, error } = await withTimeout(supabase.auth.refreshSession(), 4000);
+      if (error) {
+        setRefreshResult(`ERROR: ${error.message}`);
+        return;
+      }
+      const s = data.session;
+      setSessionInfo({
+        has: !!s,
+        exp: s?.expires_at ? new Date(s.expires_at * 1000).toLocaleTimeString() : undefined,
+        userEmail: sessionInfo.userEmail,
+      });
+      setRefreshResult(`OK • new exp ${s?.expires_at ? new Date(s.expires_at * 1000).toLocaleTimeString() : "?"}`);
+    } catch (e: any) {
+      setRefreshResult(`ERROR: ${e?.message || String(e)}`);
+    }
+  }
+  // ---------- einde debug ----------
 
-  // ---- CRUD met sessie-borging (toegevoegd: ensureSession()) ----
+  useEffect(() => {
+    setItems(wishlistItems);
+  }, [wishlistItems]);
+
+  // Derive checked IDs from the database field
+  const checkedIds = new Set(items.filter(it => it.is_checked).map(it => it.id));
+
   async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
@@ -100,12 +108,11 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
     if (!name) return;
 
     try {
-      await ensureSession();
       await createWishlistItem({ garden_id: garden.id, name, notes });
       await onDataChange();
       setCreating(false);
     } catch (err: any) {
-      alert("Toevoegen mislukt: " + (err?.message ?? String(err)));
+      alert("Toevoegen mislukt: " + err.message);
     }
   }
 
@@ -118,23 +125,21 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
     if (!name) return;
 
     try {
-      await ensureSession();
       await updateWishlistItem(editing.id, { name, notes });
       await onDataChange();
       setEditing(null);
     } catch (err: any) {
-      alert("Opslaan mislukt: " + (err?.message ?? String(err)));
+      alert("Opslaan mislukt: " + err.message);
     }
   }
 
   async function handleDelete(id: string) {
     if (!confirm("Weet je zeker dat je dit item wilt verwijderen?")) return;
     try {
-      await ensureSession();
       await deleteWishlistItem(id);
       await onDataChange();
     } catch (err: any) {
-      alert("Verwijderen mislukt: " + (err?.message ?? String(err)));
+      alert("Verwijderen mislukt: " + err.message);
     }
   }
 
@@ -143,11 +148,10 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
     if (!item) return;
 
     try {
-      await ensureSession();
       await updateWishlistItem(id, { is_checked: !item.is_checked });
       await onDataChange();
     } catch (err: any) {
-      alert("Bijwerken mislukt: " + (err?.message ?? String(err)));
+      alert("Bijwerken mislukt: " + err.message);
     }
   }
 
@@ -156,15 +160,14 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
     if (!confirm(`Weet je zeker dat je ${checkedIds.size} afgevinkte item(s) wilt verwijderen?`)) return;
 
     try {
-      await ensureSession();
       await Promise.all(Array.from(checkedIds).map((id) => deleteWishlistItem(id)));
       await onDataChange();
     } catch (err: any) {
-      alert("Verwijderen mislukt: " + (err?.message ?? String(err)));
+      alert("Verwijderen mislukt: " + err.message);
     }
   }
 
-  // Gescheiden lijsten
+  // Separate checked and unchecked items
   const uncheckedItems = items.filter((it) => !checkedIds.has(it.id));
   const checkedItems = items.filter((it) => checkedIds.has(it.id));
 
@@ -176,43 +179,7 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
           <Star className="h-6 w-6 text-amber-500" />
           Wishlist
         </h2>
-
-        {/* Kleine statusbalk (toegevoegd) */}
         <div className="flex items-center gap-2">
-          <span
-            className={cn(
-              "text-xs px-2 py-1 rounded border",
-              sessionInfo.has ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-gray-100 text-gray-700 border-gray-200"
-            )}
-            title={sessionInfo.exp ? `Session exp: ${sessionInfo.exp}` : "Geen sessie"}
-          >
-            Sessies: {sessionInfo.has ? "actief" : "geen"}{sessionInfo.exp ? ` • exp ${sessionInfo.exp}` : ""}
-          </span>
-          <span
-            className={cn(
-              "text-xs px-2 py-1 rounded border",
-              pingStatus === "ok" ? "bg-blue-50 text-blue-700 border-blue-200" :
-              pingStatus === "err" ? "bg-red-50 text-red-700 border-red-200" :
-              pingStatus === "busy" ? "bg-amber-50 text-amber-700 border-amber-200" :
-              "bg-gray-50 text-gray-600 border-gray-200"
-            )}
-          >
-            Ping: {pingStatus === "busy" ? "…" : pingStatus === "ok" ? "OK" : pingStatus === "err" ? "ERROR" : "—"}{lastPingAt !== "—" ? ` • ${lastPingAt}` : ""}
-          </span>
-          <button
-            onClick={pingNow}
-            className="px-2 py-1 text-xs rounded border hover:bg-muted"
-          >
-            Ping
-          </button>
-          <button
-            onClick={async ()=>{ try { await supabase.auth.refreshSession(); await pingNow(); } catch(e:any){ alert("Refresh faalde: " + (e?.message ?? String(e))); }}}
-            className="px-2 py-1 text-xs rounded border hover:bg-muted"
-          >
-            Refresh sessie
-          </button>
-
-          {/* bestaande knoppen */}
           {checkedIds.size > 0 && (
             <button
               onClick={deleteAllChecked}
@@ -232,7 +199,42 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
         </div>
       </div>
 
-      {/* Items list */}
+      {/* DEBUG: Supabase sessiestatus (tijdelijk) */}
+      <div className="rounded-lg border bg-muted/40 p-3 text-xs">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4" />
+            <span>
+              Sessies: {sessionInfo.has ? "actief" : "—"}
+              {sessionInfo.exp ? ` • exp ${sessionInfo.exp}` : ""}
+              {sessionInfo.userEmail ? ` • ${sessionInfo.userEmail}` : " • unknown"}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={pingNow}
+              className="px-2 py-1 rounded border hover:bg-muted"
+              title="supabase.auth.getSession() + getUser()"
+            >
+              Ping {pingStatus === "busy" ? "…" : pingStatus === "ok" ? "OK" : pingStatus === "err" ? "ERR" : ""}
+            </button>
+            <button
+              onClick={refreshOnce}
+              className="px-2 py-1 rounded border hover:bg-muted"
+              title="supabase.auth.refreshSession()"
+            >
+              Refresh sessie
+            </button>
+          </div>
+        </div>
+        <div className="mt-1 text-muted-foreground">
+          Laatste ping: {lastPingAt ? `${pingStatus === "ok" ? "OK" : pingStatus === "err" ? "ERR" : "…"} • ${lastPingAt}` : "—"}
+          {" • "}
+          Laatste refresh: {refreshResult ?? "—"}
+        </div>
+      </div>
+
+      {/* Items list - Tuin taken style */}
       {items.length === 0 ? (
         <div className="text-center py-12">
           <Star className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
@@ -279,13 +281,13 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
             </div>
           ))}
 
-          {/* Checked items */}
+          {/* Checked items (grayed out) */}
           {checkedItems.map((it) => (
             <div
               key={it.id}
               className="border rounded-lg p-3 bg-muted/50 flex items-center gap-3 opacity-60"
             >
-              {/* Checked indicator */}
+              {/* Checked indicator - clickable to uncheck */}
               <button
                 onClick={() => toggleCheck(it.id)}
                 className="flex-shrink-0 w-6 h-6 rounded-full border-2 border-green-500 bg-green-500 flex items-center justify-center hover:bg-green-600 hover:border-green-600 transition-colors"
@@ -319,7 +321,7 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
         </div>
       )}
 
-      {/* Create modal */}
+      {/* Create modal - Modern style */}
       <Dialog open={creating} onOpenChange={setCreating}>
         <DialogContent className="sm:max-w-md p-0 gap-0 bg-card/95 backdrop-blur-md border-border/50 overflow-hidden">
           <div className="px-5 py-4 border-b border-border/30 bg-gradient-to-r from-amber-500/10 to-transparent">
@@ -364,7 +366,7 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
         </DialogContent>
       </Dialog>
 
-      {/* Edit modal */}
+      {/* Edit modal - Modern style */}
       <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)}>
         <DialogContent className="sm:max-w-md p-0 gap-0 bg-card/95 backdrop-blur-md border-border/50 overflow-hidden">
           <div className="px-5 py-4 border-b border-border/30 bg-gradient-to-r from-amber-500/10 to-transparent">
