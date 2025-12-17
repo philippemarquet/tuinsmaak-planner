@@ -125,7 +125,7 @@ export function AuditPage({
 
   // Generate audit items based on current garden state
   const generateAuditItems = (): Omit<AuditItem, "id" | "created_at">[] => {
-    const now = new Date(); // (fix) avoid duplicate 'today' declarations
+    const now = new Date(); // avoid duplicate 'today'
     const items: Omit<AuditItem, "id" | "created_at">[] = [];
 
     // 1. Active plantings (groeiend or in oogst)
@@ -164,7 +164,7 @@ export function AuditPage({
           : null;
 
       items.push({
-        audit_id: "", // Will be set when creating
+        audit_id: "",
         item_type: "planting",
         reference_id: p.id,
         bed_name: bed.name,
@@ -350,7 +350,7 @@ export function AuditPage({
     if (selectedAudit?.status === "goedgekeurd") return; // read-only when completed
 
     if (!isCorrect) {
-      // Ask for (or edit) notes when ❌
+      // Require notes via modal
       setNotesModal({ item, notes: item.notes || "" });
       return;
     }
@@ -364,11 +364,18 @@ export function AuditPage({
     }
   };
 
-  // Save notes and mark as incorrect
+  // Save notes and mark as incorrect (NOTES REQUIRED)
   const handleSaveNotes = async () => {
     if (!notesModal) return;
+
+    const note = notesModal.notes?.trim() ?? "";
+    if (!note) {
+      toast.error("Opmerking is verplicht voor ❌.");
+      return;
+    }
+
     try {
-      const updated = await validateAuditItem(notesModal.item.id, false, notesModal.notes);
+      const updated = await validateAuditItem(notesModal.item.id, false, note);
       setAuditItems((prev) => prev.map((i) => (i.id === notesModal.item.id ? updated : i)));
       setNotesModal(null);
     } catch (err) {
@@ -470,7 +477,7 @@ export function AuditPage({
           )}
           <ChevronRight className="w-4 h-4 text-muted-foreground" />
 
-          {/* Delete button (stop propagation, matches style) */}
+          {/* Delete button */}
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -496,7 +503,7 @@ export function AuditPage({
 
     const isCompleted = selectedAudit.status === "goedgekeurd";
 
-    // Only enable "Goedgekeurd" when every item is validated and every ❌ has notes
+    // Enable approval only if all items validated, and all ❌ have notes
     const allReadyForApproval =
       auditItems.length === 0
         ? true
@@ -538,7 +545,7 @@ export function AuditPage({
           </div>
         </div>
 
-        {/* Plantings section (only if present, same as before) */}
+        {/* Plantings section (only if present) */}
         {plantingItems.length > 0 && (
           <div>
             <div className="flex items-center gap-2 mb-3">
@@ -624,7 +631,7 @@ export function AuditPage({
                 title={
                   allReadyForApproval
                     ? "Audit goedkeuren"
-                    : "Kies eerst voor alle regels ✅ of ❌ (met notitie)."
+                    : "Kies eerst voor alle regels ✅ of ❌ (met opmerking)."
                 }
               >
                 <CheckCircle2 className="w-4 h-4 mr-1" />
@@ -744,15 +751,17 @@ export function AuditPage({
 
   // If viewing audit detail
   if (selectedAudit) {
+    const noteValid = (notesModal?.notes?.trim()?.length ?? 0) > 0;
+
     return (
       <div className="space-y-4">
         {renderAuditDetail()}
 
-        {/* Notes modal */}
+        {/* Notes modal (comment REQUIRED for ❌) */}
         <Dialog open={!!notesModal} onOpenChange={(open) => !open && setNotesModal(null)}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Notities toevoegen</DialogTitle>
+              <DialogTitle>Opmerking verplicht bij ❌</DialogTitle>
             </DialogHeader>
             <div className="py-4">
               <p className="text-sm text-muted-foreground mb-3">
@@ -763,15 +772,20 @@ export function AuditPage({
                 onChange={(e) =>
                   setNotesModal((prev) => (prev ? { ...prev, notes: e.target.value } : null))
                 }
-                placeholder="Beschrijf wat er niet klopt..."
+                placeholder="Beschrijf wat er niet klopt… (verplicht)"
                 rows={4}
               />
+              {!noteValid && (
+                <div className="mt-2 text-xs text-red-600">Voeg een korte opmerking toe om ❌ te kunnen opslaan.</div>
+              )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setNotesModal(null)}>
                 Annuleren
               </Button>
-              <Button onClick={handleSaveNotes}>Opslaan</Button>
+              <Button onClick={handleSaveNotes} disabled={!noteValid} title={!noteValid ? "Opmerking is verplicht" : ""}>
+                Opslaan
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
