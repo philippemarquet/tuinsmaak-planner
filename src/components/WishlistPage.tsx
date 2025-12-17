@@ -1,4 +1,3 @@
-// src/components/wishlistpage.tsx
 import { useEffect, useState } from "react";
 import type { Garden } from "../lib/types";
 import {
@@ -7,10 +6,10 @@ import {
   deleteWishlistItem,
   type WishlistItem,
 } from "../lib/api/wishlist";
-import { Plus, Check, Trash2, Star, AlertCircle } from "lucide-react";
+import { Plus, Check, Trash2, Star } from "lucide-react";
 import { Dialog, DialogContent } from "./ui/dialog";
 import { cn } from "../lib/utils";
-import SupabaseDebugBadge from "./SupabaseDebugBadge"; // ← toegevoegd
+import { supabase } from "../lib/supabaseClient"; // ← toegevoegd
 
 interface WishlistPageProps {
   garden: Garden;
@@ -23,13 +22,76 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
   const [editing, setEditing] = useState<WishlistItem | null>(null);
   const [creating, setCreating] = useState(false);
 
+  // ---- Status/diagnose (toegevoegd) ----
+  const [lastPingAt, setLastPingAt] = useState<string>("—");
+  const [pingStatus, setPingStatus] = useState<"idle"|"ok"|"err"|"busy">("idle");
+  const [sessionInfo, setSessionInfo] = useState<{ has: boolean; exp?: string }>(
+    { has: false, exp: undefined }
+  );
+
   useEffect(() => {
     setItems(wishlistItems);
   }, [wishlistItems]);
 
-  // Derive checked IDs from the database field
+  // Afgevinkte IDs uit DB-veld
   const checkedIds = new Set(items.filter(it => it.is_checked).map(it => it.id));
 
+  // ---- Helpers (toegevoegd) ----
+  async function checkSessionOnly() {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    const s = data.session;
+    setSessionInfo({
+      has: !!s,
+      exp: s?.expires_at ? new Date(s.expires_at * 1000).toLocaleTimeString() : undefined,
+    });
+    return s;
+  }
+
+  async function ensureSession() {
+    const s = await checkSessionOnly();
+    if (!s) {
+      const { data, error } = await supabase.auth.refreshSession();
+      if (error) throw error;
+      const ss = data.session;
+      setSessionInfo({
+        has: !!ss,
+        exp: ss?.expires_at ? new Date(ss.expires_at * 1000).toLocaleTimeString() : undefined,
+      });
+    }
+  }
+
+  async function pingNow() {
+    try {
+      setPingStatus("busy");
+      // Alleen auth ping (tabel-permissies verschillen per project)
+      await checkSessionOnly();
+      setPingStatus("ok");
+    } catch (e) {
+      setPingStatus("err");
+    } finally {
+      setLastPingAt(new Date().toLocaleTimeString());
+      // kleine delay om ‘busy’ niet te laten blijven hangen bij exceptions
+      setTimeout(() => setPingStatus((s)=> s==="busy" ? "idle" : s), 150);
+    }
+  }
+
+  // Automatisch opnieuw pingen wanneer je terugkomt op de tab
+  useEffect(() => {
+    const onFocusOrVisible = () => {
+      if (document.visibilityState === "visible") pingNow().catch(()=>{});
+    };
+    window.addEventListener("focus", onFocusOrVisible);
+    document.addEventListener("visibilitychange", onFocusOrVisible);
+    // eerste ping bij mount
+    pingNow().catch(()=>{});
+    return () => {
+      window.removeEventListener("focus", onFocusOrVisible);
+      document.removeEventListener("visibilitychange", onFocusOrVisible);
+    };
+  }, []);
+
+  // ---- CRUD met sessie-borging (toegevoegd: ensureSession()) ----
   async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
@@ -38,11 +100,12 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
     if (!name) return;
 
     try {
+      await ensureSession();
       await createWishlistItem({ garden_id: garden.id, name, notes });
       await onDataChange();
       setCreating(false);
     } catch (err: any) {
-      alert("Toevoegen mislukt: " + err.message);
+      alert("Toevoegen mislukt: " + (err?.message ?? String(err)));
     }
   }
 
@@ -55,49 +118,53 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
     if (!name) return;
 
     try {
+      await ensureSession();
       await updateWishlistItem(editing.id, { name, notes });
       await onDataChange();
       setEditing(null);
     } catch (err: any) {
-      alert("Opslaan mislukt: " + err.message);
+      alert("Opslaan mislukt: " + (err?.message ?? String(err)));
     }
   }
 
   async function handleDelete(id: string) {
     if (!confirm("Weet je zeker dat je dit item wilt verwijderen?")) return;
     try {
+      await ensureSession();
       await deleteWishlistItem(id);
       await onDataChange();
     } catch (err: any) {
-      alert("Verwijderen mislukt: " + err.message);
+      alert("Verwijderen mislukt: " + (err?.message ?? String(err)));
     }
   }
 
   async function toggleCheck(id: string) {
     const item = items.find(it => it.id === id);
     if (!item) return;
-    
+
     try {
+      await ensureSession();
       await updateWishlistItem(id, { is_checked: !item.is_checked });
       await onDataChange();
     } catch (err: any) {
-      alert("Bijwerken mislukt: " + err.message);
+      alert("Bijwerken mislukt: " + (err?.message ?? String(err)));
     }
   }
 
   async function deleteAllChecked() {
     if (checkedIds.size === 0) return;
     if (!confirm(`Weet je zeker dat je ${checkedIds.size} afgevinkte item(s) wilt verwijderen?`)) return;
-    
+
     try {
+      await ensureSession();
       await Promise.all(Array.from(checkedIds).map((id) => deleteWishlistItem(id)));
       await onDataChange();
     } catch (err: any) {
-      alert("Verwijderen mislukt: " + err.message);
+      alert("Verwijderen mislukt: " + (err?.message ?? String(err)));
     }
   }
 
-  // Separate checked and unchecked items
+  // Gescheiden lijsten
   const uncheckedItems = items.filter((it) => !checkedIds.has(it.id));
   const checkedItems = items.filter((it) => checkedIds.has(it.id));
 
@@ -109,7 +176,43 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
           <Star className="h-6 w-6 text-amber-500" />
           Wishlist
         </h2>
+
+        {/* Kleine statusbalk (toegevoegd) */}
         <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              "text-xs px-2 py-1 rounded border",
+              sessionInfo.has ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-gray-100 text-gray-700 border-gray-200"
+            )}
+            title={sessionInfo.exp ? `Session exp: ${sessionInfo.exp}` : "Geen sessie"}
+          >
+            Sessies: {sessionInfo.has ? "actief" : "geen"}{sessionInfo.exp ? ` • exp ${sessionInfo.exp}` : ""}
+          </span>
+          <span
+            className={cn(
+              "text-xs px-2 py-1 rounded border",
+              pingStatus === "ok" ? "bg-blue-50 text-blue-700 border-blue-200" :
+              pingStatus === "err" ? "bg-red-50 text-red-700 border-red-200" :
+              pingStatus === "busy" ? "bg-amber-50 text-amber-700 border-amber-200" :
+              "bg-gray-50 text-gray-600 border-gray-200"
+            )}
+          >
+            Ping: {pingStatus === "busy" ? "…" : pingStatus === "ok" ? "OK" : pingStatus === "err" ? "ERROR" : "—"}{lastPingAt !== "—" ? ` • ${lastPingAt}` : ""}
+          </span>
+          <button
+            onClick={pingNow}
+            className="px-2 py-1 text-xs rounded border hover:bg-muted"
+          >
+            Ping
+          </button>
+          <button
+            onClick={async ()=>{ try { await supabase.auth.refreshSession(); await pingNow(); } catch(e:any){ alert("Refresh faalde: " + (e?.message ?? String(e))); }}}
+            className="px-2 py-1 text-xs rounded border hover:bg-muted"
+          >
+            Refresh sessie
+          </button>
+
+          {/* bestaande knoppen */}
           {checkedIds.size > 0 && (
             <button
               onClick={deleteAllChecked}
@@ -129,7 +232,7 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
         </div>
       </div>
 
-      {/* Items list - Tuin taken style */}
+      {/* Items list */}
       {items.length === 0 ? (
         <div className="text-center py-12">
           <Star className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
@@ -176,13 +279,13 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
             </div>
           ))}
 
-          {/* Checked items (grayed out) */}
+          {/* Checked items */}
           {checkedItems.map((it) => (
             <div
               key={it.id}
               className="border rounded-lg p-3 bg-muted/50 flex items-center gap-3 opacity-60"
             >
-              {/* Checked indicator - clickable to uncheck */}
+              {/* Checked indicator */}
               <button
                 onClick={() => toggleCheck(it.id)}
                 className="flex-shrink-0 w-6 h-6 rounded-full border-2 border-green-500 bg-green-500 flex items-center justify-center hover:bg-green-600 hover:border-green-600 transition-colors"
@@ -216,7 +319,7 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
         </div>
       )}
 
-      {/* Create modal - Modern style */}
+      {/* Create modal */}
       <Dialog open={creating} onOpenChange={setCreating}>
         <DialogContent className="sm:max-w-md p-0 gap-0 bg-card/95 backdrop-blur-md border-border/50 overflow-hidden">
           <div className="px-5 py-4 border-b border-border/30 bg-gradient-to-r from-amber-500/10 to-transparent">
@@ -261,7 +364,7 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
         </DialogContent>
       </Dialog>
 
-      {/* Edit modal - Modern style */}
+      {/* Edit modal */}
       <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)}>
         <DialogContent className="sm:max-w-md p-0 gap-0 bg-card/95 backdrop-blur-md border-border/50 overflow-hidden">
           <div className="px-5 py-4 border-b border-border/30 bg-gradient-to-r from-amber-500/10 to-transparent">
@@ -305,9 +408,6 @@ export function WishlistPage({ garden, wishlistItems, onDataChange }: WishlistPa
           </form>
         </DialogContent>
       </Dialog>
-
-      {/* ← debug badge, alleen op deze pagina zichtbaar */}
-      <SupabaseDebugBadge testTable="wishlist_items" />
     </div>
   );
 }
