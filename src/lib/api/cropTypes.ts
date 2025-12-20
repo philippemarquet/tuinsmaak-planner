@@ -1,8 +1,9 @@
+// src/lib/api/cropTypes.ts
 import { supabase } from '../supabaseClient';
 import type { CropType } from '../types';
 import { withRetry } from '../apiRetry';
 
-/** Alle gewastypen ophalen */
+/** Alle gewastypen ophalen (incl. optionele icon_key) */
 export async function listCropTypes(): Promise<CropType[]> {
   return withRetry(async () => {
     const { data, error } = await supabase
@@ -14,12 +15,8 @@ export async function listCropTypes(): Promise<CropType[]> {
   });
 }
 
-/** Nieuw gewastype aanmaken (alleen icon_key) */
-export async function createCropType(payload: {
-  name: string;
-  /** path binnen 'crop-icons' bucket, bv 'tomato.svg' */
-  icon_key?: string | null;
-}): Promise<CropType> {
+/** Nieuw gewastype aanmaken (zonder .single()) */
+export async function createCropType(payload: { name: string; icon_key?: string | null }): Promise<CropType> {
   return withRetry(async () => {
     const { data, error } = await supabase
       .from('crop_types')
@@ -27,31 +24,53 @@ export async function createCropType(payload: {
         name: payload.name,
         icon_key: payload.icon_key ?? null,
       })
-      .select('*')
-      .single(); // <- essentieel voor "single JSON object"
+      .select('*'); // ← geen .single()
+
     if (error) throw error;
-    return data as CropType;
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (row) return row as CropType;
+
+    // Fallback (zou zelden nodig moeten zijn)
+    const { data: refetch, error: refetchErr } = await supabase
+      .from('crop_types')
+      .select('*')
+      .eq('name', payload.name)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (refetchErr) throw refetchErr;
+    return (refetch?.[0] ?? null) as CropType;
   });
 }
 
-/** Gewastype bijwerken (alleen icon_key) */
+/** Gewastype bijwerken (zonder .single(), met fallback-read) */
 export async function updateCropType(
   id: string,
   payload: Partial<{ name: string; icon_key: string | null }>
 ): Promise<CropType> {
   return withRetry(async () => {
-    const updateObj: any = {};
-    if (payload.name !== undefined)     updateObj.name = payload.name;
-    if (payload.icon_key !== undefined) updateObj.icon_key = payload.icon_key;
-
     const { data, error } = await supabase
       .from('crop_types')
-      .update(updateObj)
+      .update({
+        ...(payload.name !== undefined ? { name: payload.name } : {}),
+        ...(payload.icon_key !== undefined ? { icon_key: payload.icon_key } : {}),
+      })
       .eq('id', id)
-      .select('*')
-      .single(); // <- essentieel
+      .select('*'); // ← geen .single()
+
     if (error) throw error;
-    return data as CropType;
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (row) return row as CropType;
+
+    // Fallback: lees de rij opnieuw
+    const { data: refetch, error: refetchErr } = await supabase
+      .from('crop_types')
+      .select('*')
+      .eq('id', id)
+      .limit(1);
+    if (refetchErr) throw refetchErr;
+    return (refetch?.[0] ?? null) as CropType;
   });
 }
 
