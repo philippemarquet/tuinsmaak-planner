@@ -11,6 +11,7 @@ import type {
   Audit,
   AuditItem,
   AuditStatus,
+  CropType,
 } from "../lib/types";
 import { supabase } from "../lib/supabaseClient";
 import {
@@ -25,6 +26,7 @@ import {
   deleteAudit,
 } from "../lib/api/audits";
 import { createGardenTask } from "../lib/api/gardenTasks";
+import { listCropTypes } from "../lib/api/cropTypes";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
@@ -116,6 +118,47 @@ export function AuditPage({
 
   const seedMap = useMemo(() => new Map(seeds.map((s) => [s.id, s])), [seeds]);
   const bedMap = useMemo(() => new Map(beds.map((b) => [b.id, b])), [beds]);
+
+  // === NEW: crop types (voor fallback icons) + helpers ===
+  const [cropTypes, setCropTypes] = useState<CropType[]>([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const types = await listCropTypes();
+        setCropTypes(types);
+        localStorage.setItem("cached_crop_types", JSON.stringify(types));
+      } catch {
+        const cached = localStorage.getItem("cached_crop_types");
+        if (cached) setCropTypes(JSON.parse(cached));
+      }
+    })();
+  }, []);
+  const cropTypeById = useMemo(
+    () => Object.fromEntries(cropTypes.map((ct) => [ct.id, ct])),
+    [cropTypes]
+  );
+  const seedsById = useMemo(() => Object.fromEntries(seeds.map((s) => [s.id, s])), [seeds]);
+  const plantingsById = useMemo(() => Object.fromEntries(plantings.map((p) => [p.id, p])), [plantings]);
+  const tasksById = useMemo(() => Object.fromEntries(tasks.map((t) => [t.id, t])), [tasks]);
+
+  const getSeedIconKey = (seed?: Seed | null): string | null => {
+    if (!seed) return null;
+    const s: any = seed as any;
+    return (
+      s.seed_icon_key || // zaad-specifiek
+      s.icon_key || // (soms opgeslagen op seed zelf)
+      (seed.crop_type_id ? (cropTypeById[seed.crop_type_id]?.icon_key ?? null) : null)
+    );
+  };
+  const getIconUrlFromKey = (key: string | null): string | null => {
+    if (!key) return null;
+    try {
+      const { data } = supabase.storage.from("crop-icons").getPublicUrl(key);
+      return data?.publicUrl || null;
+    } catch {
+      return null;
+    }
+  };
 
   // Load audits
   useEffect(() => {
@@ -775,6 +818,26 @@ export function AuditPage({
     const isCorrect = item.is_validated && item.is_correct === true;
     const isIncorrect = item.is_validated && item.is_correct === false;
 
+    // === NEW: resolve seed + icon + kleur per regel (zoals dashboard) ===
+    let relatedSeed: Seed | undefined;
+    let relatedColor: string | undefined;
+    if (item.item_type === "planting" || item.item_type === "voorzaai") {
+      const p = plantingsById[item.reference_id];
+      if (p) {
+        relatedSeed = seedsById[p.seed_id];
+        relatedColor = (p.color && (p.color.startsWith("#") || p.color.startsWith("rgb"))) ? p.color : (relatedSeed?.default_color ?? "#22c55e");
+      }
+    } else if (item.item_type === "moestuin_task") {
+      const t = tasksById[item.reference_id];
+      const p = t ? plantingsById[t.planting_id] : undefined;
+      if (p) {
+        relatedSeed = seedsById[p.seed_id];
+        relatedColor = (p.color && (p.color.startsWith("#") || p.color.startsWith("rgb"))) ? p.color : (relatedSeed?.default_color ?? "#22c55e");
+      }
+    }
+    const iconKey = getSeedIconKey(relatedSeed);
+    const iconUrl = getIconUrlFromKey(iconKey);
+
     return (
       <div
         key={item.id}
@@ -789,7 +852,28 @@ export function AuditPage({
       >
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium">{item.description}</div>
+            <div className="text-sm font-medium flex items-center gap-2">
+              {/* NEW: gekleurd vakje + icoon (zelfde als dashboard) */}
+              {relatedSeed && (
+                <span
+                  className="relative inline-flex items-center justify-center w-5 h-5 rounded-sm ring-1 ring-white/50 shadow"
+                  style={{ background: relatedColor || "#22c55e" }}
+                  aria-hidden
+                >
+                  {iconUrl ? (
+                    <img
+                      src={iconUrl}
+                      alt=""
+                      className="absolute inset-0 w-full h-full p-0.5 object-contain pointer-events-none"
+                    />
+                  ) : (
+                    <Leaf className="w-3 h-3 text-white/80" />
+                  )}
+                </span>
+              )}
+              <span>{item.description}</span>
+            </div>
+
             <div className="flex flex-wrap items-center gap-2 mt-1">
               {item.bed_name && (
                 <span className="text-xs text-muted-foreground">
