@@ -27,6 +27,8 @@ export interface GardenUser {
 export interface CropType {
   id: UUID;
   name: string;
+  /** Optioneel: Iconify slug, bv. "mdi:carrot" */
+  icon_slug?: string | null;
   created_at: string;
 }
 
@@ -66,6 +68,7 @@ export interface Seed {
   created_at: string;
   updated_at: string;
 }
+
 export interface GardenBed {
   id: UUID;
   garden_id: UUID;
