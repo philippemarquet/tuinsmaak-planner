@@ -24,7 +24,7 @@ function fmtDMY(iso?: string | null) {
   if (!iso) return "";
   const d = new Date(iso);
   const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth()+1).padStart(2, "0");
+  const mm = String(d.getMonth()+1).toString().padStart(2, "0");
   const yyyy = d.getFullYear();
   return `${dd}-${mm}-${yyyy}`;
 }
@@ -429,16 +429,25 @@ export function Dashboard({
     // Vind de eerste openstaande milestone index
     const firstOpenIndex = next ? next.index : -1;
 
+    // NEW: icon next to crop name and inside enlarged color square
+    const seedIcon = (seed as any)?.emoji || (seed as any)?.icon_emoji || (seed as any)?.icon || null;
+
     return (
       <div key={p.id} className={`border rounded-lg ${isMobile ? 'p-3' : 'p-3'} bg-card`}>
         <div className="space-y-3">
           {/* Header */}
           <div className="flex items-start gap-2">
-            <span
-              className={`inline-block ${isMobile ? 'w-4 h-4 mt-0.5' : 'w-3 h-3 mt-1'} rounded flex-shrink-0`}
+            <div
+              className={`inline-flex items-center justify-center ${isMobile ? 'w-6 h-6' : 'w-5 h-5'} rounded-md flex-shrink-0`}
               style={{ background: p.color && (p.color.startsWith("#") || p.color.startsWith("rgb")) ? p.color : "#22c55e" }}
-              aria-hidden
-            />
+              title={seed?.name ?? "Gewas"}
+            >
+              {seedIcon ? (
+                <span className="text-[11px] leading-none">{seedIcon}</span>
+              ) : (
+                <Leaf className="w-3 h-3 text-white/90" />
+              )}
+            </div>
             <div className="flex-1 min-w-0">
               <div className={`${isMobile ? 'text-base' : 'text-sm'} font-medium flex items-center gap-2 flex-wrap`}>
                 <span>{seed?.name ?? "Onbekend gewas"}</span>
