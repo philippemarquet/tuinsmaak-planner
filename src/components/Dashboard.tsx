@@ -1,20 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { getISOWeek, format } from "date-fns";
 import { nl } from "date-fns/locale";
-import type { Garden, GardenBed, Planting, Seed, Task, GardenTask } from "../lib/types";
+import type { Garden, GardenBed, Planting, Seed, Task, GardenTask, CropType } from "../lib/types";
 import { updatePlanting } from "../lib/api/plantings";
 import { updateTask } from "../lib/api/tasks";
 import { createGardenTask, updateGardenTask, deleteGardenTask, completeGardenTask, reopenGardenTask, deleteCompletedGardenTasks } from "../lib/api/gardenTasks";
 import { buildConflictsMap, countUniqueConflicts } from "../lib/conflicts";
 import { useConflictFlags } from "../hooks/useConflictFlags";
 import { useIsMobile } from "../hooks/use-mobile";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
+import { Tabs, TabsContent } from "./ui/tabs";
 import { CalendarView } from "./CalendarView";
 import { GardenTaskModal } from "./GardenTaskModal";
 import { Plus, AlertCircle, Check, Sprout, Trash2, X, CalendarIcon, Calendar as CalendarTabIcon, LayoutDashboard, Leaf, RefreshCw } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Calendar } from "./ui/calendar";
 import { cn } from "../lib/utils";
+import { listCropTypes } from "../lib/api/cropTypes";
+import { supabase } from "../lib/supabaseClient";
+
 /* ---------- helpers ---------- */
 function toISO(d: Date) { return d.toISOString().slice(0, 10); }
 function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
@@ -24,7 +27,7 @@ function fmtDMY(iso?: string | null) {
   if (!iso) return "";
   const d = new Date(iso);
   const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth()+1).toString().padStart(2, "0");
+  const mm = String(d.getMonth()+1).padStart(2, "0");
   const yyyy = d.getFullYear();
   return `${dd}-${mm}-${yyyy}`;
 }
@@ -106,6 +109,14 @@ type Milestone = {
   status: "pending" | "done" | "skipped";
 };
 
+/* ---------- storage icon helpers ---------- */
+const ICON_BUCKET = "crop-icons";
+function iconUrlForKey(key?: string | null): string | null {
+  if (!key) return null;
+  const { data } = supabase.storage.from(ICON_BUCKET).getPublicUrl(key);
+  return data?.publicUrl ?? null;
+}
+
 /* ---------- hoofdcomponent ---------- */
 export function Dashboard({ 
   garden, 
@@ -134,6 +145,26 @@ export function Dashboard({
   const [gardenTasks, setGardenTasks] = useState<GardenTask[]>(initialGardenTasks);
   const [showAll, setShowAll] = useState(false);
 
+  // 🔹 NIEUW: categorieën lokaal ophalen zodat we iconen kunnen erven
+  const [cropTypes, setCropTypes] = useState<CropType[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const cached = localStorage.getItem("dashboard_crop_types");
+        if (cached && !cancelled) setCropTypes(JSON.parse(cached));
+        const fresh = await listCropTypes();
+        if (!cancelled) {
+          setCropTypes(fresh);
+          localStorage.setItem("dashboard_crop_types", JSON.stringify(fresh));
+        }
+      } catch {
+        // laat cached staan
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const [dialog, setDialog] = useState<{
     task: Task;
     dateISO: string;
@@ -158,12 +189,11 @@ export function Dashboard({
   const bedsById = useMemo(() => Object.fromEntries(beds.map(b => [b.id, b])), [beds]);
   const seedsById = useMemo(() => Object.fromEntries(seeds.map(s => [s.id, s])), [seeds]);
   const plantingsById = useMemo(() => Object.fromEntries(plantings.map(p => [p.id, p])), [plantings]);
+  const cropTypesById = useMemo(() => Object.fromEntries(cropTypes.map(ct => [ct.id, ct])), [cropTypes]);
 
   /* ---------- conflicts ---------- */
   const conflictsMap = useMemo(() => buildConflictsMap(plantings, seeds), [plantings, seeds]);
   const totalConflicts = useMemo(() => countUniqueConflicts(conflictsMap), [conflictsMap]);
-  
-  // Update conflict flags (badge elders)
   useConflictFlags(totalConflicts);
 
   /* ---------- indexeer tasks per planting & type ---------- */
@@ -191,6 +221,18 @@ export function Dashboard({
     if (type === "harvest_start") return "Start oogst";
     if (type === "harvest_end") return "Einde oogst";
     return type;
+  }
+
+  /* ---------- icon resolver ---------- */
+  function resolveSeedIconKey(seed?: Seed | null): string | null {
+    if (!seed) return null;
+    const seedKey = (seed as any).icon_key || null;
+    if (seedKey) return seedKey;
+    const ctId = seed.crop_type_id;
+    if (ctId && cropTypesById[ctId]) {
+      return (cropTypesById[ctId] as any).icon_key || null;
+    }
+    return null;
   }
 
   /* ---------- milestones per planting ---------- */
@@ -273,7 +315,7 @@ export function Dashboard({
     return null;
   }
 
-  /* ---------- filter/sort: verlopen acties + komende 2 weken of alles ---------- */
+  /* ---------- filter/sort ---------- */
   const today = new Date(); today.setHours(0,0,0,0);
   const horizon = addDays(today, 14);
 
@@ -285,11 +327,9 @@ export function Dashboard({
       return { p, nxt, keyDate, isOverdue };
     });
 
-    // Verlopen acties: altijd tonen
     const overdue = withKeys.filter(x => x.isOverdue);
     overdue.sort((a,b) => a.keyDate.getTime() - b.keyDate.getTime());
 
-    // Niet-verlopen acties: filter op basis van showAll
     const upcoming = showAll
       ? withKeys.filter(x => !x.isOverdue)
       : withKeys.filter(x => !x.isOverdue && x.nxt && (() => {
@@ -314,7 +354,6 @@ export function Dashboard({
     } catch {}
   }
 
-  // Update conflict flags in localStorage
   useEffect(() => {
     try {
       localStorage.setItem("plannerHasConflicts", totalConflicts > 0 ? "1" : "0");
@@ -342,7 +381,7 @@ export function Dashboard({
     return "harvest_end";
   }
 
-  /* ---------- acties: actual invullen / wijzigen ---------- */
+  /* ---------- acties ---------- */
   async function applyActual(task: Task, performedISO: string) {
     setBusyId(task.id);
     try {
@@ -352,14 +391,11 @@ export function Dashboard({
 
       const field = actualFieldFor(task, pl);
 
-      // 1) actual_* altijd opslaan
       await updatePlanting(task.planting_id, { [field]: performedISO } as any);
 
-      // Optimistisch UI bijwerken
       setPlantings(prev => prev.map(x => x.id === task.planting_id ? { ...x, [field]: performedISO } as any : x));
       setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: "done" } : t));
 
-      // 2) Vanaf deze actual de keten herleiden (alleen deze planting)
       const anchorType = anchorTypeFor(task, pl);
       const plan = computePlanFromAnchor({
         method: (pl.method as "direct"|"presow"),
@@ -374,10 +410,8 @@ export function Dashboard({
         console.warn("Plan update gaf fout (waarschijnlijk overlap):", e);
       }
 
-      // 3) taak afronden (best-effort)
       try { await updateTask(task.id, { status: "done" }); } catch {}
 
-      // 4) herladen en conflicts checken; ping Planner bij conflict
       await reloadAll();
       const cmap = buildConflictsMap(plantings, seeds);
       const conflicts = cmap.get(task.planting_id) ?? [];
@@ -393,7 +427,6 @@ export function Dashboard({
     }
   }
 
-  /* ---------- acties: actual leegmaken ---------- */
   async function clearActual(task: Task) {
     setBusyId(task.id);
     try {
@@ -426,28 +459,41 @@ export function Dashboard({
     const conflictCount = conflictsMap.get(p.id)?.length ?? 0;
     const hasConflict = conflictCount > 0;
 
+    const color = p.color && (p.color.startsWith("#") || p.color.startsWith("rgb")) ? p.color : "#22c55e";
+    const iconKey = resolveSeedIconKey(seed);
+    const iconUrl = iconUrlForKey(iconKey);
+
     // Vind de eerste openstaande milestone index
     const firstOpenIndex = next ? next.index : -1;
-
-    // NEW: icon next to crop name and inside enlarged color square
-    const seedIcon = (seed as any)?.emoji || (seed as any)?.icon_emoji || (seed as any)?.icon || null;
 
     return (
       <div key={p.id} className={`border rounded-lg ${isMobile ? 'p-3' : 'p-3'} bg-card`}>
         <div className="space-y-3">
           {/* Header */}
           <div className="flex items-start gap-2">
+            {/* Gekleurd vierkant met icoon */}
             <div
-              className={`inline-flex items-center justify-center ${isMobile ? 'w-6 h-6' : 'w-5 h-5'} rounded-md flex-shrink-0`}
-              style={{ background: p.color && (p.color.startsWith("#") || p.color.startsWith("rgb")) ? p.color : "#22c55e" }}
-              title={seed?.name ?? "Gewas"}
+              className="relative flex-shrink-0 rounded-md overflow-hidden"
+              style={{
+                width: isMobile ? 28 : 22,
+                height: isMobile ? 28 : 22,
+                background: color
+              }}
+              aria-hidden
+              title={seed?.name ?? "—"}
             >
-              {seedIcon ? (
-                <span className="text-[11px] leading-none">{seedIcon}</span>
+              {iconUrl ? (
+                <img
+                  src={iconUrl}
+                  alt=""
+                  className="absolute inset-0 w-3/4 h-3/4 m-auto object-contain opacity-95"
+                  draggable={false}
+                />
               ) : (
-                <Leaf className="w-3 h-3 text-white/90" />
+                <Leaf className="absolute inset-0 w-3/4 h-3/4 m-auto text-white/90" />
               )}
             </div>
+
             <div className="flex-1 min-w-0">
               <div className={`${isMobile ? 'text-base' : 'text-sm'} font-medium flex items-center gap-2 flex-wrap`}>
                 <span>{seed?.name ?? "Onbekend gewas"}</span>
@@ -528,19 +574,13 @@ export function Dashboard({
     const currentMonth = now.getMonth() + 1;
     const currentISOWeek = getISOWeek(now);
     
-    // Check year first
     if (task.due_year < currentYear) return true;
     if (task.due_year > currentYear) return false;
-    
-    // Same year, check month
     if (task.due_month < currentMonth) return true;
     if (task.due_month > currentMonth) return false;
-    
-    // Same month, check ISO week if specified
     if (task.due_week) {
       if (task.due_week < currentISOWeek) return true;
     }
-    
     return false;
   };
 
@@ -555,7 +595,7 @@ export function Dashboard({
     return result;
   };
 
-  /* ---------- render garden tasks section ---------- */
+  /* ---------- garden tasks section ---------- */
   const GardenTasksSection = ({
     gardenTasks,
     isMobile,
@@ -575,7 +615,6 @@ export function Dashboard({
     onDeleteTask: (task: GardenTask) => void;
     onDeleteAllCompleted: () => void;
   }) => {
-    // Filter: pending tasks first, then done ones
     const pendingTasks = gardenTasks.filter(t => t.status === "pending");
     const doneTasks = gardenTasks.filter(t => t.status === "done");
 
@@ -621,7 +660,6 @@ export function Dashboard({
                     overdue ? 'border-destructive bg-destructive/5' : ''
                   }`}
                 >
-                  {/* Complete button */}
                   <button
                     onClick={() => onCompleteTask(task)}
                     className={`flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
@@ -634,7 +672,6 @@ export function Dashboard({
                     <Check className="w-3 h-3 opacity-0 group-hover:opacity-100" />
                   </button>
 
-                  {/* Task content - clickable to edit */}
                   <button
                     onClick={() => onEditTask(task)}
                     className="flex-1 text-left min-w-0"
@@ -653,7 +690,6 @@ export function Dashboard({
                     </div>
                   </button>
 
-                  {/* Delete button */}
                   <button
                     onClick={async () => {
                       if (confirm("Weet je zeker dat je deze taak wilt verwijderen?")) {
@@ -669,13 +705,11 @@ export function Dashboard({
               );
             })}
 
-            {/* Done tasks (grayed out) */}
             {doneTasks.map((task) => (
               <div
                 key={task.id}
                 className="border rounded-lg p-3 bg-muted/50 flex items-center gap-3 opacity-60"
               >
-                {/* Green circle - clickable to reopen */}
                 <button
                   onClick={() => onReopenTask(task)}
                   className="flex-shrink-0 w-6 h-6 rounded-full border-2 border-green-500 bg-green-500 flex items-center justify-center hover:bg-green-600 hover:border-green-600 transition-colors"
@@ -694,7 +728,6 @@ export function Dashboard({
                     {formatGardenTaskDeadline(task)}
                   </div>
                 </button>
-                {/* Delete button for done tasks */}
                 <button
                   onClick={async () => {
                     if (confirm("Weet je zeker dat je deze afgeronde taak wilt verwijderen?")) {
@@ -718,7 +751,6 @@ export function Dashboard({
   return (
     <div className={`mx-auto ${isMobile ? 'max-w-full px-4 py-4' : 'max-w-5xl py-6'}`}>
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        {/* Modern Tab Switch */}
         <div className="mb-6 flex p-1 bg-muted/40 rounded-xl w-fit">
           <button
             onClick={() => setActiveTab("overview")}
@@ -747,7 +779,6 @@ export function Dashboard({
         </div>
 
         <TabsContent value="overview">
-          {/* Conflict banner - Modern style */}
           {totalConflicts > 0 && (
             <div className="rounded-xl border border-amber-200 bg-amber-50/50 backdrop-blur-sm p-4 flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
@@ -784,7 +815,6 @@ export function Dashboard({
                 <Leaf className="w-4 h-4 text-green-600" />
                 Moestuin taken
               </h3>
-              {/* Filter - Segmented Control */}
               <div className="flex p-0.5 bg-muted/40 rounded-lg">
                 <button
                   onClick={() => setShowAll(false)}
@@ -811,7 +841,6 @@ export function Dashboard({
               </div>
             </div>
 
-            {/* Verlopen acties sectie */}
             {overduePlantings.length > 0 && (
               <div className="space-y-3">
                 <h4 className="text-xs font-medium text-destructive uppercase tracking-wide">
@@ -821,7 +850,6 @@ export function Dashboard({
               </div>
             )}
 
-            {/* Komende/alle acties */}
             {upcomingPlantings.length === 0 && overduePlantings.length === 0 ? (
               <p className="text-sm text-muted-foreground py-4">
                 {showAll ? "Geen plantingen gevonden." : "Geen acties in de komende 2 weken."}
@@ -854,7 +882,6 @@ export function Dashboard({
               try {
                 await completeGardenTask(task.id);
                 
-                // Als het een recurring task is, maak een nieuwe aan voor volgend jaar
                 if (task.is_recurring) {
                   await createGardenTask({
                     garden_id: task.garden_id,
@@ -901,7 +928,6 @@ export function Dashboard({
             }}
           />
 
-          {/* Garden Task Modal */}
           <GardenTaskModal
             open={taskModalOpen}
             onOpenChange={setTaskModalOpen}
@@ -925,7 +951,6 @@ export function Dashboard({
             } : undefined}
           />
 
-          {/* Dialog: actie uitvoeren / bewerken of leegmaken - Modern Style */}
           {dialog && (
             <div 
               className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" 
@@ -938,7 +963,6 @@ export function Dashboard({
                 )} 
                 onClick={(e) => e.stopPropagation()}
               >
-                {/* Header */}
                 <div className="flex items-center justify-between px-5 py-4 border-b border-border/30 bg-gradient-to-r from-primary/5 to-transparent">
                   <h4 className="text-lg font-semibold">
                     Actie {dialog.hasActual ? "bewerken" : "uitvoeren"}
@@ -951,9 +975,7 @@ export function Dashboard({
                   </button>
                 </div>
 
-                {/* Content */}
                 <div className="p-5 space-y-5">
-                  {/* Task info */}
                   <div className="flex items-center gap-3 p-3 bg-muted/20 rounded-lg">
                     <div 
                       className="w-3 h-3 rounded-full"
@@ -977,7 +999,6 @@ export function Dashboard({
                     </div>
                   </div>
 
-                  {/* Date picker */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                       Uitgevoerd op
@@ -1011,7 +1032,6 @@ export function Dashboard({
                     </Popover>
                   </div>
 
-                  {/* Footer */}
                   <div className={cn(
                     "flex gap-2 pt-2 border-t border-border/30",
                     isMobile ? "flex-col" : "justify-end"
