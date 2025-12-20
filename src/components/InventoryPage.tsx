@@ -184,38 +184,61 @@ function StorageIconPicker({
   const [items, setItems] = useState<{ key: string; url: string }[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // hergebruikte helper
+  function publicUrlFor(key: string) {
+    const { data } = supabase.storage.from("crop-icons").getPublicUrl(key);
+    return data.publicUrl;
+  }
+
+  // simpele extensiecheck om files te herkennen
+  const FILE_RX = /\.(svg|png|jpg|jpeg|webp)$/i;
+
+  // Recursief alle bestanden ophalen (ook in subfolders)
+  async function listAll(prefix = ""): Promise<{ key: string; url: string }[]> {
+    const out: { key: string; url: string }[] = [];
+    const { data, error } = await supabase.storage.from("crop-icons").list(prefix, {
+      limit: 1000,
+    });
+    if (error) throw error;
+
+    for (const entry of data ?? []) {
+      const name = entry.name as string;
+      const path = prefix ? `${prefix}/${name}` : name;
+
+      if (FILE_RX.test(name)) {
+        out.push({ key: path, url: publicUrlFor(path) });
+      } else {
+        // Folder – ga dieper
+        const deeper = await listAll(path);
+        out.push(...deeper);
+      }
+    }
+    return out;
+  }
+
   useEffect(() => {
     let stopped = false;
-    const load = async () => {
+    (async () => {
       try {
         setLoading(true);
-        const { data, error } = await supabase.storage.from("crop-icons").list("", { limit: 1000 });
-        if (error) throw error;
-
-        const files = (data ?? [])
-          .filter((d: any) => d?.name && !d?.id) // alleen files in root, geen folders
-          .map((d: any) => d.name as string);
-
-        const out = files.map((name) => {
-          const { data } = supabase.storage.from("crop-icons").getPublicUrl(name);
-          return { key: name, url: data.publicUrl };
-        });
-        if (!stopped) setItems(out);
+        const all = await listAll("");
+        if (!stopped) setItems(all);
       } catch (e) {
         console.error("storage list error", e);
         if (!stopped) setItems([]);
       } finally {
         if (!stopped) setLoading(false);
       }
+    })();
+    return () => {
+      stopped = true;
     };
-    load();
-    return () => { stopped = true; };
   }, []);
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
     if (!term) return items;
-    return items.filter(it => it.key.toLowerCase().includes(term));
+    return items.filter((it) => it.key.toLowerCase().includes(term));
   }, [q, items]);
 
   return (
@@ -256,7 +279,7 @@ function StorageIconPicker({
                 )}
                 title={key}
               >
-                <img src={url} alt={key} className="w-6 h-6 object-contain" />
+                <img src={url} alt={key} className="w-6 h-6 object-contain" loading="lazy" />
               </button>
             );
           })}
