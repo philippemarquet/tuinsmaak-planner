@@ -3,10 +3,14 @@ import { useEffect, useMemo, useState } from "react";
 import type { Garden, Seed, CropType } from "../lib/types";
 import { createSeed, updateSeed, deleteSeed } from "../lib/api/seeds";
 import { listCropTypes, createCropType, updateCropType, deleteCropType } from "../lib/api/cropTypes";
+import { supabase } from "../lib/supabaseClient";
 import { Copy, Trash2, PlusCircle, ChevronDown, Search, Edit2 } from "lucide-react";
 import { SeedModal } from "./SeedModal";
 import { cn } from "../lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+
+/* ---------- constants ---------- */
+const ICON_BUCKET = "crop-icons";
 
 /* ---------- helpers ---------- */
 
@@ -16,23 +20,28 @@ function nextCopyName(name: string) {
   return `${name} (kopie)`;
 }
 
-/** slugify voor bestandsnamen */
-function slugify(input: string) {
-  return (input || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // accents weg
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+function publicIconUrl(path?: string | null): string | null {
+  if (!path) return null;
+  const { data } = supabase.storage.from(ICON_BUCKET).getPublicUrl(path);
+  return data?.publicUrl ?? null;
 }
 
-/** Toont een icon uit /public/crop-icons/<slug>.svg of .png; valt terug op een letterbadge */
-function CropIcon({ name, size = 16, className }: { name: string; size?: number; className?: string }) {
-  const slug = slugify(name);
-  const [src, setSrc] = useState(`/crop-icons/${slug}.svg`);
+/** Toon icoon vanuit Supabase Storage (of 1e letter als fallback) */
+function CropIcon({
+  file,
+  name,
+  size = 16,
+  className,
+}: {
+  file?: string | null;
+  name: string;
+  size?: number;
+  className?: string;
+}) {
   const [failed, setFailed] = useState(false);
+  const url = file && !failed ? publicIconUrl(file) : null;
 
-  if (failed) {
+  if (!url) {
     return (
       <div
         className={cn(
@@ -50,16 +59,13 @@ function CropIcon({ name, size = 16, className }: { name: string; size?: number;
 
   return (
     <img
-      src={src}
+      src={url}
       width={size}
       height={size}
       alt={name}
       title={name}
       className={cn("inline-block object-contain", className)}
-      onError={() => {
-        if (src.endsWith(".svg")) setSrc(`/crop-icons/${slug}.png`);
-        else setFailed(true);
-      }}
+      onError={() => setFailed(true)}
     />
   );
 }
@@ -146,6 +152,8 @@ function SeedGroup({
   const [isOpen, setIsOpen] = useState(true);
   const count = group.items.length;
 
+  const ct = group.id !== "__none__" ? cropTypesById.get(group.id) : undefined;
+
   return (
     <section className="space-y-2">
       <button
@@ -158,7 +166,7 @@ function SeedGroup({
             isOpen && "rotate-180"
           )}
         />
-        <CropIcon name={group.label} className="text-primary/70" />
+        <CropIcon file={(ct as any)?.icon_file ?? null} name={group.label} className="text-primary/70" />
         <h3 className="text-base font-semibold group-hover:text-primary transition-colors">
           {group.label} <span className="text-sm text-muted-foreground font-normal">({count})</span>
         </h3>
@@ -181,7 +189,134 @@ function SeedGroup({
   );
 }
 
-/* ---------- Categoriebeheer (naam-only) ---------- */
+/* ---------- IconPicker via Supabase Storage ---------- */
+
+type StorageFile = {
+  name: string;
+  id?: string;
+  updated_at?: string;
+  created_at?: string;
+  last_accessed_at?: string;
+  metadata?: Record<string, any>;
+};
+
+async function listBucketFiles(prefix = ""): Promise<StorageFile[]> {
+  const res = await supabase.storage.from(ICON_BUCKET).list(prefix, {
+    limit: 1000,
+    offset: 0,
+    search: "",
+    sortBy: { column: "name", order: "asc" },
+  });
+  if (res.error) throw res.error;
+  // alleen bestanden (geen folders)
+  return (res.data ?? []).filter((f) => !("id" in f) || (f as any).id !== null);
+}
+
+function useStorageIcons() {
+  const [files, setFiles] = useState<string[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        // root van de bucket; wil je submappen, roep listBucketFiles("groenten/") etc aan
+        const items = await listBucketFiles("");
+        if (!cancelled) {
+          setFiles(items.map((it) => it.name).filter(Boolean));
+          setLoaded(true);
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setErr(e?.message ?? String(e));
+          setLoaded(true);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  return { files, loaded, err };
+}
+
+function IconPicker({
+  value,
+  onChange,
+}: {
+  value?: string | null;
+  onChange: (filename: string | null) => void;
+}) {
+  const { files, loaded, err } = useStorageIcons();
+  const [q, setQ] = useState("");
+
+  const filtered = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    if (!t) return files;
+    return files.filter((f) => f.toLowerCase().includes(t));
+  }, [q, files]);
+
+  if (!loaded) return <div className="text-sm text-muted-foreground">Iconen laden…</div>;
+  if (err) return <div className="text-sm text-red-600">Kon iconen niet laden: {err}</div>;
+  if (files.length === 0) return <div className="text-sm text-muted-foreground">Nog geen iconen in de bucket <code>{ICON_BUCKET}</code>.</div>;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Zoek icoon…"
+          className="w-full px-3 py-2 text-sm bg-muted/30 border-0 rounded-lg focus:ring-2 focus:ring-primary/20 focus:bg-background transition-all placeholder:text-muted-foreground/60"
+        />
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          className="px-2 py-2 text-xs rounded-lg bg-muted hover:bg-muted/70"
+          title="Zonder icoon"
+        >
+          Geen
+        </button>
+      </div>
+      <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 gap-2 max-h-60 overflow-y-auto">
+        {filtered.map((filename) => {
+          const active = value === filename;
+          const url = publicIconUrl(filename) || "";
+          return (
+            <button
+              key={filename}
+              type="button"
+              onClick={() => onChange(filename)}
+              className={cn(
+                "aspect-square rounded-lg border flex items-center justify-center hover:bg-muted transition-colors",
+                active ? "border-primary ring-2 ring-primary/30" : "border-border/60"
+              )}
+              title={filename}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={url}
+                alt={filename}
+                className="w-6 h-6 object-contain"
+                onError={(e) => ((e.currentTarget as HTMLImageElement).style.opacity = "0.2")}
+              />
+            </button>
+          );
+        })}
+      </div>
+      {value && (
+        <div className="mt-2 text-xs text-muted-foreground flex items-center gap-2">
+          Gekozen:
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={publicIconUrl(value) || ""} className="h-5 w-5 object-contain" />
+          <code className="px-1.5 py-0.5 rounded bg-muted">{value}</code>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Categoriebeheer ---------- */
 
 function CategoriesManager({
   cropTypes,
@@ -190,19 +325,23 @@ function CategoriesManager({
   cropTypes: CropType[];
   onReload: () => Promise<void>;
 }) {
-  const [editing, setEditing] = useState<null | { id?: string; name: string }>(null);
+  const [editing, setEditing] = useState<null | { id?: string; name: string; icon_file: string | null }>(null);
   const [busy, setBusy] = useState(false);
 
   function startCreate() {
-    setEditing({ name: "" });
+    setEditing({ name: "", icon_file: null });
   }
   function startEdit(ct: CropType) {
-    setEditing({ id: (ct as any).id, name: ct.name });
+    setEditing({
+      id: (ct as any).id,
+      name: ct.name,
+      icon_file: (ct as any).icon_file ?? null,
+    });
   }
 
   async function handleSave() {
     if (!editing) return;
-    const { id, name } = editing;
+    const { id, name, icon_file } = editing;
     if (!name.trim()) {
       alert("Voer een naam in.");
       return;
@@ -210,9 +349,9 @@ function CategoriesManager({
     try {
       setBusy(true);
       if (id) {
-        await updateCropType(id as any, { name: name.trim() });
+        await updateCropType(id as any, { name: name.trim(), icon_file: icon_file ?? null });
       } else {
-        await createCropType({ name: name.trim() });
+        await createCropType({ name: name.trim(), icon_file: icon_file ?? null });
       }
       setEditing(null);
       await onReload();
@@ -249,46 +388,37 @@ function CategoriesManager({
         </button>
       </div>
 
+      {/* lijst */}
       <div className="grid gap-2">
-        {cropTypes.length === 0 && <p className="text-sm text-muted-foreground">Nog geen categorieën.</p>}
-        {cropTypes.map((ct) => {
-          const name = ct.name;
-          return (
-            <div key={ct.id} className="flex items-center gap-3 px-3 py-2 border rounded-lg bg-card">
-              <CropIcon name={name} />
-              <span className="text-sm font-medium flex-1 truncate">{name}</span>
-              {/* hint: toon welke bestandsnaam gezocht wordt */}
-              <code className="hidden sm:inline px-1.5 py-0.5 rounded bg-muted text-xs text-muted-foreground">
-                /crop-icons/{slugify(name)}.(svg|png)
-              </code>
-              <button
-                onClick={() => startEdit(ct)}
-                className="p-1.5 rounded hover:bg-muted transition-colors"
-                title="Bewerken"
-              >
-                <Edit2 className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => handleDelete((ct as any).id)}
-                className="p-1.5 rounded hover:bg-destructive/10 text-destructive transition-colors"
-                title="Verwijderen"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-          );
-        })}
+        {cropTypes.length === 0 && (
+          <p className="text-sm text-muted-foreground">Nog geen categorieën.</p>
+        )}
+        {cropTypes.map((ct) => (
+          <div key={ct.id} className="flex items-center gap-3 px-3 py-2 border rounded-lg bg-card">
+            <CropIcon file={(ct as any).icon_file} name={ct.name} />
+            <span className="text-sm font-medium flex-1 truncate">{ct.name}</span>
+            <button
+              onClick={() => startEdit(ct)}
+              className="p-1.5 rounded hover:bg-muted transition-colors"
+              title="Bewerken"
+            >
+              <Edit2 className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => handleDelete((ct as any).id)}
+              className="p-1.5 rounded hover:bg-destructive/10 text-destructive transition-colors"
+              title="Verwijderen"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
       </div>
 
+      {/* modal */}
       {editing && (
-        <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-          onClick={() => !busy && setEditing(null)}
-        >
-          <div
-            className="bg-card rounded-2xl w-full max-w-lg border border-border/50 shadow-2xl overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => !busy && setEditing(null)}>
+          <div className="bg-card rounded-2xl w-full max-w-lg border border-border/50 shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="px-5 py-4 border-b border-border/30 bg-gradient-to-r from-primary/5 to-transparent">
               <h4 className="text-lg font-semibold">{editing.id ? "Categorie bewerken" : "Nieuwe categorie"}</h4>
             </div>
@@ -301,9 +431,13 @@ function CategoriesManager({
                   className="w-full mt-1.5 bg-muted/30 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
                   placeholder="Bijv. Koolgewassen"
                 />
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  Bestandsnaam gezocht: <code>/crop-icons/{slugify(editing.name || "voorbeeld")}.(svg|png)</code>
-                </p>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Icoon (uit Storage)</label>
+                <IconPicker
+                  value={editing.icon_file}
+                  onChange={(filename) => setEditing({ ...editing, icon_file: filename })}
+                />
               </div>
             </div>
             <div className="px-5 py-4 border-t border-border/30 bg-muted/20 flex justify-end gap-2">
@@ -337,8 +471,8 @@ export function InventoryPage({
   garden,
   seeds: initialSeeds,
   cropTypes: initialCropTypes,
-  onDataChange,
-}: {
+  onDataChange
+}: { 
   garden: Garden;
   seeds: Seed[];
   cropTypes: CropType[];
@@ -373,7 +507,7 @@ export function InventoryPage({
       const types = await listCropTypes();
       setCropTypes(types);
     } catch (err) {
-      console.error("Failed to fetch crop types:", err);
+      console.error('Failed to fetch crop types:', err);
     }
   };
   useEffect(() => {
@@ -460,12 +594,12 @@ export function InventoryPage({
 
   // groepering op gewastype
   const groups = useMemo(() => {
-    const byId = new Map<string, CropType>(cropTypes.map((ct) => [ct.id, ct]));
+    const byId = new Map<string, CropType>(cropTypes.map(ct => [ct.id, ct]));
     const map = new Map<string, { label: string; items: Seed[] }>();
 
     for (const s of filtered) {
       const key = s.crop_type_id || "__none__";
-      const label = s.crop_type_id ? byId.get(s.crop_type_id)?.name || "Onbekend" : "Overig";
+      const label = s.crop_type_id ? (byId.get(s.crop_type_id)?.name || "Onbekend") : "Overig";
       if (!map.has(key)) map.set(key, { label, items: [] });
       map.get(key)!.items.push(s);
     }
@@ -576,7 +710,7 @@ export function InventoryPage({
                         cropTypeFilter === ct.id ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted/50"
                       )}
                     >
-                      <CropIcon name={ct.name} />
+                      <CropIcon file={(ct as any).icon_file} name={ct.name} />
                       {ct.name}
                     </button>
                   ))}
