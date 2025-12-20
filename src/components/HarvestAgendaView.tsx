@@ -1,395 +1,254 @@
-// src/components/HarvestAgendaView.tsx
-import { useMemo, useState } from "react";
-import type { GardenBed, Planting, Seed, CropType } from "../lib/types";
-import { format, addMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameMonth, isToday, differenceInCalendarDays, isAfter, isBefore } from "date-fns";
-import { nl } from "date-fns/locale";
-import { ChevronLeft, ChevronRight, Sprout, Leaf } from "lucide-react";
-import { cn } from "../lib/utils";
+import { useEffect, useMemo, useState } from "react";
+import type { Planting, Seed, CropType } from "../lib/types";
 import { supabase } from "../lib/supabaseClient";
+import { cn } from "../lib/utils";
+import { Calendar as CalendarIcon, List as ListIcon } from "lucide-react";
 
-/* =========== helpers: icons via storage, zoals Dashboard =========== */
+/* ---------- Icon helpers (zelfde fallback als dashboard/planner) ---------- */
 const ICON_BUCKET = "crop-icons";
+const iconUrlCache = new Map<string, string>();
+
 function iconUrlForKey(key?: string | null): string | null {
   if (!key) return null;
+  const cached = iconUrlCache.get(key);
+  if (cached) return cached;
   const { data } = supabase.storage.from(ICON_BUCKET).getPublicUrl(key);
-  return data?.publicUrl ?? null;
+  const url = data?.publicUrl ?? null;
+  if (url) iconUrlCache.set(key, url);
+  return url;
 }
-function resolveSeedIconKey(seed?: Seed | null, cropTypesById?: Map<string, CropType>): string | null {
+function resolveSeedIconUrl(seed: Seed | undefined, cropTypesById: Map<string, CropType>): string | null {
   if (!seed) return null;
   const seedKey = (seed as any).icon_key || null;
-  if (seedKey) return seedKey;
-  const ctId = seed.crop_type_id;
-  const ct = ctId ? cropTypesById?.get(ctId) : undefined;
-  return (ct as any)?.icon_key ?? null;
+  if (seedKey) return iconUrlForKey(seedKey);
+  const ct = seed.crop_type_id ? cropTypesById.get(seed.crop_type_id) : undefined;
+  return iconUrlForKey((ct as any)?.icon_key || null);
 }
 
-/* =========== types =========== */
-type Mode = "mix" | "planned" | "actual";
+/* ---------- Date helpers ---------- */
+const startOfDay = (d: Date) => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
+const endOfDay = (d: Date) => { const x = new Date(d); x.setHours(23,59,59,999); return x; };
+const daysInMonth = (year: number, monthIdx0: number) => new Date(year, monthIdx0 + 1, 0).getDate();
+const startOfMonth = (y: number, m0: number) => new Date(y, m0, 1, 0, 0, 0, 0);
+const endOfMonth = (y: number, m0: number) => new Date(y, m0, daysInMonth(y, m0), 23, 59, 59, 999);
+const fmtDay = (d: Date) => d.getDate();
+const monthName = (m0: number) =>
+  new Date(2000, m0, 1).toLocaleString("nl-NL", { month: "long" }).replace(/^\w/, (c) => c.toUpperCase());
 
-type Span = {
-  plantingId: string;
-  seedId: string;
-  bedId: string;
-  color: string;
-  start: Date;
-  end: Date;
-  seedName: string;
-  bedName: string;
-  iconUrl: string | null;
-};
+/* ---------- Harvest interval per planting ---------- */
+type Interval = { start: Date; end: Date };
+function harvestIntervalOf(p: Planting): Interval | null {
+  const sISO = p.actual_harvest_start || p.planned_harvest_start || null;
+  const eISO = p.actual_harvest_end || p.planned_harvest_end || null;
+  if (!sISO || !eISO) return null;
+  const s = startOfDay(new Date(sISO));
+  const e = endOfDay(new Date(eISO));
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return null;
+  if (e < s) return null;
+  return { start: s, end: e };
+}
+const overlaps = (a: Interval, b: Interval) => a.start <= b.end && b.start <= a.start ? true : a.start <= b.end && b.start <= a.end;
 
-/* =========== component =========== */
-export function HarvestAgendaView({
-  plantings,
-  seeds,
-  beds,
-  cropTypes,
-}: {
-  plantings: Planting[];
-  seeds: Seed[];
-  beds: GardenBed[];
-  cropTypes: CropType[];
-}) {
-  const [mode, setMode] = useState<Mode>("mix"); // mix | planned | actual
-  const [monthAnchor, setMonthAnchor] = useState<Date>(() => {
-    const d = new Date();
-    d.setDate(1);
-    d.setHours(0, 0, 0, 0);
-    return d;
-  });
-  const [showGreenhouseOnly, setShowGreenhouseOnly] = useState(false);
-
-  const seedsById = useMemo(() => new Map(seeds.map(s => [s.id, s])), [seeds]);
-  const bedsById  = useMemo(() => new Map(beds.map(b => [b.id, b])), [beds]);
-  const cropTypesById = useMemo(() => new Map(cropTypes.map(ct => [ct.id, ct])), [cropTypes]);
-
-  /* ---- make spans for harvest windows ---- */
-  const spans: Span[] = useMemo(() => {
-    const out: Span[] = [];
-    for (const p of plantings) {
-      const s = seedsById.get(p.seed_id);
-      const b = bedsById.get(p.garden_bed_id);
-      if (!s || !b) continue;
-
-      // kies datums volgens mode
-      const plannedStart = p.planned_harvest_start ? new Date(p.planned_harvest_start) : null;
-      const plannedEnd   = p.planned_harvest_end   ? new Date(p.planned_harvest_end)   : null;
-      const actualStart  = p.actual_harvest_start  ? new Date(p.actual_harvest_start)  : null;
-      const actualEnd    = p.actual_harvest_end    ? new Date(p.actual_harvest_end)    : null;
-
-      let start: Date | null = null;
-      let end: Date | null = null;
-
-      if (mode === "planned") {
-        start = plannedStart; end = plannedEnd;
-      } else if (mode === "actual") {
-        start = actualStart; end = actualEnd;
-      } else { // "mix" → actual waar kan, anders gepland
-        start = actualStart ?? plannedStart;
-        end   = actualEnd   ?? plannedEnd;
-      }
-
-      if (!start || !end) continue;
-      // normaliseer (zekerheid)
-      if (isAfter(start, end)) {
-        const tmp = start; start = end; end = tmp;
-      }
-
-      // filter kas/buiten
-      if (showGreenhouseOnly && !b.is_greenhouse) continue;
-
-      const color = p.color && (p.color.startsWith("#") || p.color.startsWith("rgb")) ? p.color : "#22c55e";
-      const iconKey = resolveSeedIconKey(s, cropTypesById);
-      const iconUrl = iconUrlForKey(iconKey);
-
-      out.push({
-        plantingId: p.id,
-        seedId: p.seed_id,
-        bedId: p.garden_bed_id,
-        color,
-        start, end,
-        seedName: s.name,
-        bedName: b.name,
-        iconUrl
-      });
-    }
-    // optioneel: sorteer op start
-    out.sort((a, b) => a.start.getTime() - b.start.getTime() || a.seedName.localeCompare(b.seedName));
-    return out;
-  }, [plantings, seedsById, bedsById, cropTypesById, mode, showGreenhouseOnly]);
-
-  /* ---- kalender raster ---- */
-  const monthStart = startOfMonth(monthAnchor);
-  const monthEnd = endOfMonth(monthAnchor);
-  const gridStart = startOfWeek(monthStart, { weekStartsOn: 1 }); // maandag
-  const gridEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
-
-  const days: Date[] = [];
-  for (let d = new Date(gridStart); !isAfter(d, gridEnd); d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
-    days.push(new Date(d));
-  }
-
-  // groepeer per week (7 dagen)
-  const weeks: Date[][] = [];
-  for (let i = 0; i < days.length; i += 7) {
-    weeks.push(days.slice(i, i + 7));
-  }
-
-  // bereken layout per week (multi-day bars met lanes)
-  type WeekBar = {
-    span: Span;
-    lane: number; // 0..N
-    colStart: number; // 0..6
-    colSpan: number;  // 1..7
-    clippedLeft: boolean;
-    clippedRight: boolean;
-  };
-  function layoutWeek(weekDays: Date[]): { bars: WeekBar[]; maxLane: number; overflow: number } {
-    const weekStart = weekDays[0];
-    const weekEnd   = weekDays[6];
-    // spans die de week kruisen
-    const active = spans.filter(sp => sp.start <= weekEnd && sp.end >= weekStart);
-
-    // normaliseerde window in week-coords
-    const items = active.map(sp => {
-      const a = isBefore(sp.start, weekStart) ? weekStart : sp.start;
-      const b = isAfter(sp.end, weekEnd) ? weekEnd : sp.end;
-      const colStart = differenceInCalendarDays(a, weekStart); // 0..6
-      const colEnd   = differenceInCalendarDays(b, weekStart); // 0..6
-      return {
-        span: sp,
-        colStart,
-        colEnd,
-        clippedLeft: isBefore(sp.start, weekStart),
-        clippedRight: isAfter(sp.end, weekEnd),
-      };
-    }).sort((x, y) => x.colStart - y.colStart || x.colEnd - y.colEnd);
-
-    const lanesEnd: number[] = []; // voor elke lane: laatst bezette kolom
-    const bars: WeekBar[] = [];
-    let overflow = 0;
-    const MAX_LANES = 4; // compact houden; rest -> "+N meer"
-
-    for (const it of items) {
-      let placed = false;
-      for (let lane = 0; lane < Math.min(lanesEnd.length, MAX_LANES); lane++) {
-        if (lanesEnd[lane] < it.colStart) { // vrij
-          lanesEnd[lane] = it.colEnd;
-          bars.push({
-            span: it.span,
-            lane,
-            colStart: it.colStart,
-            colSpan: (it.colEnd - it.colStart + 1),
-            clippedLeft: it.clippedLeft,
-            clippedRight: it.clippedRight,
-          });
-          placed = true;
-          break;
-        }
-      }
-      if (!placed) {
-        if (lanesEnd.length < MAX_LANES) {
-          const lane = lanesEnd.length;
-          lanesEnd.push(it.colEnd);
-          bars.push({
-            span: it.span,
-            lane,
-            colStart: it.colStart,
-            colSpan: (it.colEnd - it.colStart + 1),
-            clippedLeft: it.clippedLeft,
-            clippedRight: it.clippedRight,
-          });
-        } else {
-          overflow++;
-        }
-      }
-    }
-
-    return { bars, maxLane: lanesEnd.length - 1, overflow };
-  }
-
-  function openPlantingInPlannerTimeline(plantingId: string) {
-    try {
-      localStorage.setItem("plannerOpenTab", "timeline");
-      localStorage.setItem("plannerConflictFocusId", plantingId);
-      localStorage.setItem("plannerFlashAt", String(Date.now()));
-      // optioneel: nav hint via hash
-      window.location.hash = "#planner";
-    } catch {}
-  }
-
+/* ---------- Compact chip ---------- */
+function CropChip({ iconUrl, label }: { iconUrl: string | null; label: string }) {
   return (
-    <section className="space-y-4">
-      {/* Header / bediening */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2">
-          <button
-            className="px-3 py-2 rounded-md border hover:bg-muted"
-            onClick={() => setMonthAnchor(addMonths(monthAnchor, -1))}
-            title="Vorige maand"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <div className="px-4 py-2 rounded-md bg-muted/40 font-semibold">
-            {format(monthAnchor, "MMMM yyyy", { locale: nl })}
-          </div>
-          <button
-            className="px-3 py-2 rounded-md border hover:bg-muted"
-            onClick={() => setMonthAnchor(addMonths(monthAnchor, +1))}
-            title="Volgende maand"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-          <button
-            className="px-3 py-2 rounded-md bg-muted/50 hover:bg-muted"
-            onClick={() => setMonthAnchor(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}
-          >
-            Vandaag
-          </button>
-        </div>
-
-        {/* Mode toggle */}
-        <div className="flex items-center p-1 bg-muted/40 rounded-lg ml-auto">
-          {(["mix", "planned", "actual"] as Mode[]).map(m => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              className={cn(
-                "px-3 py-1.5 text-sm font-medium rounded-md transition-all",
-                mode === m ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {m === "mix" ? "Mix" : m === "planned" ? "Verwacht" : "Werkelijk"}
-            </button>
-          ))}
-        </div>
-
-        {/* Filter Kas */}
-        <button
-          onClick={() => setShowGreenhouseOnly(v => !v)}
-          className={cn(
-            "px-3 py-1.5 text-sm font-medium rounded-lg transition-all",
-            showGreenhouseOnly ? "bg-emerald-500 text-white" : "bg-muted/50 text-muted-foreground hover:bg-muted"
-          )}
-          title="Alleen kas"
-        >
-          Kas
-        </button>
+    <div className="inline-flex items-center gap-2 rounded-md border bg-card px-2.5 py-1 text-xs">
+      <div className="relative w-4 h-4 rounded-sm overflow-hidden bg-emerald-500/70">
+        {iconUrl ? (
+          <img src={iconUrl} alt="" className="absolute inset-0 w-full h-full object-contain opacity-95" />
+        ) : (
+          <div className="absolute inset-0" />
+        )}
       </div>
-
-      {/* Weekdagen kop */}
-      <div className="grid grid-cols-7 gap-px text-[11px] text-muted-foreground">
-        {["Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"].map((d) => (
-          <div key={d} className="px-2 py-1">{d}</div>
-        ))}
-      </div>
-
-      {/* Kalender raster */}
-      <div className="grid grid-rows-6 gap-2">
-        {weeks.map((weekDays, wIdx) => {
-          const { bars, maxLane, overflow } = layoutWeek(weekDays);
-          const laneHeight = 22;
-          const topPad = 24;
-          const rowExtra = Math.max(0, (maxLane + 1)) * laneHeight + (overflow > 0 ? 22 : 0);
-          const rowHeight = topPad + rowExtra + 56; // ruimte voor inhoud / optische balans
-
-          return (
-            <div
-              key={wIdx}
-              className="relative rounded-lg border bg-card overflow-hidden"
-              style={{ minHeight: rowHeight }}
-            >
-              {/* Dagcellen raster */}
-              <div className="grid grid-cols-7 h-full">
-                {weekDays.map((d, i) => {
-                  const inMonth = isSameMonth(d, monthAnchor);
-                  const today = isToday(d);
-                  return (
-                    <div key={i} className="relative border-l first:border-l-0 border-border/50">
-                      <div className={cn(
-                        "absolute left-2 top-1 text-xs font-medium px-1.5 py-0.5 rounded",
-                        today ? "bg-primary text-primary-foreground" : "text-muted-foreground",
-                        !inMonth && "!text-muted-foreground/50"
-                      )}>
-                        {format(d, "d", { locale: nl })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Bars overlay */}
-              <div className="absolute left-0 right-0" style={{ top: topPad }}>
-                {bars.map((b, idx) => {
-                  const leftPct = (b.colStart / 7) * 100;
-                  const widthPct = (b.colSpan / 7) * 100;
-                  return (
-                    <div
-                      key={idx}
-                      className="absolute px-1"
-                      style={{
-                        left: `${leftPct}%`,
-                        width: `${widthPct}%`,
-                        top: b.lane * laneHeight,
-                      }}
-                    >
-                      <button
-                        title={`${b.span.seedName} • ${b.span.bedName}`}
-                        onClick={() => openPlantingInPlannerTimeline(b.span.plantingId)}
-                        className="w-full text-left rounded-md overflow-hidden shadow-sm ring-1 ring-black/5"
-                        style={{ background: b.span.color }}
-                      >
-                        <div className="flex items-center gap-1 px-2 py-1 text-[11px] text-white/95">
-                          {/* clip indicators */}
-                          {b.clippedLeft && <span className="mr-1">⟵</span>}
-                          {/* icon/leaf */}
-                          <span className="relative inline-flex w-4 h-4 items-center justify-center overflow-hidden rounded-sm">
-                            {b.span.iconUrl ? (
-                              <img src={b.span.iconUrl} alt="" className="object-contain w-full h-full opacity-95" draggable={false} />
-                            ) : (
-                              <Leaf className="w-3.5 h-3.5 text-white/90" />
-                            )}
-                          </span>
-                          <span className="truncate">{b.span.seedName}</span>
-                          <span className="opacity-75 truncate">• {b.span.bedName}</span>
-                          {b.clippedRight && <span className="ml-1">⟶</span>}
-                        </div>
-                      </button>
-                    </div>
-                  );
-                })}
-
-                {/* Week overflow hint */}
-                {overflow > 0 && (
-                  <div
-                    className="absolute left-0 right-0 px-2"
-                    style={{ top: (Math.max(0, maxLane) + 1) * laneHeight }}
-                  >
-                    <div className="text-[11px] text-muted-foreground px-2 py-1 bg-muted/40 rounded-md inline-flex items-center gap-1">
-                      <Sprout className="w-3 h-3" />
-                      +{overflow} meer in deze week
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Mini legenda */}
-      <div className="text-xs text-muted-foreground flex items-center gap-3 pt-1">
-        <div className="inline-flex items-center gap-1">
-          <span className="inline-block w-3 h-3 bg-primary/80 rounded-sm" />
-          <span>Balk = oogstperiode</span>
-        </div>
-        <div className="inline-flex items-center gap-1">
-          <span>⟵ / ⟶</span>
-          <span>loopt door buiten de week</span>
-        </div>
-      </div>
-    </section>
+      <span className="font-medium truncate">{label}</span>
+    </div>
   );
 }
 
-export default HarvestAgendaView;HarvestAgendaView.tsx
+/* ---------- Hoofdcomponent ---------- */
+export default function HarvestAgendaView({
+  seeds,
+  plantings,
+  cropTypes,
+}: {
+  seeds: Seed[];
+  plantings: Planting[];
+  cropTypes: CropType[];
+}) {
+  const cropTypesById = useMemo(() => new Map<string, CropType>(cropTypes.map((c) => [c.id, c])), [cropTypes]);
+  const seedsById = useMemo(() => Object.fromEntries(seeds.map((s) => [s.id, s])), [seeds]);
+
+  const [mode, setMode] = useState<"calendar" | "list">(
+    () => (localStorage.getItem("harvestView") as any) || "calendar"
+  );
+  useEffect(() => { localStorage.setItem("harvestView", mode); }, [mode]);
+
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month0, setMonth0] = useState(now.getMonth()); // 0..11
+
+  /* Verrijkte plantings met harvest-interval + icon */
+  const enriched = useMemo(() => {
+    return plantings
+      .map((p) => {
+        const iv = harvestIntervalOf(p);
+        if (!iv) return null;
+        const seed = seedsById[p.seed_id];
+        const iconUrl = resolveSeedIconUrl(seed, cropTypesById);
+        return { p, seed, iconUrl, iv };
+      })
+      .filter(Boolean) as Array<{ p: Planting; seed?: Seed; iconUrl: string | null; iv: Interval }>;
+  }, [plantings, seedsById, cropTypesById]);
+
+  /* Kalenderweergave: items per dag */
+  const calendarDays = useMemo(() => {
+    const total = daysInMonth(year, month0);
+    const byDay: Array<{ date: Date; items: Array<{ seed?: Seed; iconUrl: string | null }> }> = [];
+    for (let d = 1; d <= total; d++) {
+      const date = new Date(year, month0, d);
+      const ivDay: Interval = { start: startOfDay(date), end: endOfDay(date) };
+      const items = enriched
+        .filter((x) => overlaps(x.iv, ivDay))
+        .map((x) => ({ seed: x.seed, iconUrl: x.iconUrl }));
+      byDay.push({ date, items });
+    }
+    return byDay;
+  }, [enriched, year, month0]);
+
+  /* Lijstweergave: per maand unieke gewassen */
+  const byMonth = useMemo(() => {
+    const sets = Array.from({ length: 12 }, () => new Set<string>());
+    for (const x of enriched) {
+      for (let m = 0; m < 12; m++) {
+        const ivM: Interval = { start: startOfMonth(year, m), end: endOfMonth(year, m) };
+        if (overlaps(x.iv, ivM) && x.seed) sets[m].add(x.seed.id);
+      }
+    }
+    return sets.map((set, m) => {
+      const items = Array.from(set)
+        .map((id) => {
+          const seed = seedsById[id];
+          if (!seed) return null;
+          const iconUrl = resolveSeedIconUrl(seed, cropTypesById);
+          return { seed, iconUrl };
+        })
+        .filter(Boolean) as Array<{ seed: Seed; iconUrl: string | null }>;
+      items.sort((a, b) => a.seed.name.localeCompare(b.seed.name, "nl", { sensitivity: "base" }));
+      return { month0: m, items };
+    });
+  }, [enriched, seedsById, cropTypesById, year]);
+
+  return (
+    <section className="space-y-4">
+      {/* Header + view switch */}
+      <div className="flex items-center justify-between">
+        <h3 className="text-xl font-semibold">Oogstagenda</h3>
+        <div className="flex items-center gap-1 p-1 bg-muted/40 rounded-lg">
+          <button
+            className={cn(
+              "inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-md",
+              mode === "calendar" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+            )}
+            onClick={() => setMode("calendar")}
+            title="Kalenderweergave"
+          >
+            <CalendarIcon className="w-4 h-4" />
+            Kalender
+          </button>
+          <button
+            className={cn(
+              "inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-md",
+              mode === "list" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+            )}
+            onClick={() => setMode("list")}
+            title="Lijstweergave per maand"
+          >
+            <ListIcon className="w-4 h-4" />
+            Lijst
+          </button>
+        </div>
+      </div>
+
+      {/* Kalender */}
+      {mode === "calendar" && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <button
+              className="px-2 py-1 rounded-md border hover:bg-muted"
+              onClick={() => {
+                const m = month0 - 1;
+                if (m < 0) { setMonth0(11); setYear((y) => y - 1); } else setMonth0(m);
+              }}
+            >
+              ←
+            </button>
+            <div className="px-3 py-1.5 rounded-md bg-muted/40 text-sm font-medium">
+              {monthName(month0)} {year}
+            </div>
+            <button
+              className="px-2 py-1 rounded-md border hover:bg-muted"
+              onClick={() => {
+                const m = month0 + 1;
+                if (m > 11) { setMonth0(0); setYear((y) => y + 1); } else setMonth0(m);
+              }}
+            >
+              →
+            </button>
+          </div>
+
+          <div className="grid grid-cols-7 gap-2">
+            {["ma", "di", "wo", "do", "vr", "za", "zo"].map((w) => (
+              <div key={w} className="text-[11px] text-muted-foreground text-center uppercase tracking-wide">
+                {w}
+              </div>
+            ))}
+
+            {/* Lege cellen tot maandag */}
+            {(() => {
+              const first = new Date(year, month0, 1);
+              const weekDay = first.getDay() || 7; // zondag=0 -> 7
+              const blanks = weekDay === 1 ? 0 : weekDay - 1;
+              return Array.from({ length: blanks }).map((_, i) => <div key={`blank-${i}`} />);
+            })()}
+
+            {calendarDays.map(({ date, items }) => (
+              <div key={date.toISOString()} className="border rounded-lg p-1.5 min-h-[70px]">
+                <div className="text-[11px] font-medium mb-1">{fmtDay(date)}</div>
+                <div className="flex flex-wrap gap-1">
+                  {items.slice(0, 6).map((it, idx) => (
+                    <CropChip key={idx} iconUrl={it.iconUrl} label={it.seed?.name ?? "—"} />
+                  ))}
+                  {items.length > 6 && (
+                    <span className="text-[10px] text-muted-foreground">+{items.length - 6}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Lijst per maand */}
+      {mode === "list" && (
+        <div className="space-y-4">
+          {byMonth.map(({ month0: m, items }) => (
+            <div key={m} className="border rounded-lg p-3 bg-card">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                {monthName(m)}
+              </div>
+              {items.length === 0 ? (
+                <div className="text-xs text-muted-foreground">—</div>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {items.map(({ seed, iconUrl }) => (
+                    <CropChip key={seed.id} iconUrl={iconUrl} label={seed.name} />
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
