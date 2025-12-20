@@ -1,194 +1,75 @@
-export type UUID = string;
+// src/lib/api/cropTypes.ts
+import { supabase } from "../supabaseClient";
+import type { CropType } from "../types";
+import { withRetry } from "../apiRetry";
 
-export interface Profile {
-  id: UUID;
-  display_name: string | null;
-  notification_prefs: Record<string, any>;
-  calendar_token: string | null;
-  created_at: string;
-  updated_at: string;
+/** Alle gewastypen ophalen (incl. optionele icon_slug) */
+export async function listCropTypes(): Promise<CropType[]> {
+  return withRetry(async () => {
+    const { data, error } = await supabase
+      .from("crop_types")
+      .select("*") // verwacht kolommen: id, name, created_at, icon_slug (nullable)
+      .order("name", { ascending: true });
+
+    if (error) throw error;
+    return (data ?? []) as CropType[];
+  });
 }
 
-export interface Garden {
-  id: UUID;
+/** Nieuw gewastype aanmaken */
+export async function createCropType(payload: {
   name: string;
-  join_code: string;
-  created_at: string;
-}
-
-export interface GardenUser {
-  id: UUID;
-  garden_id: UUID;
-  user_id: UUID;
-  role: "owner" | "member";
-  created_at: string;
-}
-
-export interface CropType {
-  id: UUID;
-  name: string;
-  created_at: string;
-  /** Optioneel: Iconify/MDI slug voor categorie-icoon (bijv. "mdi:carrot") */
   icon_slug?: string | null;
+}): Promise<CropType> {
+  return withRetry(async () => {
+    const { data, error } = await supabase
+      .from("crop_types")
+      .insert({
+        name: payload.name,
+        icon_slug: payload.icon_slug ?? null,
+      })
+      .select("*")
+      .single(); // precies 1 rij terug
+
+    if (error) throw error;
+    return data as CropType;
+  });
 }
 
-//
-// Zaden (voorraad)
-//
-export interface Seed {
-  id: UUID;
-  garden_id: UUID;
-  name: string;
-  crop_type_id: UUID | null;
-  purchase_date: string | null;
+/** Gewastype bijwerken (op id) */
+export async function updateCropType(
+  id: string,
+  payload: Partial<{ name: string; icon_slug: string | null }>
+): Promise<CropType> {
+  return withRetry(async () => {
+    const { data, error } = await supabase
+      .from("crop_types")
+      .update({
+        ...(payload.name !== undefined ? { name: payload.name } : {}),
+        ...(payload.icon_slug !== undefined ? { icon_slug: payload.icon_slug } : {}),
+      })
+      .eq("id", id)
+      .select("*")
+      .single();
 
-  // Voorraad
-  // @ts-ignore: Supabase returns this field
-  in_stock?: boolean;
-
-  row_spacing_cm: number | null;
-  plant_spacing_cm: number | null;
-  greenhouse_compatible: boolean;
-  sowing_type: "direct" | "presow" | "both";
-
-  presow_duration_weeks: number | null;
-  grow_duration_weeks: number | null;
-  harvest_duration_weeks: number | null;
-
-  presow_months: number[] | null;
-  greenhouse_months: number[] | null;
-  direct_plant_months: number[] | null; // samengevoegd veld
-  harvest_months: number[] | null;
-
-  notes: string | null;
-  default_color: string | null;
-
-  created_at: string;
-  updated_at: string;
+    if (error) throw error;
+    return data as CropType;
+  });
 }
 
-export interface GardenBed {
-  id: UUID;
-  garden_id: UUID;
-  name: string;
-  width_cm: number;
-  length_cm: number;
-  location_x: number;
-  location_y: number;
-  is_greenhouse: boolean;
-  segments: number;
-  sort_order: number;
-  created_at: string;
-  updated_at: string;
+/** Gewastype verwijderen (op id) */
+export async function deleteCropType(id: string): Promise<void> {
+  return withRetry(async () => {
+    const { error } = await supabase.from("crop_types").delete().eq("id", id);
+    if (error) throw error;
+  });
 }
 
-//
-// Plantings
-//
-export interface Planting {
-  id: UUID;
-  garden_id: UUID;
-  garden_bed_id: UUID;
-  seed_id: UUID;
-
-  planned_date: string | null;            // enige grond-datum
-  planned_presow_date: string | null;     // alleen bij presow/both
-  planned_harvest_start: string | null;
-  planned_harvest_end: string | null;
-
-  actual_presow_date: string | null;      // voorzaaien daadwerkelijk
-  actual_ground_date: string | null;      // direct of uitplanten
-  actual_harvest_start: string | null;
-  actual_harvest_end: string | null;
-
-  method: "direct" | "presow" | null;
-  status: "planned" | "sown" | "planted" | "growing" | "harvesting" | "completed";
-
-  start_segment: number | null;
-  segments_used: number | null;
-  color: string | null;
-
-  rows: number | null;
-  plants_per_row: number | null;
-  area_percentage: number | null;
-
-  notes: string | null;
-
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Task {
-  id: UUID;
-  garden_id: UUID;
-  planting_id: UUID;
-  type: "sow" | "plant_out" | "harvest_start" | "harvest_end";
-  due_date: string;
-  status: "pending" | "done" | "skipped";
-  assignee_user_id: UUID | null;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface BedOccupancyWeek {
-  garden_bed_id: UUID;
-  garden_id: UUID;
-  week_start: string;
-  occupancy_pct: number;
-}
-
-export interface GardenTask {
-  id: UUID;
-  garden_id: UUID;
-  title: string;
-  description: string | null;
-  due_month: number;
-  due_week: number | null;
-  due_year: number;
-  is_recurring: boolean;
-  status: "pending" | "done";
-  completed_at: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-// Audit types
-export type AuditStatus = 'open' | 'onderhanden' | 'afwachting' | 'goedgekeurd';
-
-export interface Audit {
-  id: UUID;
-  garden_id: UUID;
-  requested_by: UUID;
-  requested_at: string;
-  deadline: string;
-  status: AuditStatus;
-  completed_at: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface AuditItem {
-  id: UUID;
-  audit_id: UUID;
-  item_type: 'planting' | 'moestuin_task' | 'garden_task' | 'voorzaai';
-  reference_id: UUID | null;
-  bed_name: string | null;
-  segment_info: string | null;
-  description: string;
-  phase: string | null;
-  is_validated: boolean;
-  is_correct: boolean | null;
-  notes: string | null;
-  validated_at: string | null;
-  created_at: string;
-}
-
-export interface AuditStatusHistory {
-  id: UUID;
-  audit_id: UUID;
-  old_status: AuditStatus | null;
-  new_status: AuditStatus;
-  changed_at: string;
-  changed_by: UUID | null;
-}
+/* (optioneel) default export als je ooit default import zou gebruiken */
+const cropTypesApi = {
+  listCropTypes,
+  createCropType,
+  updateCropType,
+  deleteCropType,
+};
+export default cropTypesApi;
