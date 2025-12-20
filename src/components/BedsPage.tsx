@@ -758,21 +758,40 @@ function BedBlock({
             }}
           />
           
-          {/* Segment lijnen (subtiel) */}
-          {bed.segments > 1 && (
-            <div 
-              className="absolute inset-0 pointer-events-none"
-              style={{
-                backgroundImage: `repeating-linear-gradient(
-                  90deg,
-                  transparent 0px,
-                  transparent calc(${100 / bed.segments}% - 1px),
-                  rgba(255,255,255,0.08) calc(${100 / bed.segments}% - 1px),
-                  rgba(255,255,255,0.08) calc(${100 / bed.segments}%)
-                )`,
-              }}
-            />
-          )}
+          {/* Segment lijnen: altijd haaks op de langste zijde */}
+          {bed.segments > 1 && (() => {
+            const isWide = w >= h; // langste zijde is horizontaal => verticale lijntjes
+            const segPercent = 100 / bed.segments;
+            const lineColor = "rgba(255,255,255,0.08)";
+            const style = isWide
+              ? {
+                  // verticale lijnen (herhaling over X)
+                  backgroundImage: `repeating-linear-gradient(
+                    90deg,
+                    transparent 0,
+                    transparent calc(${segPercent}% - 1px),
+                    ${lineColor} calc(${segPercent}% - 1px),
+                    ${lineColor} ${segPercent}%
+                  )`,
+                }
+              : {
+                  // horizontale lijnen (herhaling over Y)
+                  backgroundImage: `repeating-linear-gradient(
+                    0deg,
+                    transparent 0,
+                    transparent calc(${segPercent}% - 1px),
+                    ${lineColor} calc(${segPercent}% - 1px),
+                    ${lineColor} ${segPercent}%
+                  )`,
+                };
+
+            return (
+              <div
+                className="absolute inset-0 pointer-events-none"
+                style={style}
+              />
+            );
+          })()}
           
           {/* Naam label - zwevend boven de grond */}
           <div className="absolute inset-0 flex items-center justify-center">
