@@ -7,7 +7,6 @@ import { supabase } from "../lib/supabaseClient";
 import { TimelineView } from "./TimelineView";
 import { buildConflictsMap, countUniqueConflicts } from "../lib/conflicts";
 import { ConflictWarning } from "./ConflictWarning";
-import { Edit3, Trash2, ChevronDown, Info, AlertTriangle, X, CalendarIcon, Search } from "lucide-react";
 import { useConflictFlags } from "../hooks/useConflictFlags";
 import { SeedModal } from "./SeedModal";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
@@ -28,6 +27,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
+import { Edit3, Trash2, ChevronDown, Info, AlertTriangle, X, CalendarIcon, Search } from "lucide-react";
 
 /* ===== helpers ===== */
 const toISO = (d: Date) => d.toISOString().slice(0, 10);
@@ -131,14 +131,14 @@ function Chip({ children, tone = "muted" }: { children: React.ReactNode; tone?: 
   return <span className={`inline-flex items-center rounded px-1 py-0.5 text-[9px] ${map[tone]}`}>{children}</span>;
 }
 function DraggableSeed({ seed, isDragging = false, onInfoClick }: { seed: Seed; isDragging?: boolean; onInfoClick?: () => void }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging: dragging } = useDraggable({ id: `seed-${seed.id}` });
+  const { attributes, listeners, setNodeRef } = useDraggable({ id: `seed-${seed.id}` });
   const color = seed.default_color?.startsWith("#") ? seed.default_color : "#22c55e";
   
   return (
     <div
       ref={setNodeRef}
       className={`group relative px-2 py-1 rounded border bg-card hover:shadow-sm transition-all duration-150 ${
-        dragging || isDragging ? "opacity-40 scale-95" : "hover:border-primary/30"
+        isDragging ? "opacity-40 scale-95" : "hover:border-primary/30"
       }`}
     >
       <div 
@@ -191,9 +191,7 @@ function MapDroppable({ id }: { id: string }) {
   return (
     <div 
       ref={setNodeRef} 
-      className={`w-full h-full transition-colors duration-150 ${
-        isOver ? "bg-primary/20" : "bg-transparent"
-      }`} 
+      className={`w-full h-full transition-colors duration-150 ${isOver ? "bg-primary/20" : "bg-transparent"}`} 
     />
   );
 }
@@ -258,7 +256,7 @@ export function PlannerPage({
   });
 
   // toast
-  const [toast, setToast] = useState<{ msg: string; tone: "info" | "ok" | "err" } | null>(null);
+  const [toast, setToast] = useState<{ msg: string, tone: "info" | "ok" | "err" } | null>(null);
   const notify = (msg: string, tone: "info" | "ok" | "err" = "info") => {
     setToast({ msg, tone });
     setTimeout(() => setToast(null), 2500);
@@ -523,7 +521,7 @@ export function PlannerPage({
     }
   }
 
-  /* ===== Sidebar zaden (vast, buiten scroll) ===== */
+  /* ===== Sidebar zaden ===== */
   const SeedsSidebar = () => (
     <aside className="w-60 flex-shrink-0 bg-card/50 backdrop-blur-sm border-r border-border/50 ml-3 rounded-l-xl overflow-hidden">
       <div className="sticky top-0 h-screen overflow-hidden flex flex-col">
@@ -589,7 +587,7 @@ export function PlannerPage({
             ))}
           </div>
 
-          {/* Categorie filter - Modern dropdown */}
+          {/* Categorie filter */}
           <Popover>
             <PopoverTrigger asChild>
               <button className="w-full px-3 py-2 text-xs text-left rounded-lg flex justify-between items-center bg-muted/30 hover:bg-muted/50 transition-all group">
@@ -641,7 +639,7 @@ export function PlannerPage({
             </PopoverContent>
           </Popover>
 
-          {/* Maand filter - Modern dropdown */}
+          {/* Maand filter */}
           <Popover>
             <PopoverTrigger asChild>
               <button className="w-full px-3 py-2 text-xs text-left rounded-lg flex justify-between items-center bg-muted/30 hover:bg-muted/50 transition-all group">
@@ -713,7 +711,7 @@ export function PlannerPage({
     </aside>
   );
 
-  /* ===== LIST view (main area only) ===== */
+  /* ===== LIST view ===== */
   const listViewContent = (
     <div className="p-4 pb-8">
       <div className="space-y-6">
@@ -740,7 +738,7 @@ export function PlannerPage({
                           {bed.is_greenhouse && <Chip>Kas</Chip>}
                         </div>
 
-                        {/* Let op: we tonen exact bed.segments rijen, nooit meer */}
+                        {/* Exact bed.segments rijen */}
                         <div className="grid gap-0.5" style={{ gridTemplateRows: `repeat(${bed.segments}, minmax(20px, auto))` }}>
                           {segs.map((i) => {
                             const here = activePlantings.filter((p) => {
@@ -833,7 +831,7 @@ export function PlannerPage({
                           })}
                         </div>
 
-                        {/* Footer: eenvoudige hint naar Conflicten-tab als dit bed issues heeft */}
+                        {/* Hint naar Conflicten-tab */}
                         {bedHasConflict(bed.id) && (
                           <div className="mt-1.5 text-[10px] text-red-700">
                             ⚠️ Conflicten — <button
@@ -858,209 +856,362 @@ export function PlannerPage({
     </div>
   );
 
-  /* ===== MAP view (ongewijzigd t.o.v. gedrag; alleen geen conflict-details) ===== */
+  /* ===== MAP view — visual match met BedsPage, gedrag identiek ===== */
   function PlannerMap() {
     const viewportRef = useRef<HTMLDivElement | null>(null);
-    const BASE_W = 2400,
-      BASE_H = 1400;
+
+    // Zelfde globale canvas verhoudingen als BedsPage
+    const CANVAS_W = 3000;
+    const CANVAS_H = 1200;
 
     const [zoom, setZoom] = useState(() => {
-      const saved = localStorage.getItem("plannerMapZoom");
-      return saved ? parseFloat(saved) : 1;
+      const saved = localStorage.getItem("plannerMapZoomV2");
+      return saved ? parseFloat(saved) : 0.8;
     });
-    const [isInitialized, setIsInitialized] = useState(false);
-    const [isManualZoom, setIsManualZoom] = useState(() => localStorage.getItem("plannerMapManualZoom") === "1");
+    const minZoom = 0.15;
+    const maxZoom = 2;
 
-    const clampZoom = (z: number) => Math.max(0.25, Math.min(3, z));
-
+    const clampZoom = (z: number) => Math.max(minZoom, Math.min(maxZoom, z));
+    const handleManualZoom = (z: number) => {
+      const v = clampZoom(z);
+      setZoom(v);
+      localStorage.setItem("plannerMapZoomV2", v.toString());
+    };
     const fit = () => {
       const vp = viewportRef.current;
       if (!vp) return;
-      const zx = (vp.clientWidth - 24) / BASE_W;
-      const zy = (vp.clientHeight - 24) / BASE_H;
-      const fitZoom = clampZoom(Math.min(zx, zy));
-      setZoom(fitZoom);
-      localStorage.setItem("plannerMapZoom", fitZoom.toString());
-    };
-
-    const handleManualZoom = (newZoom: number) => {
-      const clampedZoom = clampZoom(newZoom);
-      setZoom(clampedZoom);
-      setIsManualZoom(true);
-      localStorage.setItem("plannerMapZoom", clampedZoom.toString());
-      localStorage.setItem("plannerMapManualZoom", "1");
-    };
-    const handleFitClick = () => {
-      fit();
-      setIsManualZoom(false);
-      localStorage.setItem("plannerMapManualZoom", "0");
+      const vw = vp.clientWidth - 24;
+      const vh = vp.clientHeight - 24;
+      const zx = vw / CANVAS_W;
+      const zy = vh / CANVAS_H;
+      handleManualZoom(Math.min(zx, zy));
     };
 
     useEffect(() => {
-      const timer = setTimeout(() => {
-        if (!isManualZoom) fit();
-        setIsInitialized(true);
-      }, 50);
-      return () => clearTimeout(timer);
-    }, [isManualZoom]);
+      // Auto-fit bij eerste render als niets opgeslagen is
+      if (!localStorage.getItem("plannerMapZoomV2")) {
+        const t = setTimeout(fit, 50);
+        return () => clearTimeout(t);
+      }
+    }, []);
 
-    const active = (p: Planting) => isActiveInWeek(p, currentWeek);
-    const future = (p: Planting) => showGhosts && isFutureRelativeToWeek(p, currentWeek);
+    const isActive = (p: Planting) => isActiveInWeek(p, currentWeek);
+    const isFuture = (p: Planting) => showGhosts && isFutureRelativeToWeek(p, currentWeek);
+
+    const ZoomControls = () => (
+      <div className="flex items-center gap-2">
+        <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1 bg-secondary hover:bg-secondary/80" onClick={() => handleManualZoom(zoom - 0.1)} title="Uitzoomen">-</button>
+        <input type="range" min={minZoom} max={maxZoom} step={0.05} value={zoom} onChange={(e) => handleManualZoom(parseFloat(e.target.value))} className="w-32" />
+        <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1 bg-secondary hover:bg-secondary/80" onClick={() => handleManualZoom(zoom + 0.1)} title="Inzoomen">+</button>
+        <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1" onClick={() => handleManualZoom(1)} title="100%">100%</button>
+        <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1" onClick={fit} title="Passend maken">Fit</button>
+        <span className="text-xs text-muted-foreground ml-1">{Math.round(zoom * 100)}%</span>
+      </div>
+    );
+
+    /* Helpers voor bed visuals */
+    const WOOD_BORDER = 8;
 
     return (
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-xl font-semibold">Plattegrond</h3>
-          <div className="flex items-center gap-2">
-            <button className="border rounded px-2 py-1" onClick={() => handleManualZoom(zoom - 0.1)}>
-              -
-            </button>
-            <input className="w-40" type="range" min={0.25} max={3} step={0.05} value={zoom} onChange={(e) => handleManualZoom(parseFloat(e.target.value))} />
-            <button className="border rounded px-2 py-1" onClick={() => handleManualZoom(zoom + 0.1)}>
-              +
-            </button>
-            <button className="border rounded px-2 py-1" onClick={() => handleManualZoom(1)}>
-              100%
-            </button>
-            <button className="border rounded px-2 py-1" onClick={handleFitClick}>
-              Fit
-            </button>
-          </div>
+          <ZoomControls />
         </div>
 
-        <div ref={viewportRef} className="relative w-full h-[70vh] rounded-xl border overflow-auto bg-background" style={{ minWidth: "100%", minHeight: "70vh" }}>
-          <div className="relative" style={{ width: BASE_W * zoom, height: BASE_H * zoom, transition: isInitialized ? "none" : "opacity 0.1s ease-out", opacity: isInitialized ? 1 : 0 }}>
+        <div
+          ref={viewportRef}
+          className="relative w-full h-[70vh] rounded-xl border-2 border-amber-800/30 overflow-auto shadow-xl"
+          style={{
+            background: "linear-gradient(135deg, #2d5016 0%, #3a6b1e 25%, #2d5016 50%, #3a6b1e 75%, #2d5016 100%)",
+          }}
+        >
+          <div className="relative" style={{ width: CANVAS_W * zoom, height: CANVAS_H * zoom }}>
             <div
               className="absolute left-0 top-0"
               style={{
-                width: BASE_W,
-                height: BASE_H,
+                width: CANVAS_W,
+                height: CANVAS_H,
                 transform: `scale(${zoom})`,
                 transformOrigin: "0 0",
-                willChange: "transform",
-                backgroundImage:
-                  "linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(180deg, rgba(0,0,0,0.04) 1px, transparent 1px)",
-                backgroundSize: "24px 24px",
                 borderRadius: 12,
-                contain: "layout style paint",
+                // Gras textuur effect
+                backgroundImage: `
+                  radial-gradient(ellipse 3px 5px at 20% 30%, rgba(255,255,255,0.03) 0%, transparent 100%),
+                  radial-gradient(ellipse 2px 4px at 60% 70%, rgba(255,255,255,0.02) 0%, transparent 100%),
+                  radial-gradient(ellipse 4px 6px at 80% 20%, rgba(255,255,255,0.03) 0%, transparent 100%),
+                  radial-gradient(ellipse 3px 5px at 40% 80%, rgba(255,255,255,0.02) 0%, transparent 100%),
+                  repeating-linear-gradient(90deg, transparent 0px, transparent 8px, rgba(0,0,0,0.02) 8px, rgba(0,0,0,0.02) 9px),
+                  repeating-linear-gradient(0deg, transparent 0px, transparent 12px, rgba(0,0,0,0.015) 12px, rgba(0,0,0,0.015) 13px)
+                `,
               }}
             >
+              {/* lichte zon lichtvlek */}
+              <div 
+                className="absolute inset-0 pointer-events-none"
+                style={{ background: "radial-gradient(ellipse 80% 60% at 30% 20%, rgba(255,255,200,0.08) 0%, transparent 60%)" }}
+              />
+
+              {/* Render alle bedden */}
               {beds.map((bed) => {
                 const w = Math.max(60, Math.round(bed.length_cm || 200));
                 const h = Math.max(36, Math.round(bed.width_cm || 100));
                 const x = bed.location_x ?? 20;
                 const y = bed.location_y ?? 20;
 
-                const HEADER = 28;
-                const innerW = w,
-                  innerH = Math.max(1, h - HEADER);
-                const segCount = Math.max(1, bed.segments);
-                const vertical = innerW >= innerH;
-                const segW = vertical ? innerW / segCount : innerW;
-                const segH = vertical ? innerH : innerH / segCount;
+                // Binnenruimte (zonder hout/aluminium rand)
+                const innerW = Math.max(1, w - WOOD_BORDER * 2);
+                const innerH = Math.max(1, h - WOOD_BORDER * 2);
 
-                const act = plantings.filter((p) => p.garden_bed_id === bed.id && active(p));
-                const fut = plantings.filter((p) => p.garden_bed_id === bed.id && future(p));
+                const segCount = Math.max(1, bed.segments);
+                const vertical = innerW >= innerH; // segmentlijnen haaks op lange zijde
+
+                const active = plantings.filter((p) => p.garden_bed_id === bed.id && isActive(p));
+                const ghosts = plantings.filter((p) => p.garden_bed_id === bed.id && isFuture(p));
 
                 return (
-                  <div key={bed.id} className={`absolute rounded-lg shadow-sm border select-none ${bed.is_greenhouse ? "border-green-600/60 bg-green-50" : "bg-white"}`} style={{ left: x, top: y, width: w, height: h }}>
-                    <div className="flex items-center justify-between px-2 py-1 border-b bg-muted/50 rounded-t-lg" style={{ height: HEADER }}>
-                      <span className="text-xs font-medium truncate">{bed.name}</span>
-                      <div className="flex items-center gap-2">
-                        {bedHasConflict(bed.id) && <span className="text-[11px] text-red-700">⚠️</span>}
-                        {bed.is_greenhouse && <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-600 text-white">Kas</span>}
-                      </div>
-                    </div>
+                  <div
+                    key={bed.id}
+                    className="absolute select-none"
+                    style={{ left: x, top: y, width: w, height: h }}
+                  >
+                    {/* Schaduw onder de bak */}
+                    <div 
+                      className="absolute -bottom-4 left-1 right-1 h-5 rounded-full"
+                      style={{ background: "radial-gradient(ellipse at center, rgba(0,0,0,0.3) 0%, transparent 70%)" }}
+                    />
 
-                    <div className="relative w-full" style={{ height: innerH }}>
-                      {/* grid for droppables */}
-                      <div className="absolute inset-0 grid" style={{ gridTemplateColumns: vertical ? `repeat(${segCount}, 1fr)` : "1fr", gridTemplateRows: vertical ? "1fr" : `repeat(${segCount}, 1fr)` }}>
-                        {Array.from({ length: segCount }, (_, i) => (
-                          <div key={i} className="relative">
-                            <MapDroppable id={`bed__${bed.id}__segment__${i}`} />
-                            <div className="absolute inset-0 pointer-events-none border border-dashed border-black/10" />
+                    {/* Frame */}
+                    <div
+                      className="absolute inset-0 rounded-lg"
+                      style={{
+                        background: bed.is_greenhouse
+                          ? "linear-gradient(135deg, #e8e8e8 0%, #c0c0c0 50%, #e8e8e8 100%)"
+                          : `
+                            linear-gradient(180deg, 
+                              #8B6914 0%, 
+                              #7a5a12 15%, 
+                              #6d4f0f 30%,
+                              #5c4210 50%,
+                              #6d4f0f 70%,
+                              #7a5a12 85%,
+                              #8B6914 100%
+                            )
+                          `,
+                        boxShadow: bed.is_greenhouse
+                          ? "0 4px 8px rgba(0,0,0,0.25), inset 1px 1px 0 rgba(255,255,255,0.4)"
+                          : "inset 2px 2px 4px rgba(255,255,255,0.15), inset -2px -2px 4px rgba(0,0,0,0.2), 0 4px 8px rgba(0,0,0,0.3)",
+                        padding: WOOD_BORDER,
+                      }}
+                    >
+                      {/* Hout textuur overlay (alleen buiten) */}
+                      {!bed.is_greenhouse && (
+                        <div 
+                          className="absolute inset-0 rounded-lg pointer-events-none opacity-30"
+                          style={{
+                            backgroundImage: `
+                              repeating-linear-gradient(90deg, transparent 0px, transparent 20px, rgba(0,0,0,0.1) 20px, rgba(0,0,0,0.1) 21px),
+                              repeating-linear-gradient(0deg, transparent 0px, transparent 3px, rgba(255,255,255,0.05) 3px, rgba(255,255,255,0.05) 4px)
+                            `,
+                          }}
+                        />
+                      )}
+
+                      {/* Binnenruimte: aarde */}
+                      <div
+                        className="relative w-full h-full rounded-md overflow-hidden"
+                        style={{
+                          background: `
+                            radial-gradient(ellipse at 30% 40%, rgba(101,67,33,1) 0%, transparent 50%),
+                            radial-gradient(ellipse at 70% 60%, rgba(89,60,31,1) 0%, transparent 50%),
+                            radial-gradient(ellipse at 50% 30%, rgba(110,75,38,1) 0%, transparent 40%),
+                            linear-gradient(180deg, #5c4033 0%, #4a3328 50%, #3e2723 100%)
+                          `,
+                          boxShadow: "inset 0 2px 8px rgba(0,0,0,0.4)",
+                        }}
+                      >
+                        {/* Glas reflectie (licht) voor kassen */}
+                        {bed.is_greenhouse && (
+                          <div 
+                            className="absolute inset-0 pointer-events-none"
+                            style={{
+                              background: "linear-gradient(135deg, rgba(255,255,255,0.35) 0%, transparent 30%, transparent 70%, rgba(255,255,255,0.15) 100%)",
+                            }}
+                          />
+                        )}
+
+                        {/* Segment lijnen haaks op lange zijde (subtiel) */}
+                        {segCount > 1 && (
+                          <div
+                            className="absolute inset-0 pointer-events-none"
+                            style={{
+                              backgroundImage: vertical
+                                ? `repeating-linear-gradient(
+                                    90deg,
+                                    transparent 0px,
+                                    transparent calc(${100 / segCount}% - 1px),
+                                    rgba(255,255,255,0.08) calc(${100 / segCount}% - 1px),
+                                    rgba(255,255,255,0.08) calc(${100 / segCount}%)
+                                  )`
+                                : `repeating-linear-gradient(
+                                    0deg,
+                                    transparent 0px,
+                                    transparent calc(${100 / segCount}% - 1px),
+                                    rgba(255,255,255,0.08) calc(${100 / segCount}% - 1px),
+                                    rgba(255,255,255,0.08) calc(${100 / segCount}%)
+                                  )`,
+                            }}
+                          />
+                        )}
+
+                        {/* Naam label (zwevend) */}
+                        <div className="absolute inset-0 flex items-start justify-between p-1">
+                          <span
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded-md"
+                            style={{
+                              background: "rgba(255,255,255,0.85)",
+                              color: bed.is_greenhouse ? "#2d5016" : "#3e2723",
+                              boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
+                              maxWidth: "70%",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                            title={bed.name}
+                          >
+                            {bed.name}
+                          </span>
+
+                          <div className="flex items-center gap-1">
+                            {bedHasConflict(bed.id) && (
+                              <button
+                                className="text-[11px] px-1.5 py-0.5 rounded bg-red-600/90 text-white"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setView("conflicts");
+                                  localStorage.setItem("plannerOpenTab", "conflicts");
+                                }}
+                                title="Conflicten bekijken"
+                              >
+                                ⚠️
+                              </button>
+                            )}
+                            {bed.is_greenhouse && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-600 text-white">Kas</span>
+                            )}
                           </div>
-                        ))}
-                      </div>
+                        </div>
 
-                      {/* active blocks */}
-                      <div className="absolute inset-0">
-                        {act.map((p) => {
-                          const seed = seedsById[p.seed_id];
-                          const start = p.start_segment ?? 0;
-                          const used = Math.max(1, p.segments_used ?? 1);
-                          const inset = 1;
-                          const rect = vertical
-                            ? { top: inset, height: Math.max(1, innerH - inset * 2), left: inset + start * segW, width: Math.max(1, used * segW - inset * 2) }
-                            : { left: inset, width: Math.max(1, innerW - inset * 2), top: inset + start * segH, height: Math.max(1, used * segH - inset * 2) };
-                          const color = p.color?.startsWith("#") ? p.color : "#22c55e";
-                          const hasConflict = (conflictsMap.get(p.id)?.length ?? 0) > 0;
-
-                          return (
-                            <div key={p.id} className={`absolute rounded text-white text-[10px] px-1 flex items-center ${hasConflict ? "ring-2 ring-red-500 ring-offset-1" : ""}`} style={{ ...rect, backgroundColor: color }}>
-                              <span className="truncate">{seed?.name ?? "—"}</span>
-                              {hasConflict && (
-                                <button
-                                  className="ml-1 underline"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setView("conflicts");
-                                    localStorage.setItem("plannerOpenTab", "conflicts");
-                                  }}
-                                  title="Bekijk in Conflicten"
-                                >
-                                  ⚠️
-                                </button>
-                              )}
-
-                              <div className="absolute top-0.5 right-0.5 flex gap-0.5">
-                                <button
-                                  className="p-0.5 rounded hover:bg-white/20"
-                                  title="Bewerken"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setPopup({ mode: "edit", planting: p, seed: seed!, bed, segmentIndex: p.start_segment ?? 0 });
-                                  }}
-                                >
-                                  <Edit3 className="w-3 h-3" />
-                                </button>
-                                <button
-                                  className="p-0.5 rounded hover:bg-white/20"
-                                  title="Verwijderen"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (confirm("Verwijderen?")) deletePlanting(p.id).then(reload);
-                                  }}
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
-                              </div>
+                        {/* DnD droppable segmenten grid (onzichtbare targets) */}
+                        <div
+                          className="absolute inset-0 grid"
+                          style={{
+                            gridTemplateColumns: vertical ? `repeat(${segCount}, 1fr)` : "1fr",
+                            gridTemplateRows: vertical ? "1fr" : `repeat(${segCount}, 1fr)`,
+                          }}
+                        >
+                          {Array.from({ length: segCount }, (_, i) => (
+                            <div key={i} className="relative">
+                              <MapDroppable id={`bed__${bed.id}__segment__${i}`} />
                             </div>
-                          );
-                        })}
-                      </div>
+                          ))}
+                        </div>
 
-                      {/* future ghosts */}
-                      {showGhosts && (
-                        <div className="absolute inset-0 pointer-events-none">
-                          {fut.map((p) => {
+                        {/* Actieve blokken */}
+                        <div className="absolute inset-0">
+                          {active.map((p) => {
                             const seed = seedsById[p.seed_id];
-                            if (!seed) return null;
                             const start = p.start_segment ?? 0;
                             const used = Math.max(1, p.segments_used ?? 1);
                             const inset = 1;
+                            const segW = vertical ? innerW / segCount : innerW;
+                            const segH = vertical ? innerH : innerH / segCount;
+
                             const rect = vertical
                               ? { top: inset, height: Math.max(1, innerH - inset * 2), left: inset + start * segW, width: Math.max(1, used * segW - inset * 2) }
                               : { left: inset, width: Math.max(1, innerW - inset * 2), top: inset + start * segH, height: Math.max(1, used * segH - inset * 2) };
-                            const bg = p.color?.startsWith("#") ? p.color : "rgba(34,197,94,.35)";
+                            const color = p.color?.startsWith("#") ? p.color : "#22c55e";
+                            const hasConflict = (conflictsMap.get(p.id)?.length ?? 0) > 0;
+
                             return (
-                              <div key={`ghost-${p.id}`} className="absolute rounded text-white text-[10px] px-1 flex items-center" style={{ ...rect, backgroundColor: bg, opacity: 0.35, border: "1px dashed rgba(0,0,0,.45)" }}>
-                                <span className="truncate">{seed.name}</span>
+                              <div
+                                key={p.id}
+                                className={`absolute rounded text-white text-[10px] px-1 flex items-center ${hasConflict ? "ring-2 ring-red-500 ring-offset-1" : ""}`}
+                                style={{ ...rect, backgroundColor: color }}
+                                title={`${seed?.name ?? "—"} • ${fmtDMY(p.planned_date)} → ${fmtDMY(p.planned_harvest_end)}`}
+                              >
+                                <span className="truncate">{seed?.name ?? "—"}</span>
+                                {hasConflict && (
+                                  <button
+                                    className="ml-1 underline"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setView("conflicts");
+                                      localStorage.setItem("plannerOpenTab", "conflicts");
+                                    }}
+                                    title="Bekijk in Conflicten"
+                                  >
+                                    ⚠️
+                                  </button>
+                                )}
+
+                                <div className="absolute top-0.5 right-0.5 flex gap-0.5">
+                                  <button
+                                    className="p-0.5 rounded hover:bg-white/20"
+                                    title="Bewerken"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setPopup({ mode: "edit", planting: p, seed: seed!, bed, segmentIndex: p.start_segment ?? 0 });
+                                    }}
+                                  >
+                                    <Edit3 className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    className="p-0.5 rounded hover:bg-white/20"
+                                    title="Verwijderen"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (confirm("Verwijderen?")) deletePlanting(p.id).then(reload);
+                                    }}
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
                               </div>
                             );
                           })}
                         </div>
-                      )}
+
+                        {/* Toekomstige 'ghosts' */}
+                        {showGhosts && (
+                          <div className="absolute inset-0 pointer-events-none">
+                            {ghosts.map((p) => {
+                              const seed = seedsById[p.seed_id];
+                              if (!seed) return null;
+                              const start = p.start_segment ?? 0;
+                              const used = Math.max(1, p.segments_used ?? 1);
+                              const inset = 1;
+                              const segW = vertical ? innerW / segCount : innerW;
+                              const segH = vertical ? innerH : innerH / segCount;
+                              const bg = p.color?.startsWith("#") ? p.color : "rgba(34,197,94,.35)";
+
+                              const rect = vertical
+                                ? { top: inset, height: Math.max(1, innerH - inset * 2), left: inset + start * segW, width: Math.max(1, used * segW - inset * 2) }
+                                : { left: inset, width: Math.max(1, innerW - inset * 2), top: inset + start * segH, height: Math.max(1, used * segH - inset * 2) };
+
+                              return (
+                                <div
+                                  key={`ghost-${p.id}`}
+                                  className="absolute rounded text-white text-[10px] px-1 flex items-center"
+                                  style={{ ...rect, backgroundColor: bg, opacity: 0.35, border: "1px dashed rgba(0,0,0,.45)" }}
+                                >
+                                  <span className="truncate">{seed.name}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -1072,14 +1223,9 @@ export function PlannerPage({
     );
   }
 
-  /* ===== CONFLICTS view (ongewijzigde logica; resolutie via dit tab) ===== */
-  // We hergebruiken je bestaande conflictsView component uit je project;
-  // PlannerPage pusht alleen de gebruiker hierheen. (Geen auto-fix knoppen.)
-
+  /* ===== CONFLICTS view ===== */
   const conflictsView = (
     <div className="space-y-2">
-      {/* Het eigenlijke conflictdetail-scherm zit in jouw bestaande Conflicts-tab componenten.
-          Als je die in dit bestand renderde, kun je ze hier aanroepen; zo niet, laat dit als placeholder. */}
       <p className="text-sm text-muted-foreground">
         Ga door met je bestaande Conflicten-weergave. Deze Planner toont geen details in list/map, alleen hier.
       </p>
@@ -1100,28 +1246,17 @@ export function PlannerPage({
             )}
           </h2>
           <div className="flex items-center gap-2">
-            {/* Modern Week Navigator */}
             <div className="flex items-center p-0.5 bg-muted/40 rounded-lg">
-              <button 
-                className="px-3 py-2 text-sm font-medium rounded-md hover:bg-background transition-colors" 
-                onClick={() => setCurrentWeek(addDays(currentWeek, -7))}
-              >
-                ←
-              </button>
+              <button className="px-3 py-2 text-sm font-medium rounded-md hover:bg-background transition-colors" onClick={() => setCurrentWeek(addDays(currentWeek, -7))}>←</button>
               <span className="px-4 py-2 font-semibold text-sm min-w-[160px] text-center">
-                WK {weekOf(currentWeek)} <span className="text-muted-foreground font-normal">({format(currentWeek, "d MMM", { locale: nl })} - {format(addDays(currentWeek, 6), "d MMM", { locale: nl })})</span>
+                WK {weekOf(currentWeek)}{" "}
+                <span className="text-muted-foreground font-normal">
+                  ({format(currentWeek, "d MMM", { locale: nl })} - {format(addDays(currentWeek, 6), "d MMM", { locale: nl })})
+                </span>
               </span>
-              <button 
-                className="px-3 py-2 text-sm font-medium rounded-md hover:bg-background transition-colors" 
-                onClick={() => setCurrentWeek(addDays(currentWeek, 7))}
-              >
-                →
-              </button>
+              <button className="px-3 py-2 text-sm font-medium rounded-md hover:bg-background transition-colors" onClick={() => setCurrentWeek(addDays(currentWeek, 7))}>→</button>
             </div>
-            <button 
-              className="px-3 py-2 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-all" 
-              onClick={gotoToday}
-            >
+            <button className="px-3 py-2 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-all" onClick={gotoToday}>
               Vandaag
             </button>
           </div>
@@ -1152,7 +1287,7 @@ export function PlannerPage({
             );
           })}
           
-          {/* Toekomstige plantingen - Modern Toggle */}
+          {/* Toekomstige plantingen */}
           <button
             onClick={() => setShowGhosts(!showGhosts)}
             className={cn(
@@ -1174,12 +1309,10 @@ export function PlannerPage({
         </div>
       )}
 
-      <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <DndContext onDragStart={(e)=>setActiveDragId(String(e.active?.id ?? ""))} onDragEnd={handleDragEnd}>
         <div className="flex flex-1 min-h-0">
-          {/* Fixed sidebar */}
           {(view === "list" || view === "map" || view === "timeline") && <SeedsSidebar />}
           
-          {/* Main content area - scrollable */}
           <div className="flex-1 overflow-auto">
             {view === "list" && listViewContent}
             {view === "map" && (
@@ -1209,7 +1342,7 @@ export function PlannerPage({
         </DragOverlay>
       </DndContext>
 
-      {/* Planting popup - Modern Modal */}
+      {/* Planting popup */}
       {popup && (
         <div 
           className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" 
@@ -1289,7 +1422,7 @@ export function PlannerPage({
           gardenId={garden.id}
           seed={seedDetailsModal}
           onClose={() => setSeedDetailsModal(null)}
-          onSaved={async (updatedSeed) => {
+          onSaved={async () => {
             await onDataChange();
             setSeedDetailsModal(null);
           }}
@@ -1299,7 +1432,7 @@ export function PlannerPage({
   );
 }
 
-/* ===== PlantingForm (met bed-wissel + startsegment-dropdown) ===== */
+/* ===== PlantingForm (ongewijzigd gedrag) ===== */
 function PlantingForm({
   mode,
   seed,
@@ -1344,15 +1477,12 @@ function PlantingForm({
   const [datePickerOpen, setDatePickerOpen] = useState(false);
 
   const selectedBed = useMemo(() => beds.find((x) => x.id === bedId) ?? bed, [beds, bedId, bed]);
-  // bereken einddatum o.b.v. seed-waarden
   const plantDate = useMemo(() => new Date(date), [date]);
   const hs = useMemo(() => addWeeks(plantDate, seed.grow_duration_weeks ?? 0), [plantDate, seed.grow_duration_weeks]);
   const he = useMemo(() => addDays(addWeeks(hs, seed.harvest_duration_weeks ?? 0), -1), [hs, seed.harvest_duration_weeks]);
 
-  // geldige bedden en startsegmenten
   const validBeds = useMemo(() => {
     return (beds || []).filter((b) => {
-      // kas-compatibiliteit: als bed kas is, zaad moet het kunnen
       if (b.is_greenhouse && !seed.greenhouse_compatible) return false;
       const canSomewhere = findAllStartSegments(allPlantings, b, segmentsUsed, plantDate, he, existing?.id).length > 0;
       return canSomewhere;
@@ -1364,7 +1494,6 @@ function PlantingForm({
   }, [allPlantings, selectedBed, segmentsUsed, plantDate, he, existing?.id]);
 
   useEffect(() => {
-    // Als huidige startSegment ongeldig wordt (door bed/segmentsUsed/date), pak eerste geldige
     if (!startSegmentOptions.includes(startSegment)) {
       setStartSegment(startSegmentOptions.length > 0 ? startSegmentOptions[0] : 0);
     }
@@ -1376,32 +1505,15 @@ function PlantingForm({
     if (Number.isNaN(dt.getTime())) return null;
 
     const month = dt.getMonth() + 1; // 1-12
-    const monthNames = [
-      "",
-      "januari",
-      "februari",
-      "maart",
-      "april",
-      "mei",
-      "juni",
-      "juli",
-      "augustus",
-      "september",
-      "oktober",
-      "november",
-      "december",
-    ];
+    const monthNames = ["","januari","februari","maart","april","mei","juni","juli","augustus","september","oktober","november","december"];
 
     const isGreenhouse = !!selectedBed.is_greenhouse;
     const allowedMonths = isGreenhouse ? (seed.greenhouse_months ?? []) : (seed.direct_plant_months ?? []);
 
-    // Geen data = geen waarschuwing
     if (allowedMonths.length === 0) return null;
-
     if (allowedMonths.includes(month)) return null;
 
     const allowedNames = allowedMonths.map((m) => monthNames[m]).join(", ");
-
     return {
       title: "Maand niet geschikt",
       description: `"${seed.name}" mag niet in ${monthNames[month]} in ${isGreenhouse ? "de kas" : "de volle grond"} (${selectedBed.name}) worden geplant. Toegestane maanden: ${allowedNames}.`,
@@ -1448,7 +1560,7 @@ function PlantingForm({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Bak - Modern Select */}
+      {/* Bak */}
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Bak</label>
         <Select value={bedId} onValueChange={setBedId}>
@@ -1515,7 +1627,7 @@ function PlantingForm({
         </div>
       </div>
 
-      {/* Zaaimethode - Segmented Control */}
+      {/* Zaaimethode */}
       {seed.sowing_type === "both" ? (
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Zaaimethode</label>
@@ -1555,9 +1667,9 @@ function PlantingForm({
         </div>
       )}
 
-      {/* Grid: Datum + Kleur */}
+      {/* Datum + Kleur */}
       <div className="grid grid-cols-2 gap-4">
-        {/* Datum - Modern Date Picker */}
+        {/* Datum */}
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Zaai/Plantdatum</label>
           <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
@@ -1588,12 +1700,10 @@ function PlantingForm({
               />
             </PopoverContent>
           </Popover>
-          <p className="text-[10px] text-muted-foreground">
-            Bezet t/m {fmtDMY(toISO(he))}
-          </p>
+          <p className="text-[10px] text-muted-foreground">Bezet t/m {fmtDMY(toISO(he))}</p>
         </div>
 
-        {/* Kleur - Round picker */}
+        {/* Kleur */}
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Kleur</label>
           <div className="flex items-center gap-3">
