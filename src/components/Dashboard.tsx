@@ -643,6 +643,19 @@ export function Dashboard({
                       {formatGardenTaskDeadline(task)}
                     </div>
                   </button>
+
+                  {/* Delete button */}
+                  <button
+                    onClick={async () => {
+                      if (confirm("Weet je zeker dat je deze taak wilt verwijderen?")) {
+                        await onDeleteTask(task);
+                      }
+                    }}
+                    className="flex-shrink-0 p-1.5 rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                    title="Verwijderen"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               );
             })}
