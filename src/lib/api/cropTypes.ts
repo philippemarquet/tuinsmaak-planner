@@ -10,13 +10,12 @@ export async function listCropTypes(): Promise<CropType[]> {
       .from('crop_types')
       .select('*')
       .order('name', { ascending: true });
-
     if (error) throw error;
     return (data ?? []) as CropType[];
   });
 }
 
-/** Nieuw gewastype aanmaken */
+/** Nieuw gewastype aanmaken (⚠️ geen .single() om PostgREST-coerce error te vermijden) */
 export async function createCropType(payload: { name: string; icon_slug?: string | null }): Promise<CropType> {
   return withRetry(async () => {
     const { data, error } = await supabase
@@ -25,15 +24,14 @@ export async function createCropType(payload: { name: string; icon_slug?: string
         name: payload.name,
         icon_slug: payload.icon_slug ?? null,
       })
-      .select('*')
-      .single();
-
+      .select('*'); // <-- geen .single()
     if (error) throw error;
-    return data as CropType;
+    // Neem eerste rij indien aanwezig (UI doet daarna toch onReload())
+    return (Array.isArray(data) ? (data[0] as CropType) : (data as unknown as CropType))!;
   });
 }
 
-/** Gewastype bijwerken */
+/** Gewastype bijwerken (⚠️ geen .single()) */
 export async function updateCropType(
   id: string,
   payload: Partial<{ name: string; icon_slug: string | null }>
@@ -46,11 +44,9 @@ export async function updateCropType(
         ...(payload.icon_slug !== undefined ? { icon_slug: payload.icon_slug } : {}),
       })
       .eq('id', id)
-      .select('*')
-      .single();
-
+      .select('*'); // <-- geen .single()
     if (error) throw error;
-    return data as CropType;
+    return (Array.isArray(data) ? (data[0] as CropType) : (data as unknown as CropType))!;
   });
 }
 
