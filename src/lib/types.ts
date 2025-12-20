@@ -24,12 +24,12 @@ export interface GardenUser {
   created_at: string;
 }
 
+/** Gewastype incl. optioneel bucket key naar icoon */
 export interface CropType {
   id: UUID;
   name: string;
+  icon_key: string | null; // ⬅️ belangrijk voor categorie-icoon
   created_at: string;
-  /** Pad binnen de Supabase bucket 'crop-icons', bv. 'tomato.svg' of 'veg/tomato.svg' */
-  icon_key?: string | null;
 }
 
 //
@@ -42,7 +42,10 @@ export interface Seed {
   crop_type_id: UUID | null;
   purchase_date: string | null;
 
-  // Voorraad
+  /** Optioneel eigen icoon (override). Als null => erft icoon van crop type */
+  icon_key: string | null; // ⬅️ nieuw
+
+  // voorraad
   // @ts-ignore: Supabase returns this field
   in_stock?: boolean;
 
@@ -57,7 +60,7 @@ export interface Seed {
 
   presow_months: number[] | null;
   greenhouse_months: number[] | null;
-  direct_plant_months: number[] | null; // samengevoegd veld
+  direct_plant_months: number[] | null;
   harvest_months: number[] | null;
 
   notes: string | null;
@@ -91,13 +94,13 @@ export interface Planting {
   garden_bed_id: UUID;
   seed_id: UUID;
 
-  planned_date: string | null;            // enige grond-datum
-  planned_presow_date: string | null;     // alleen bij presow/both
+  planned_date: string | null;
+  planned_presow_date: string | null;
   planned_harvest_start: string | null;
   planned_harvest_end: string | null;
 
-  actual_presow_date: string | null;      // (voorzaaien daadwerkelijk)
-  actual_ground_date: string | null;      // direct of uitplanten
+  actual_presow_date: string | null;
+  actual_ground_date: string | null;
   actual_harvest_start: string | null;
   actual_harvest_end: string | null;
 
