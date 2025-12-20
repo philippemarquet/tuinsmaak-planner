@@ -1,9 +1,9 @@
 // src/components/InventoryPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import type { Garden, Seed, CropType } from "../lib/types";
-import { createSeed, deleteSeed } from "../lib/api/seeds";
+import { createSeed, updateSeed, deleteSeed } from "../lib/api/seeds";
 import { listCropTypes, createCropType, updateCropType, deleteCropType } from "../lib/api/cropTypes";
-import { Copy, Trash2, PlusCircle, ChevronDown, Search, Carrot, Leaf, Apple, Cherry, Flower2, Salad, Bean, Wheat, Edit2 } from "lucide-react";
+import { Copy, Trash2, PlusCircle, ChevronDown, Search, Edit2 } from "lucide-react";
 import { SeedModal } from "./SeedModal";
 import { cn } from "../lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
@@ -16,69 +16,52 @@ function nextCopyName(name: string) {
   return `${name} (kopie)`;
 }
 
-// Fallback naar Lucide wanneer geen icon_slug staat / of ophalen faalt
-function getCropTypeLucideIcon(name: string) {
-  const lower = name.toLowerCase();
-  if (lower.includes("wortel") || lower.includes("knol")) return Carrot;
-  if (lower.includes("sla") || lower.includes("blad")) return Salad;
-  if (lower.includes("fruit") || lower.includes("bes")) return Cherry;
-  if (lower.includes("appel") || lower.includes("peer")) return Apple;
-  if (lower.includes("boon") || lower.includes("erwt")) return Bean;
-  if (lower.includes("graan") || lower.includes("mais")) return Wheat;
-  if (lower.includes("bloem")) return Flower2;
-  return Leaf;
+/** slugify voor bestandsnamen */
+function slugify(input: string) {
+  return (input || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // accents weg
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
-/* ---------- Iconify REST helpers + renderer ---------- */
+/** Toont een icon uit /public/crop-icons/<slug>.svg of .png; valt terug op een letterbadge */
+function CropIcon({ name, size = 16, className }: { name: string; size?: number; className?: string }) {
+  const slug = slugify(name);
+  const [src, setSrc] = useState(`/crop-icons/${slug}.svg`);
+  const [failed, setFailed] = useState(false);
 
-function iconSrcFromSlug(slug: string, size = 16, color?: string) {
-  const safe = (slug || "").trim();
-  if (!safe) return null;
-
-  // Ondersteun zowel 'mdi:carrot' als absolute URL's (Supabase/GitHub)
-  if (/^https?:\/\//i.test(safe)) return safe;
-
-  const path = safe.replace(":", "/");
-  const params = new URLSearchParams({ height: String(size) });
-  if (color) params.set("color", color.startsWith("#") ? `%23${color.slice(1)}` : color);
-  return `https://api.iconify.design/${path}.svg?${params.toString()}`;
-}
-
-/** Render eerst een <img> vanaf Iconify REST (of absolute URL), anders Lucide fallback */
-function CropIcon({
-  iconSlug,
-  fallbackName,
-  className,
-  size = 16,
-}: {
-  iconSlug?: string | null;
-  fallbackName: string;
-  className?: string;
-  size?: number;
-}) {
-  const [ok, setOk] = useState(true);
-
-  useEffect(() => {
-    setOk(true);
-  }, [iconSlug]);
-
-  const src = iconSrcFromSlug(iconSlug || "", size);
-  if (src && ok) {
+  if (failed) {
     return (
-      <img
-        src={src}
-        alt=""
-        width={size}
-        height={size}
-        className={cn("inline-block", className)}
-        onError={() => setOk(false)}
-        loading="lazy"
-      />
+      <div
+        className={cn(
+          "inline-flex items-center justify-center rounded-sm bg-muted text-foreground/70",
+          className
+        )}
+        style={{ width: size, height: size, fontSize: Math.max(10, Math.floor(size * 0.6)) }}
+        aria-label={name}
+        title={name}
+      >
+        {name?.[0]?.toUpperCase() || "?"}
+      </div>
     );
   }
 
-  const Fallback = getCropTypeLucideIcon(fallbackName);
-  return <Fallback className={cn("text-primary/70", className)} size={size} />;
+  return (
+    <img
+      src={src}
+      width={size}
+      height={size}
+      alt={name}
+      title={name}
+      className={cn("inline-block object-contain", className)}
+      onError={() => {
+        if (src.endsWith(".svg")) setSrc(`/crop-icons/${slug}.png`);
+        else setFailed(true);
+      }}
+    />
+  );
 }
 
 /* ---------- kaartje ---------- */
@@ -127,20 +110,14 @@ function SeedCard({
 
       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition flex-shrink-0">
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onDuplicate(seed);
-          }}
+          onClick={(e) => { e.stopPropagation(); onDuplicate(seed); }}
           className="p-1 text-muted-foreground hover:text-primary"
           title="Dupliceren"
         >
           <Copy className="h-3.5 w-3.5" />
         </button>
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(seed);
-          }}
+          onClick={(e) => { e.stopPropagation(); onDelete(seed); }}
           className="p-1 text-muted-foreground hover:text-destructive"
           title="Verwijderen"
         >
@@ -169,19 +146,19 @@ function SeedGroup({
   const [isOpen, setIsOpen] = useState(true);
   const count = group.items.length;
 
-  const ct = group.id !== "__none__" ? cropTypesById.get(group.id) : undefined;
-  const iconSlug = (ct as any)?.icon_slug as string | undefined;
-
   return (
     <section className="space-y-2">
-      <button onClick={() => setIsOpen(!isOpen)} className="flex items-center gap-2 text-left group">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-2 text-left group"
+      >
         <ChevronDown
           className={cn(
             "h-4 w-4 text-muted-foreground transition-transform duration-300",
             isOpen && "rotate-180"
           )}
         />
-        <CropIcon iconSlug={iconSlug} fallbackName={group.label} className="text-primary/70" />
+        <CropIcon name={group.label} className="text-primary/70" />
         <h3 className="text-base font-semibold group-hover:text-primary transition-colors">
           {group.label} <span className="text-sm text-muted-foreground font-normal">({count})</span>
         </h3>
@@ -204,92 +181,7 @@ function SeedGroup({
   );
 }
 
-/* ---------- IconPicker (met Iconify REST <img> previews) ---------- */
-
-const ICON_CHOICES = [
-  "mdi:carrot",
-  "mdi:food-apple",
-  "mdi:fruit-cherries",
-  "mdi:fruit-grapes",
-  "mdi:fruit-citrus",
-  "mdi:fruit-pineapple",
-  "mdi:fruit-watermelon",
-  "mdi:fruit-strawberry",
-  "mdi:pepper",
-  "mdi:corn",
-  "mdi:mushroom-outline",
-  "mdi:leaf",
-  "mdi:sprout",
-  "mdi:wheat",
-  "mdi:eggplant",
-  "mdi:fruit-pear",
-  "mdi:seed-outline",
-  "mdi:flower",
-  "mdi:pumpkin",
-  "mdi:cabbage",
-  "mdi:garlic",
-  "mdi:onion",
-  "mdi:tomato",
-  "mdi:cucumber",
-];
-
-function IconPicker({
-  value,
-  onChange,
-}: {
-  value?: string | null;
-  onChange: (slug: string | null) => void;
-}) {
-  const [q, setQ] = useState("");
-  const filtered = useMemo(() => {
-    const t = q.trim().toLowerCase();
-    if (!t) return ICON_CHOICES;
-    return ICON_CHOICES.filter((s) => s.toLowerCase().includes(t));
-  }, [q]);
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Zoek icoon…"
-          className="w-full px-3 py-2 text-sm bg-muted/30 border-0 rounded-lg focus:ring-2 focus:ring-primary/20 focus:bg-background transition-all placeholder:text-muted-foreground/60"
-        />
-        <button
-          type="button"
-          onClick={() => onChange(null)}
-          className="px-2 py-2 text-xs rounded-lg bg-muted hover:bg-muted/70"
-          title="Zonder icoon"
-        >
-          Geen
-        </button>
-      </div>
-      <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 gap-2 max-h-60 overflow-y-auto">
-        {filtered.map((slug) => {
-          const active = value === slug;
-          const src = iconSrcFromSlug(slug, 24);
-          return (
-            <button
-              key={slug}
-              type="button"
-              onClick={() => onChange(slug)}
-              className={cn(
-                "aspect-square rounded-lg border flex items-center justify-center hover:bg-muted transition-colors",
-                active ? "border-primary ring-2 ring-primary/30" : "border-border/60"
-              )}
-              title={slug}
-            >
-              {src ? <img src={src} alt={slug} width={24} height={24} loading="lazy" /> : null}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/* ---------- Categoriebeheer (tab) ---------- */
+/* ---------- Categoriebeheer (naam-only) ---------- */
 
 function CategoriesManager({
   cropTypes,
@@ -298,23 +190,19 @@ function CategoriesManager({
   cropTypes: CropType[];
   onReload: () => Promise<void>;
 }) {
-  const [editing, setEditing] = useState<null | { id?: string; name: string; icon_slug: string | null }>(null);
+  const [editing, setEditing] = useState<null | { id?: string; name: string }>(null);
   const [busy, setBusy] = useState(false);
 
   function startCreate() {
-    setEditing({ name: "", icon_slug: null });
+    setEditing({ name: "" });
   }
   function startEdit(ct: CropType) {
-    setEditing({
-      id: (ct as any).id,
-      name: ct.name,
-      icon_slug: ((ct as any).icon_slug ?? null) as string | null,
-    });
+    setEditing({ id: (ct as any).id, name: ct.name });
   }
 
   async function handleSave() {
     if (!editing) return;
-    const { id, name, icon_slug } = editing;
+    const { id, name } = editing;
     if (!name.trim()) {
       alert("Voer een naam in.");
       return;
@@ -322,9 +210,9 @@ function CategoriesManager({
     try {
       setBusy(true);
       if (id) {
-        await updateCropType(id as any, { name: name.trim(), icon_slug: icon_slug ?? null });
+        await updateCropType(id as any, { name: name.trim() });
       } else {
-        await createCropType({ name: name.trim(), icon_slug: icon_slug ?? null });
+        await createCropType({ name: name.trim() });
       }
       setEditing(null);
       await onReload();
@@ -361,22 +249,18 @@ function CategoriesManager({
         </button>
       </div>
 
-      {/* lijst */}
       <div className="grid gap-2">
-        {cropTypes.length === 0 && (
-          <p className="text-sm text-muted-foreground">Nog geen categorieën.</p>
-        )}
+        {cropTypes.length === 0 && <p className="text-sm text-muted-foreground">Nog geen categorieën.</p>}
         {cropTypes.map((ct) => {
-          const slug = (ct as any).icon_slug as string | undefined;
-          const preview = slug ? iconSrcFromSlug(slug, 16) : null;
+          const name = ct.name;
           return (
             <div key={ct.id} className="flex items-center gap-3 px-3 py-2 border rounded-lg bg-card">
-              {preview ? (
-                <img src={preview} alt="" width={16} height={16} loading="lazy" />
-              ) : (
-                <Leaf className="h-4 w-4 text-primary/70" />
-              )}
-              <span className="text-sm font-medium flex-1 truncate">{ct.name}</span>
+              <CropIcon name={name} />
+              <span className="text-sm font-medium flex-1 truncate">{name}</span>
+              {/* hint: toon welke bestandsnaam gezocht wordt */}
+              <code className="hidden sm:inline px-1.5 py-0.5 rounded bg-muted text-xs text-muted-foreground">
+                /crop-icons/{slugify(name)}.(svg|png)
+              </code>
               <button
                 onClick={() => startEdit(ct)}
                 className="p-1.5 rounded hover:bg-muted transition-colors"
@@ -396,7 +280,6 @@ function CategoriesManager({
         })}
       </div>
 
-      {/* modal */}
       {editing && (
         <div
           className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
@@ -418,25 +301,9 @@ function CategoriesManager({
                   className="w-full mt-1.5 bg-muted/30 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
                   placeholder="Bijv. Koolgewassen"
                 />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Icoon (Iconify slug of URL)</label>
-                <IconPicker value={editing.icon_slug ?? null} onChange={(slug) => setEditing({ ...editing, icon_slug: slug })} />
-                {editing.icon_slug && (
-                  <div className="mt-2 text-xs text-muted-foreground flex items-center gap-2">
-                    Voorbeeld:
-                    {iconSrcFromSlug(editing.icon_slug, 20) ? (
-                      <img
-                        src={iconSrcFromSlug(editing.icon_slug, 20)!}
-                        alt=""
-                        width={20}
-                        height={20}
-                        loading="lazy"
-                      />
-                    ) : null}
-                    <code className="px-1.5 py-0.5 rounded bg-muted">{editing.icon_slug}</code>
-                  </div>
-                )}
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Bestandsnaam gezocht: <code>/crop-icons/{slugify(editing.name || "voorbeeld")}.(svg|png)</code>
+                </p>
               </div>
             </div>
             <div className="px-5 py-4 border-t border-border/30 bg-muted/20 flex justify-end gap-2">
@@ -670,6 +537,7 @@ export function InventoryPage({
               In voorraad
             </button>
 
+            {/* Gewastype filter */}
             <Popover>
               <PopoverTrigger asChild>
                 <button className="px-3 py-2 text-sm rounded-lg flex items-center gap-2 bg-muted/30 hover:bg-muted/50 transition-all">
@@ -699,27 +567,19 @@ export function InventoryPage({
                   >
                     Alle gewastypen
                   </button>
-                  {cropTypes.map((ct) => {
-                    const slug = (ct as any).icon_slug as string | undefined;
-                    const src = slug ? iconSrcFromSlug(slug, 16) : null;
-                    return (
-                      <button
-                        key={ct.id}
-                        onClick={() => setCropTypeFilter(ct.id)}
-                        className={cn(
-                          "w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors flex items-center gap-2",
-                          cropTypeFilter === ct.id ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted/50"
-                        )}
-                      >
-                        {src ? (
-                          <img src={src} alt="" width={16} height={16} loading="lazy" />
-                        ) : (
-                          <Leaf className="h-4 w-4 text-primary/70" />
-                        )}
-                        {ct.name}
-                      </button>
-                    );
-                  })}
+                  {cropTypes.map((ct) => (
+                    <button
+                      key={ct.id}
+                      onClick={() => setCropTypeFilter(ct.id)}
+                      className={cn(
+                        "w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors flex items-center gap-2",
+                        cropTypeFilter === ct.id ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted/50"
+                      )}
+                    >
+                      <CropIcon name={ct.name} />
+                      {ct.name}
+                    </button>
+                  ))}
                   <button
                     onClick={() => setCropTypeFilter("__none__")}
                     className={cn(
@@ -727,7 +587,7 @@ export function InventoryPage({
                       cropTypeFilter === "__none__" ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted/50"
                     )}
                   >
-                    <Leaf className="h-4 w-4" />
+                    <div className="inline-flex items-center justify-center w-4 h-4 rounded-sm bg-muted text-foreground/70">Ø</div>
                     Overig (geen soort)
                   </button>
                 </div>
