@@ -256,6 +256,9 @@ function HarvestAgendaView({
   });
   useEffect(() => { localStorage.setItem("harvestAgendaMonthISO", toISO(visibleMonth)); }, [visibleMonth]);
 
+  const [mode, setMode] = useState<"calendar" | "list">(() => ((localStorage.getItem("harvestAgendaMode") as any) === "list" ? "list" : "calendar"));
+  useEffect(() => { localStorage.setItem("harvestAgendaMode", mode); }, [mode]);
+
   const seedsById = useMemo(() => Object.fromEntries(seeds.map(s => [s.id, s])), [seeds]);
   const bedsById = useMemo(() => Object.fromEntries(beds.map(b => [b.id, b])), [beds]);
   const cropTypesById = useMemo(() => new Map<string, CropType>(cropTypes.map(ct => [ct.id, ct])), [cropTypes]);
@@ -331,6 +334,47 @@ function HarvestAgendaView({
     return map;
   }, [plantings, days, seedsById, bedsById, greenhouseOnly, cropTypeFilters, cropTypesById]);
 
+  // Aggregatie per maand (1-12): unieke zaden die ergens in die maand oogstbaar zijn
+  const harvestByMonth = useMemo(() => {
+    const map = new Map<number, Map<string, { seed: Seed; iconUrl: string | null; color: string }>>();
+    for (let m = 1; m <= 12; m++) map.set(m, new Map());
+
+    for (const p of plantings) {
+      const hs = effectiveHarvestStart(p);
+      const he = effectiveHarvestEnd(p);
+      if (!hs || !he) continue;
+      const s = new Date(hs), e = new Date(he);
+      if (isAfter(s, e)) continue;
+
+      const seed = seedsById[p.seed_id];
+      const bed = bedsById[p.garden_bed_id];
+      if (!matchFilters(seed, bed)) continue;
+
+      const iconUrl = getEffectiveIconUrl(seed, cropTypesById);
+      const color = p.color?.startsWith("#") || p.color?.startsWith("rgb")
+        ? (p.color as string)
+        : (seed?.default_color?.startsWith("#") ? seed!.default_color! : "#22c55e");
+
+      // iteratie per maand in [s,e]\n
+      let d = new Date(s.getFullYear(), s.getMonth(), 1);
+      const end = new Date(e.getFullYear(), e.getMonth(), 1);
+      while (d <= end) {
+        const m = d.getMonth() + 1; // 1..12
+        const bucket = map.get(m)!;
+        if (seed && !bucket.has(seed.id)) bucket.set(seed.id, { seed, iconUrl, color });
+        d.setMonth(d.getMonth() + 1);
+      }
+    }
+
+    const out: Record<number, { seed: Seed; iconUrl: string | null; color: string }[]> = {} as any;
+    for (let m = 1; m <= 12; m++) {
+      out[m] = Array.from(map.get(m)!.values()).sort((a, b) => a.seed.name.localeCompare(b.seed.name, "nl"));
+    }
+    return out;
+  }, [plantings, seedsById, bedsById, greenhouseOnly, cropTypeFilters, cropTypesById]);
+
+  const monthNames = ["januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus", "september", "oktober", "november", "december"];
+
   const gotoPrevMonth = () => setVisibleMonth(addDays(startOfMonth(visibleMonth), -1));
   const gotoNextMonth = () => setVisibleMonth(addDays(endOfMonth(visibleMonth), 1));
   const gotoToday = () => setVisibleMonth(new Date());
@@ -364,6 +408,33 @@ function HarvestAgendaView({
           <button className="ml-2 px-3 py-1.5 rounded-md bg-muted hover:bg-muted/80 text-sm" onClick={gotoToday}>Vandaag</button>
         </div>
       </div>
+
+      {/* mode toggle */}
+      <div className="flex items-center justify-end">
+        <div className="p-0.5 bg-muted/40 rounded-lg inline-flex">
+          <button
+            onClick={() => setMode("calendar")}
+            className={cn(
+              "px-3 py-1.5 text-xs font-medium rounded-md transition-all",
+              mode === "calendar" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Kalender
+          </button>
+          <button
+            onClick={() => setMode("list")}
+            className={cn(
+              "px-3 py-1.5 text-xs font-medium rounded-md transition-all",
+              mode === "list" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Lijst
+          </button>
+        </div>
+      </div>
+
+      {/* calendar wrapper start */}
+      <div className={mode === "calendar" ? "" : "hidden"}>
 
       {/* grid header */}
       <div className="grid grid-cols-7 text-[11px] text-muted-foreground">
@@ -419,6 +490,38 @@ function HarvestAgendaView({
           );
         })}
       </div>
+      </div>{/* calendar wrapper end */}
+
+      {mode === "list" && (
+        <div className="space-y-2">
+          {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => {
+            const items = harvestByMonth[m] || [];
+            return (
+              <div key={m} className="border rounded-lg p-2 bg-card">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground px-1">{monthNames[m-1]}</div>
+                {items.length === 0 ? (
+                  <div className="px-1 py-1 text-[11px] text-muted-foreground">—</div>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {items.map((it, idx) => (
+                      <div key={it.seed.id + String(idx)} className="flex items-center gap-1 px-1.5 py-1 rounded border bg-white/60 text-[11px]" style={{ borderColor: (it.color || "#22c55e") + "55" }}>
+                        <div className="relative w-4 h-4 rounded-sm overflow-hidden flex-shrink-0" style={{ background: it.color || "#22c55e" }}>
+                          {it.iconUrl ? (
+                            <img src={it.iconUrl} alt="" className="absolute inset-0 m-auto w-3.5 h-3.5 object-contain opacity-95" />
+                          ) : (
+                            <Leaf className="absolute inset-0 m-auto w-3.5 h-3.5 text-white/90" />
+                          )}
+                        </div>
+                        <span className="truncate max-w-[180px]">{it.seed.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
