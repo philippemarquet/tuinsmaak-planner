@@ -356,7 +356,7 @@ function SortableCard({
 }
 
 /* =======================
- *  Plattegrond Editor (zoals hiervoor)
+ *  Plattegrond Editor - Fotorealistisch design
  * ======================= */
 
 function LayoutEditor({
@@ -370,13 +370,14 @@ function LayoutEditor({
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
-  const CANVAS_W = 2400;
-  const CANVAS_H = 1400;
+  // Langwerpiger canvas voor realistische tuinverhoudingen
+  const CANVAS_W = 3000;
+  const CANVAS_H = 1200;
   const pxPerCm = 1;
 
-  const [zoom, setZoom] = useState(0.8);
-  const minZoom = 0.25;
-  const maxZoom = 3;
+  const [zoom, setZoom] = useState(0.6);
+  const minZoom = 0.15;
+  const maxZoom = 2;
 
   function setZoomClamped(v: number) {
     setZoom(Math.max(minZoom, Math.min(maxZoom, v)));
@@ -396,14 +397,11 @@ function LayoutEditor({
     return (
       <div className="flex items-center gap-2">
         <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1 bg-secondary hover:bg-secondary/80" onClick={() => setZoomClamped(zoom - 0.1)} title="Uitzoomen">
-          <ZoomOut className="h-4 w-4" />-
+          <ZoomOut className="h-4 w-4" />
         </button>
-        <input type="range" min={minZoom} max={maxZoom} step={0.05} value={zoom} onChange={(e) => setZoomClamped(parseFloat(e.target.value))} className="w-40" />
+        <input type="range" min={minZoom} max={maxZoom} step={0.05} value={zoom} onChange={(e) => setZoomClamped(parseFloat(e.target.value))} className="w-32" />
         <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1 bg-secondary hover:bg-secondary/80" onClick={() => setZoomClamped(zoom + 0.1)} title="Inzoomen">
-          <ZoomIn className="h-4 w-4" />+
-        </button>
-        <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1" onClick={() => setZoomClamped(1)} title="100%">
-          100%
+          <ZoomIn className="h-4 w-4" />
         </button>
         <button className="inline-flex items-center gap-1 border rounded-md px-2 py-1" onClick={fitToViewport} title="Passend maken">
           <Maximize2 className="h-4 w-4" /> Fit
@@ -420,7 +418,13 @@ function LayoutEditor({
         <ZoomControls />
       </div>
 
-      <div ref={viewportRef} className="relative w-full h-[70vh] rounded-xl border border-border overflow-auto bg-background">
+      <div 
+        ref={viewportRef} 
+        className="relative w-full h-[70vh] rounded-xl border-2 border-amber-800/30 overflow-auto shadow-xl"
+        style={{
+          background: "linear-gradient(135deg, #2d5016 0%, #3a6b1e 25%, #2d5016 50%, #3a6b1e 75%, #2d5016 100%)",
+        }}
+      >
         <div className="relative" style={{ width: CANVAS_W * zoom, height: CANVAS_H * zoom }}>
           <div
             className="absolute left-0 top-0"
@@ -429,12 +433,33 @@ function LayoutEditor({
               height: CANVAS_H,
               transform: `scale(${zoom})`,
               transformOrigin: "0 0",
-              backgroundImage:
-                "linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(180deg, rgba(0,0,0,0.04) 1px, transparent 1px)",
-              backgroundSize: "24px 24px",
               borderRadius: 12,
+              // Gras textuur effect
+              backgroundImage: `
+                radial-gradient(ellipse 3px 5px at 20% 30%, rgba(255,255,255,0.03) 0%, transparent 100%),
+                radial-gradient(ellipse 2px 4px at 60% 70%, rgba(255,255,255,0.02) 0%, transparent 100%),
+                radial-gradient(ellipse 4px 6px at 80% 20%, rgba(255,255,255,0.03) 0%, transparent 100%),
+                radial-gradient(ellipse 3px 5px at 40% 80%, rgba(255,255,255,0.02) 0%, transparent 100%),
+                repeating-linear-gradient(
+                  90deg,
+                  transparent 0px,
+                  transparent 8px,
+                  rgba(0,0,0,0.02) 8px,
+                  rgba(0,0,0,0.02) 9px
+                ),
+                repeating-linear-gradient(
+                  0deg,
+                  transparent 0px,
+                  transparent 12px,
+                  rgba(0,0,0,0.015) 12px,
+                  rgba(0,0,0,0.015) 13px
+                )
+              `,
             }}
           >
+            {/* Decoratieve elementen */}
+            <GardenDecorations />
+            
             {beds.map((b) => (
               <BedBlock
                 key={b.id}
@@ -449,7 +474,45 @@ function LayoutEditor({
           </div>
         </div>
       </div>
+      
+      {/* Legenda */}
+      <div className="flex items-center gap-6 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-4 rounded border-2 border-amber-700" style={{ background: "linear-gradient(180deg, #5c4033 0%, #3e2723 100%)" }} />
+          <span>Moestuinbak (douglas hout)</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-4 rounded border-2 border-sky-300/60" style={{ background: "linear-gradient(135deg, rgba(135,206,235,0.3) 0%, rgba(255,255,255,0.4) 50%, rgba(135,206,235,0.3) 100%)" }} />
+          <span>Kas (glas)</span>
+        </div>
+        <div className="flex items-center gap-2 ml-auto">
+          <span className="text-muted-foreground/60">Sleep de bakken om te verplaatsen</span>
+        </div>
+      </div>
     </section>
+  );
+}
+
+/* Decoratieve elementen voor de tuin */
+function GardenDecorations() {
+  return (
+    <>
+      {/* Subtiele zonlicht gradient */}
+      <div 
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background: "radial-gradient(ellipse 80% 60% at 30% 20%, rgba(255,255,200,0.08) 0%, transparent 60%)",
+        }}
+      />
+      
+      {/* Pad/gravel strip onderaan (optioneel) */}
+      <div 
+        className="absolute bottom-0 left-0 right-0 h-16 pointer-events-none"
+        style={{
+          background: "linear-gradient(0deg, rgba(139,119,101,0.2) 0%, transparent 100%)",
+        }}
+      />
+    </>
   );
 }
 
@@ -468,16 +531,18 @@ function BedBlock({
   onMove: (id: UUID, x: number, y: number) => void;
   onDuplicate: () => void;
 }) {
-  const w = Math.max(40, Math.round((bed.length_cm || 200) * pxPerCm));
-  const h = Math.max(24, Math.round((bed.width_cm || 100) * pxPerCm));
+  const w = Math.max(60, Math.round((bed.length_cm || 200) * pxPerCm));
+  const h = Math.max(40, Math.round((bed.width_cm || 100) * pxPerCm));
+  const borderWidth = 8; // Douglas hout rand dikte
 
   const [pos, setPos] = useState<{ x: number; y: number }>({
-    x: bed.location_x ?? 20,
-    y: bed.location_y ?? 20,
+    x: bed.location_x ?? 50,
+    y: bed.location_y ?? 50,
   });
+  const [isHovered, setIsHovered] = useState(false);
 
   useEffect(() => {
-    setPos({ x: bed.location_x ?? 20, y: bed.location_y ?? 20 });
+    setPos({ x: bed.location_x ?? 50, y: bed.location_y ?? 50 });
   }, [bed.location_x, bed.location_y]);
 
   const dragging = useRef(false);
@@ -503,33 +568,239 @@ function BedBlock({
     onMove(bed.id, pos.x, pos.y);
   }
 
+  // Kas styling
+  if (bed.is_greenhouse) {
+    return (
+      <div
+        className="absolute cursor-grab active:cursor-grabbing select-none transition-all duration-150"
+        style={{ 
+          left: pos.x, 
+          top: pos.y, 
+          width: w, 
+          height: h,
+          transform: isHovered ? "scale(1.02)" : "scale(1)",
+        }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        {/* Kas schaduw */}
+        <div 
+          className="absolute -bottom-3 left-2 right-2 h-4 rounded-full"
+          style={{
+            background: "radial-gradient(ellipse at center, rgba(0,0,0,0.25) 0%, transparent 70%)",
+          }}
+        />
+        
+        {/* Kas frame (aluminium look) */}
+        <div 
+          className="absolute inset-0 rounded-lg"
+          style={{
+            background: "linear-gradient(135deg, #e8e8e8 0%, #c0c0c0 50%, #e8e8e8 100%)",
+            padding: 4,
+          }}
+        >
+          {/* Glas panelen */}
+          <div 
+            className="w-full h-full rounded-md overflow-hidden relative"
+            style={{
+              background: "linear-gradient(135deg, rgba(135,206,250,0.25) 0%, rgba(255,255,255,0.5) 30%, rgba(135,206,250,0.25) 60%, rgba(255,255,255,0.4) 100%)",
+              boxShadow: "inset 0 0 20px rgba(255,255,255,0.3)",
+            }}
+          >
+            {/* Glas reflectie */}
+            <div 
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                background: "linear-gradient(135deg, rgba(255,255,255,0.6) 0%, transparent 30%, transparent 70%, rgba(255,255,255,0.2) 100%)",
+              }}
+            />
+            
+            {/* Kas frame lijnen */}
+            <div className="absolute inset-0 pointer-events-none" style={{
+              backgroundImage: `
+                linear-gradient(90deg, rgba(192,192,192,0.5) 1px, transparent 1px),
+                linear-gradient(0deg, rgba(192,192,192,0.5) 1px, transparent 1px)
+              `,
+              backgroundSize: `${w / 4}px ${h / 3}px`,
+            }} />
+            
+            {/* Naam label */}
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span 
+                className="text-sm font-semibold px-3 py-1 rounded-md"
+                style={{
+                  background: "rgba(255,255,255,0.8)",
+                  color: "#2d5016",
+                  textShadow: "0 1px 0 rgba(255,255,255,0.5)",
+                  boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                }}
+              >
+                {bed.name}
+              </span>
+            </div>
+          </div>
+        </div>
+        
+        {/* Hover actions */}
+        {isHovered && (
+          <button 
+            type="button" 
+            onClick={(e) => { e.stopPropagation(); onDuplicate(); }} 
+            title="Dupliceren" 
+            className="absolute -top-2 -right-2 p-1.5 rounded-full bg-white shadow-md hover:bg-gray-100 z-10"
+          >
+            <Copy className="h-3.5 w-3.5 text-gray-600" />
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // Normale moestuinbak (douglas hout)
   return (
     <div
-      className={`absolute rounded-lg shadow-sm border cursor-grab active:cursor-grabbing select-none ${bed.is_greenhouse ? "border-green-600/60 bg-green-50" : "bg-white"}`}
-      style={{ left: pos.x, top: pos.y, width: w, height: h }}
+      className="absolute cursor-grab active:cursor-grabbing select-none transition-all duration-150"
+      style={{ 
+        left: pos.x, 
+        top: pos.y, 
+        width: w, 
+        height: h,
+        transform: isHovered ? "scale(1.02)" : "scale(1)",
+      }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
-      <div className="flex items-center justify-between px-2 py-1 border-b bg-muted/50 rounded-t-lg">
-        <span className="text-xs font-medium truncate">{bed.name}</span>
-        <div className="flex items-center gap-1">
-          <button type="button" onClick={(e) => { e.stopPropagation(); onDuplicate(); }} title="Dupliceren" className="p-1 rounded hover:bg-muted">
-            <Copy className="h-3.5 w-3.5" />
-          </button>
-          {bed.is_greenhouse && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-600 text-white">Kas</span>
+      {/* Bak schaduw op het gras */}
+      <div 
+        className="absolute -bottom-4 left-1 right-1 h-5 rounded-full"
+        style={{
+          background: "radial-gradient(ellipse at center, rgba(0,0,0,0.3) 0%, transparent 70%)",
+        }}
+      />
+      
+      {/* Douglas houten rand */}
+      <div 
+        className="absolute inset-0 rounded-lg"
+        style={{
+          background: `
+            linear-gradient(180deg, 
+              #8B6914 0%, 
+              #7a5a12 15%, 
+              #6d4f0f 30%,
+              #5c4210 50%,
+              #6d4f0f 70%,
+              #7a5a12 85%,
+              #8B6914 100%
+            )
+          `,
+          boxShadow: `
+            inset 2px 2px 4px rgba(255,255,255,0.15),
+            inset -2px -2px 4px rgba(0,0,0,0.2),
+            0 4px 8px rgba(0,0,0,0.3)
+          `,
+          padding: borderWidth,
+        }}
+      >
+        {/* Hout textuur overlay */}
+        <div 
+          className="absolute inset-0 rounded-lg pointer-events-none opacity-30"
+          style={{
+            backgroundImage: `
+              repeating-linear-gradient(
+                90deg,
+                transparent 0px,
+                transparent 20px,
+                rgba(0,0,0,0.1) 20px,
+                rgba(0,0,0,0.1) 21px
+              ),
+              repeating-linear-gradient(
+                0deg,
+                transparent 0px,
+                transparent 3px,
+                rgba(255,255,255,0.05) 3px,
+                rgba(255,255,255,0.05) 4px
+              )
+            `,
+          }}
+        />
+        
+        {/* Aarde/grond binnen de bak */}
+        <div 
+          className="w-full h-full rounded-md overflow-hidden relative"
+          style={{
+            background: `
+              radial-gradient(ellipse at 30% 40%, rgba(101,67,33,1) 0%, transparent 50%),
+              radial-gradient(ellipse at 70% 60%, rgba(89,60,31,1) 0%, transparent 50%),
+              radial-gradient(ellipse at 50% 30%, rgba(110,75,38,1) 0%, transparent 40%),
+              linear-gradient(180deg, #5c4033 0%, #4a3328 50%, #3e2723 100%)
+            `,
+            boxShadow: "inset 0 2px 8px rgba(0,0,0,0.4)",
+          }}
+        >
+          {/* Grond textuur */}
+          <div 
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundImage: `
+                radial-gradient(circle 2px at 20% 30%, rgba(0,0,0,0.15) 0%, transparent 100%),
+                radial-gradient(circle 3px at 60% 20%, rgba(0,0,0,0.1) 0%, transparent 100%),
+                radial-gradient(circle 2px at 80% 70%, rgba(0,0,0,0.12) 0%, transparent 100%),
+                radial-gradient(circle 2px at 40% 80%, rgba(0,0,0,0.1) 0%, transparent 100%),
+                radial-gradient(circle 1px at 15% 60%, rgba(255,255,255,0.05) 0%, transparent 100%),
+                radial-gradient(circle 1px at 85% 40%, rgba(255,255,255,0.05) 0%, transparent 100%)
+              `,
+            }}
+          />
+          
+          {/* Segment lijnen (subtiel) */}
+          {bed.segments > 1 && (
+            <div 
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                backgroundImage: `repeating-linear-gradient(
+                  90deg,
+                  transparent 0px,
+                  transparent calc(${100 / bed.segments}% - 1px),
+                  rgba(255,255,255,0.08) calc(${100 / bed.segments}% - 1px),
+                  rgba(255,255,255,0.08) calc(${100 / bed.segments}%)
+                )`,
+              }}
+            />
           )}
+          
+          {/* Naam label - zwevend boven de grond */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span 
+              className="text-sm font-semibold px-3 py-1 rounded-md"
+              style={{
+                background: "rgba(255,255,255,0.9)",
+                color: "#3e2723",
+                boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
+              }}
+            >
+              {bed.name}
+            </span>
+          </div>
         </div>
       </div>
-      <div className="p-2">
-        <div className="text-[11px] text-muted-foreground">
-          {bed.width_cm}×{bed.length_cm} cm • {bed.segments} seg
-        </div>
-        <div className="text-[10px] text-muted-foreground">
-          x:{Math.round(pos.x)} y:{Math.round(pos.y)}
-        </div>
-      </div>
+      
+      {/* Hover actions */}
+      {isHovered && (
+        <button 
+          type="button" 
+          onClick={(e) => { e.stopPropagation(); onDuplicate(); }} 
+          title="Dupliceren" 
+          className="absolute -top-2 -right-2 p-1.5 rounded-full bg-white shadow-md hover:bg-gray-100 z-10"
+        >
+          <Copy className="h-3.5 w-3.5 text-gray-600" />
+        </button>
+      )}
     </div>
   );
 }
