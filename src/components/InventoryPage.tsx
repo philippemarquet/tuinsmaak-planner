@@ -6,10 +6,49 @@ import { Copy, Trash2, PlusCircle, ChevronDown, Search, Carrot, Leaf, Apple, Che
 import { SeedModal } from "./SeedModal";
 import { cn } from "../lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { Checkbox } from "./ui/checkbox";
+// import { Checkbox } from "./ui/checkbox"; // niet gebruikt
 
-/** Iconify (voor categorie-icoontjes uit een grote set) */
-import { Icon } from "@iconify/react";
+/* -------------------------------------------------------
+   Iconify web component zonder NPM dependency.
+   Werkt als je (optioneel) dit script in <head> zet:
+   <script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+--------------------------------------------------------*/
+
+// TypeScript: definieer het custom element zodat TSX niet klaagt
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      "iconify-icon": React.DetailedHTMLProps<
+        React.HTMLAttributes<HTMLElement> & {
+          icon?: string;
+          width?: string | number;
+          height?: string | number;
+        },
+        HTMLElement
+      >;
+    }
+  }
+}
+
+function useIconifyAvailable() {
+  const [ready, setReady] = useState<boolean>(() =>
+    typeof window !== "undefined" && !!window.customElements?.get("iconify-icon")
+  );
+
+  useEffect(() => {
+    if (ready) return;
+    const id = setInterval(() => {
+      const ok = !!window.customElements?.get("iconify-icon");
+      if (ok) {
+        setReady(true);
+        clearInterval(id);
+      }
+    }, 500);
+    return () => clearInterval(id);
+  }, [ready]);
+
+  return ready;
+}
 
 /* ---------- helpers ---------- */
 
@@ -28,26 +67,38 @@ function nextCopyName(name: string) {
   return `${name} (kopie)`;
 }
 
-// Huidige fallback naar Lucide wanneer geen icon_slug staat
+// Fallback naar Lucide wanneer geen icon_slug of Iconify niet beschikbaar
 function getCropTypeLucideIcon(name: string) {
   const lower = name.toLowerCase();
-  if (lower.includes('wortel') || lower.includes('knol')) return Carrot;
-  if (lower.includes('sla') || lower.includes('blad')) return Salad;
-  if (lower.includes('fruit') || lower.includes('bes')) return Cherry;
-  if (lower.includes('appel') || lower.includes('peer')) return Apple;
-  if (lower.includes('boon') || lower.includes('erwt')) return Bean;
-  if (lower.includes('graan') || lower.includes('mais')) return Wheat;
-  if (lower.includes('bloem')) return Flower2;
+  if (lower.includes("wortel") || lower.includes("knol")) return Carrot;
+  if (lower.includes("sla") || lower.includes("blad")) return Salad;
+  if (lower.includes("fruit") || lower.includes("bes")) return Cherry;
+  if (lower.includes("appel") || lower.includes("peer")) return Apple;
+  if (lower.includes("boon") || lower.includes("erwt")) return Bean;
+  if (lower.includes("graan") || lower.includes("mais")) return Wheat;
+  if (lower.includes("bloem")) return Flower2;
   return Leaf;
 }
 
-/** Render een icoon: eerst icon_slug (Iconify), anders Lucide fallback */
-function CropIcon({ iconSlug, fallbackName, className }: { iconSlug?: string | null; fallbackName: string; className?: string }) {
-  if (iconSlug && typeof iconSlug === "string" && iconSlug.trim().length > 0) {
-    return <Icon icon={iconSlug} className={cn("h-4 w-4", className)} />;
+/** Render een icoon: eerst icon_slug via Iconify web component, anders Lucide fallback */
+function CropIcon({
+  iconSlug,
+  fallbackName,
+  className,
+  size = 16,
+}: {
+  iconSlug?: string | null;
+  fallbackName: string;
+  className?: string;
+  size?: number;
+}) {
+  const iconifyReady = useIconifyAvailable();
+  const slug = (iconSlug ?? "").trim();
+  if (iconifyReady && slug) {
+    return <iconify-icon icon={slug} style={{ width: size, height: size }} className={className} />;
   }
   const Fallback = getCropTypeLucideIcon(fallbackName);
-  return <Fallback className={cn("h-4 w-4 text-primary/70", className)} />;
+  return <Fallback className={cn("text-primary/70", className)} size={size} />;
 }
 
 /* ---------- kaartje ---------- */
@@ -76,7 +127,7 @@ function SeedCard({
     );
 
   return (
-    <div 
+    <div
       className={cn(
         "flex items-center gap-2 px-3 py-2 border rounded-lg bg-card hover:bg-accent/50 transition cursor-pointer group",
         !inStock && "opacity-60"
@@ -85,29 +136,31 @@ function SeedCard({
     >
       {colorDot}
       <span className="font-medium text-sm truncate flex-1">{seed.name}</span>
-      
+
       {seed.greenhouse_compatible && (
-        <span className="text-xs px-1.5 py-0.5 rounded bg-green-600 text-white flex-shrink-0">
-          Kas
-        </span>
+        <span className="text-xs px-1.5 py-0.5 rounded bg-green-600 text-white flex-shrink-0">Kas</span>
       )}
-      
+
       {!inStock && (
-        <span className="text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-700 flex-shrink-0">
-          ✗
-        </span>
+        <span className="text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-700 flex-shrink-0">✗</span>
       )}
-      
+
       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition flex-shrink-0">
         <button
-          onClick={(e) => { e.stopPropagation(); onDuplicate(seed); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDuplicate(seed);
+          }}
           className="p-1 text-muted-foreground hover:text-primary"
           title="Dupliceren"
         >
           <Copy className="h-3.5 w-3.5" />
         </button>
         <button
-          onClick={(e) => { e.stopPropagation(); onDelete(seed); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(seed);
+          }}
           className="p-1 text-muted-foreground hover:text-destructive"
           title="Verwijderen"
         >
@@ -142,15 +195,12 @@ function SeedGroup({
   return (
     <section className="space-y-2">
       {/* Clickable header with icon */}
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 text-left group"
-      >
-        <ChevronDown 
+      <button onClick={() => setIsOpen(!isOpen)} className="flex items-center gap-2 text-left group">
+        <ChevronDown
           className={cn(
             "h-4 w-4 text-muted-foreground transition-transform duration-300",
             isOpen && "rotate-180"
-          )} 
+          )}
         />
         <CropIcon iconSlug={iconSlug} fallbackName={group.label} className="text-primary/70" />
         <h3 className="text-base font-semibold group-hover:text-primary transition-colors">
@@ -165,14 +215,9 @@ function SeedGroup({
             <div
               key={seed.id}
               className="animate-fade-in"
-              style={{ animationDelay: `${index * 20}ms`, animationFillMode: 'backwards' }}
+              style={{ animationDelay: `${index * 20}ms`, animationFillMode: "backwards" }}
             >
-              <SeedCard
-                seed={seed}
-                onEdit={onEdit}
-                onDelete={onDelete}
-                onDuplicate={onDuplicate}
-              />
+              <SeedCard seed={seed} onEdit={onEdit} onDelete={onDelete} onDuplicate={onDuplicate} />
             </div>
           ))}
         </div>
@@ -224,6 +269,7 @@ function IconPicker({
   value?: string | null;
   onChange: (slug: string | null) => void;
 }) {
+  const iconifyReady = useIconifyAvailable();
   const [q, setQ] = useState("");
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -233,6 +279,11 @@ function IconPicker({
 
   return (
     <div className="space-y-2">
+      {!iconifyReady && (
+        <div className="text-xs text-muted-foreground bg-muted/30 rounded p-2">
+          Tip: voeg Iconify script toe om de iconen-voorbeelden te zien.
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <input
           value={q}
@@ -263,7 +314,11 @@ function IconPicker({
               )}
               title={slug}
             >
-              <Icon icon={slug} className="w-6 h-6" />
+              {iconifyReady ? (
+                <iconify-icon icon={slug} style={{ width: 24, height: 24 }} />
+              ) : (
+                <Leaf className="w-5 h-5 text-muted-foreground" />
+              )}
             </button>
           );
         })}
@@ -346,9 +401,7 @@ function CategoriesManager({
 
       {/* lijst */}
       <div className="grid gap-2">
-        {cropTypes.length === 0 && (
-          <p className="text-sm text-muted-foreground">Nog geen categorieën.</p>
-        )}
+        {cropTypes.length === 0 && <p className="text-sm text-muted-foreground">Nog geen categorieën.</p>}
         {cropTypes.map((ct) => (
           <div key={ct.id} className="flex items-center gap-3 px-3 py-2 border rounded-lg bg-card">
             <CropIcon iconSlug={(ct as any).icon_slug} fallbackName={ct.name} />
@@ -373,8 +426,14 @@ function CategoriesManager({
 
       {/* modal */}
       {editing && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => !busy && setEditing(null)}>
-          <div className="bg-card rounded-2xl w-full max-w-lg border border-border/50 shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => !busy && setEditing(null)}
+        >
+          <div
+            className="bg-card rounded-2xl w-full max-w-lg border border-border/50 shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="px-5 py-4 border-b border-border/30 bg-gradient-to-r from-primary/5 to-transparent">
               <h4 className="text-lg font-semibold">{editing.id ? "Categorie bewerken" : "Nieuwe categorie"}</h4>
             </div>
@@ -390,14 +449,11 @@ function CategoriesManager({
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Icoon</label>
-                <IconPicker
-                  value={editing.icon_slug}
-                  onChange={(slug) => setEditing({ ...editing, icon_slug: slug })}
-                />
+                <IconPicker value={editing.icon_slug} onChange={(slug) => setEditing({ ...editing, icon_slug: slug })} />
                 {editing.icon_slug && (
                   <div className="mt-2 text-xs text-muted-foreground flex items-center gap-2">
                     Voorbeeld:
-                    <Icon icon={editing.icon_slug} className="h-5 w-5" />
+                    <CropIcon iconSlug={editing.icon_slug} fallbackName={editing.name || "categorie"} size={20} />
                     <code className="px-1.5 py-0.5 rounded bg-muted">{editing.icon_slug}</code>
                   </div>
                 )}
@@ -434,8 +490,8 @@ export function InventoryPage({
   garden,
   seeds: initialSeeds,
   cropTypes: initialCropTypes,
-  onDataChange
-}: { 
+  onDataChange,
+}: {
   garden: Garden;
   seeds: Seed[];
   cropTypes: CropType[];
@@ -470,7 +526,7 @@ export function InventoryPage({
       const types = await listCropTypes();
       setCropTypes(types);
     } catch (err) {
-      console.error('Failed to fetch crop types:', err);
+      console.error("Failed to fetch crop types:", err);
     }
   };
   useEffect(() => {
@@ -558,12 +614,12 @@ export function InventoryPage({
 
   // groepering op gewastype
   const groups = useMemo(() => {
-    const byId = new Map<string, CropType>(cropTypes.map(ct => [ct.id, ct]));
+    const byId = new Map<string, CropType>(cropTypes.map((ct) => [ct.id, ct]));
     const map = new Map<string, { label: string; items: Seed[] }>();
 
     for (const s of filtered) {
       const key = s.crop_type_id || "__none__";
-      const label = s.crop_type_id ? (byId.get(s.crop_type_id)?.name || "Onbekend") : "Overig";
+      const label = s.crop_type_id ? byId.get(s.crop_type_id)?.name || "Onbekend" : "Overig";
       if (!map.has(key)) map.set(key, { label, items: [] });
       map.get(key)!.items.push(s);
     }
@@ -630,8 +686,8 @@ export function InventoryPage({
               onClick={() => setInStockOnly(!inStockOnly)}
               className={cn(
                 "px-3 py-2 text-sm font-medium rounded-lg transition-all",
-                inStockOnly 
-                  ? "bg-primary text-primary-foreground shadow-sm" 
+                inStockOnly
+                  ? "bg-primary text-primary-foreground shadow-sm"
                   : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
               )}
             >
@@ -642,10 +698,12 @@ export function InventoryPage({
             <Popover>
               <PopoverTrigger asChild>
                 <button className="px-3 py-2 text-sm rounded-lg flex items-center gap-2 bg-muted/30 hover:bg-muted/50 transition-all">
-                  <span className={cn(
-                    "truncate max-w-32",
-                    cropTypeFilter === "all" ? "text-muted-foreground" : "text-foreground font-medium"
-                  )}>
+                  <span
+                    className={cn(
+                      "truncate max-w-32",
+                      cropTypeFilter === "all" ? "text-muted-foreground" : "text-foreground font-medium"
+                    )}
+                  >
                     {cropTypeFilter === "all"
                       ? "Gewastype"
                       : cropTypeFilter === "__none__"
@@ -657,7 +715,7 @@ export function InventoryPage({
               </PopoverTrigger>
               <PopoverContent className="w-56 p-2 max-h-64 overflow-y-auto bg-popover/95 backdrop-blur-sm border-border/50">
                 <div className="space-y-0.5">
-                  <button 
+                  <button
                     onClick={() => setCropTypeFilter("all")}
                     className={cn(
                       "w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors",
@@ -669,8 +727,8 @@ export function InventoryPage({
                   {cropTypes.map((ct) => {
                     const slug = (ct as any).icon_slug as string | undefined;
                     return (
-                      <button 
-                        key={ct.id} 
+                      <button
+                        key={ct.id}
                         onClick={() => setCropTypeFilter(ct.id)}
                         className={cn(
                           "w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors flex items-center gap-2",
@@ -682,7 +740,7 @@ export function InventoryPage({
                       </button>
                     );
                   })}
-                  <button 
+                  <button
                     onClick={() => setCropTypeFilter("__none__")}
                     className={cn(
                       "w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors text-muted-foreground flex items-center gap-2",
