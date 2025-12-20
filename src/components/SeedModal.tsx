@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Seed, CropType, UUID } from "../lib/types";
 import { createSeed, updateSeed } from "../lib/api/seeds";
 import { listCropTypes } from "../lib/api/cropTypes";
@@ -10,6 +10,9 @@ import { format } from "date-fns";
 import { nl } from "date-fns/locale";
 import { CalendarIcon, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { supabase } from "../lib/supabaseClient";
+
+const ICON_BUCKET = "crop-icons";
 
 interface SeedModalProps {
   gardenId: UUID;
@@ -17,6 +20,8 @@ interface SeedModalProps {
   onClose: () => void;
   onSaved: (seed: Seed) => void;
 }
+
+type IconFile = { key: string; url: string };
 
 export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) {
   const editing = !!seed.id;
@@ -46,8 +51,10 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
     default_color: seed.default_color ?? "#22c55e",
     notes: seed.notes ?? "",
     in_stock: (seed as any).in_stock !== false,
+    icon_key: (seed as any).icon_key ?? null, // ⬅️ nieuw
   });
 
+  // laad gewastypes (incl. icon_key)
   useEffect(() => {
     const fetchCropTypes = async () => {
       try {
@@ -73,6 +80,61 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
     setForm((f) => ({ ...f, [field]: value }));
   }
 
+  // ---------- Iconen uit Storage ----------
+  const [icons, setIcons] = useState<IconFile[]>([]);
+  const [iconSearch, setIconSearch] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const all: IconFile[] = [];
+      // list root (pas aan als jij subfolders gebruikt)
+      const { data, error } = await supabase.storage.from(ICON_BUCKET).list("", { limit: 1000 });
+      if (error) {
+        console.error("Icon list error:", error);
+        return;
+      }
+      for (const f of data || []) {
+        if (f.name.startsWith(".")) continue;
+        if (f.metadata && (f.metadata as any).eTag === undefined) {
+          // map kan zowel files als "folders" teruggeven; folders overslaan
+          // Supabase geeft folders als type 'folder' met name en id, zonder publicUrl
+          // we checken via f.id? nee; eenvoudig: als er geen 'id'/metadata of size==null en type=="folder"
+        }
+        // Genereer public URL
+        const { data: pub } = supabase.storage.from(ICON_BUCKET).getPublicUrl(f.name);
+        all.push({ key: f.name, url: pub.publicUrl });
+      }
+      if (!cancelled) setIcons(all);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const filteredIcons = useMemo(() => {
+    const t = iconSearch.trim().toLowerCase();
+    if (!t) return icons;
+    return icons.filter(i => i.key.toLowerCase().includes(t));
+  }, [icons, iconSearch]);
+
+  // ---------- Inheritance logica ----------
+  const inheritedIconKey = useMemo(() => {
+    if (!form.crop_type_id) return null;
+    const ct = cropTypes.find(c => c.id === form.crop_type_id);
+    return (ct?.icon_key ?? null) as string | null;
+  }, [form.crop_type_id, cropTypes]);
+
+  const effectiveIconKey = form.icon_key ?? inheritedIconKey;
+
+  const effectiveIconUrl = useMemo(() => {
+    if (!effectiveIconKey) return null;
+    return supabase.storage.from(ICON_BUCKET).getPublicUrl(effectiveIconKey).data.publicUrl;
+  }, [effectiveIconKey]);
+
+  const selectedIconUrl = useMemo(() => {
+    if (!form.icon_key) return null;
+    return supabase.storage.from(ICON_BUCKET).getPublicUrl(form.icon_key).data.publicUrl;
+  }, [form.icon_key]);
+
   async function handleSave() {
     setSaving(true);
     setError(null);
@@ -88,6 +150,7 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
         harvest_duration_weeks: !form.harvest_duration_weeks || String(form.harvest_duration_weeks) === "" ? null : Number(form.harvest_duration_weeks),
         greenhouse_months: form.greenhouse_compatible ? ((form as any).greenhouse_months ?? []) : [],
         notes: form.notes || null,
+        icon_key: form.icon_key ?? null, // ⬅️ save override of null (inherit)
       };
 
       const saved = editing
@@ -129,7 +192,7 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
             </div>
           )}
 
-          {/* Naam + Kleur */}
+          {/* Naam + Icoon + Kleur */}
           <div className="flex gap-3 items-end">
             <div className="flex-1">
               <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Naam</label>
@@ -141,6 +204,88 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
                 placeholder="Bijv. Sla Butterhead"
               />
             </div>
+
+            {/* Icoon (links van kleur) */}
+            <div className="flex flex-col items-center gap-1">
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Icoon</label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    className={cn(
+                      "w-8 h-8 rounded-lg border-2 border-white shadow-md overflow-hidden bg-muted/40 flex items-center justify-center hover:bg-muted",
+                      !effectiveIconUrl && "opacity-70"
+                    )}
+                    title={form.icon_key ? `Gekozen: ${form.icon_key}` : (inheritedIconKey ? `Erft: ${inheritedIconKey}` : "Geen")}
+                  >
+                    {effectiveIconUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={effectiveIconUrl} alt="icoon" className="w-full h-full object-contain" />
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground">—</span>
+                    )}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[420px] p-3 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={iconSearch}
+                      onChange={(e) => setIconSearch(e.target.value)}
+                      placeholder="Zoek icoon…"
+                      className="w-full px-3 py-2 text-sm bg-muted/30 border-0 rounded-lg focus:ring-2 focus:ring-primary/20 focus:bg-background transition-all placeholder:text-muted-foreground/60"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleChange("icon_key", null)}
+                      className="px-2 py-2 text-xs rounded-lg bg-muted hover:bg-muted/70"
+                      title="Erf van categorie"
+                    >
+                      Erf
+                    </button>
+                    {form.icon_key && (
+                      <button
+                        type="button"
+                        onClick={() => handleChange("icon_key", null)}
+                        className="px-2 py-2 text-xs rounded-lg bg-amber-100 text-amber-900 hover:bg-amber-200"
+                        title="Verwijder override"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-8 gap-2 max-h-72 overflow-y-auto">
+                    {filteredIcons.map((ic) => {
+                      const active = form.icon_key === ic.key;
+                      return (
+                        <button
+                          key={ic.key}
+                          type="button"
+                          onClick={() => handleChange("icon_key", ic.key)}
+                          className={cn(
+                            "aspect-square rounded-lg border flex items-center justify-center hover:bg-muted transition-colors",
+                            active ? "border-primary ring-2 ring-primary/30" : "border-border/60"
+                          )}
+                          title={ic.key}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={ic.url} alt={ic.key} className="w-6 h-6 object-contain" />
+                        </button>
+                      );
+                    })}
+                    {filteredIcons.length === 0 && (
+                      <div className="col-span-8 text-center text-sm text-muted-foreground py-6">
+                        Geen iconen gevonden.
+                      </div>
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
+              <span className="text-[10px] text-muted-foreground">
+                {form.icon_key ? "Override" : inheritedIconKey ? "Erft" : "Geen"}
+              </span>
+            </div>
+
+            {/* Kleur */}
             <div className="flex flex-col items-center gap-1">
               <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Kleur</label>
               <input
