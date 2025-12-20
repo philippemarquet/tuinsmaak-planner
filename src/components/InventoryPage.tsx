@@ -208,10 +208,10 @@ function SeedGroup({
 
 const ICON_CHOICES = [
   "mdi:carrot",
-  "mdi:food-apple-outline",
-  "mdi:fruit-cherries-outline",
-  "mdi:fruit-grapes-outline",
-  "mdi:fruit-citrus-outline",
+  "mdi:food-apple",
+  "mdi:fruit-cherries",
+  "mdi:fruit-grapes",
+  "mdi:fruit-citrus",
   "mdi:fruit-pineapple",
   "mdi:fruit-watermelon",
   "mdi:fruit-strawberry",
@@ -223,20 +223,14 @@ const ICON_CHOICES = [
   "mdi:wheat",
   "mdi:eggplant",
   "mdi:fruit-pear",
-  "mdi:fruit-grapes",
   "mdi:seed-outline",
-  "mdi:flower-outline",
-  "mdi:grass",
-  "mdi:herb",
-  "mdi:pot",
-  "mdi:pot-steam-outline",
+  "mdi:flower",
   "mdi:pumpkin",
   "mdi:cabbage",
   "mdi:garlic",
   "mdi:onion",
   "mdi:tomato",
   "mdi:cucumber",
-  "mdi:pot-mix",
 ];
 
 function IconPicker({
