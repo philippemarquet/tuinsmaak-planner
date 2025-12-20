@@ -27,9 +27,9 @@ export interface GardenUser {
 export interface CropType {
   id: UUID;
   name: string;
-  /** Optioneel: Iconify slug, bv. "mdi:carrot" */
-  icon_slug?: string | null;
   created_at: string;
+  /** Pad binnen de Supabase bucket 'crop-icons', bv. 'tomato.svg' of 'veg/tomato.svg' */
+  icon_key?: string | null;
 }
 
 //
@@ -42,9 +42,7 @@ export interface Seed {
   crop_type_id: UUID | null;
   purchase_date: string | null;
 
-  // voorraad (we gebruiken boolean i.p.v. status/quantity)
-  // let op: jouw DB heeft nu 'in_stock' boolean (volgens eerdere migratie)
-  // Als die nog niet bestaat, laat weten—dan geef ik die migratie ook mee.
+  // Voorraad
   // @ts-ignore: Supabase returns this field
   in_stock?: boolean;
 
@@ -59,7 +57,7 @@ export interface Seed {
 
   presow_months: number[] | null;
   greenhouse_months: number[] | null;
-  direct_plant_months: number[] | null; // ✅ samengevoegd veld
+  direct_plant_months: number[] | null; // samengevoegd veld
   harvest_months: number[] | null;
 
   notes: string | null;
@@ -93,13 +91,13 @@ export interface Planting {
   garden_bed_id: UUID;
   seed_id: UUID;
 
-  planned_date: string | null;            // ✅ enige grond-datum
-  planned_presow_date: string | null;     // ✅ alleen bij presow/both
+  planned_date: string | null;            // enige grond-datum
+  planned_presow_date: string | null;     // alleen bij presow/both
   planned_harvest_start: string | null;
   planned_harvest_end: string | null;
 
   actual_presow_date: string | null;      // (voorzaaien daadwerkelijk)
-  actual_ground_date: string | null;      // ✅ nieuw: direct of uitplanten
+  actual_ground_date: string | null;      // direct of uitplanten
   actual_harvest_start: string | null;
   actual_harvest_end: string | null;
 
