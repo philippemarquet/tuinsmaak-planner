@@ -3,61 +3,46 @@ import { supabase } from "../supabaseClient";
 import type { CropType } from "../types";
 import { withRetry } from "../apiRetry";
 
-/** Alle gewastypen ophalen (incl. optionele icon_slug) */
+/** Alle gewastypen ophalen (alleen naam/id, geen icon velden nodig) */
 export async function listCropTypes(): Promise<CropType[]> {
   return withRetry(async () => {
     const { data, error } = await supabase
       .from("crop_types")
-      .select("*") // verwacht kolommen: id, name, created_at, icon_slug (nullable)
+      .select("*")
       .order("name", { ascending: true });
-
     if (error) throw error;
     return (data ?? []) as CropType[];
   });
 }
 
-/** Nieuw gewastype aanmaken */
-export async function createCropType(payload: {
-  name: string;
-  icon_slug?: string | null;
-}): Promise<CropType> {
+/** Nieuw gewastype aanmaken (alleen naam) */
+export async function createCropType(payload: { name: string }): Promise<CropType> {
   return withRetry(async () => {
     const { data, error } = await supabase
       .from("crop_types")
-      .insert({
-        name: payload.name,
-        icon_slug: payload.icon_slug ?? null,
-      })
+      .insert({ name: payload.name })
       .select("*")
-      .single(); // precies 1 rij terug
-
+      .single();
     if (error) throw error;
     return data as CropType;
   });
 }
 
-/** Gewastype bijwerken (op id) */
-export async function updateCropType(
-  id: string,
-  payload: Partial<{ name: string; icon_slug: string | null }>
-): Promise<CropType> {
+/** Gewastype bijwerken (alleen naam) */
+export async function updateCropType(id: string, payload: { name: string }): Promise<CropType> {
   return withRetry(async () => {
     const { data, error } = await supabase
       .from("crop_types")
-      .update({
-        ...(payload.name !== undefined ? { name: payload.name } : {}),
-        ...(payload.icon_slug !== undefined ? { icon_slug: payload.icon_slug } : {}),
-      })
+      .update({ name: payload.name })
       .eq("id", id)
       .select("*")
       .single();
-
     if (error) throw error;
     return data as CropType;
   });
 }
 
-/** Gewastype verwijderen (op id) */
+/** Gewastype verwijderen */
 export async function deleteCropType(id: string): Promise<void> {
   return withRetry(async () => {
     const { error } = await supabase.from("crop_types").delete().eq("id", id);
@@ -65,7 +50,6 @@ export async function deleteCropType(id: string): Promise<void> {
   });
 }
 
-/* (optioneel) default export als je ooit default import zou gebruiken */
 const cropTypesApi = {
   listCropTypes,
   createCropType,
