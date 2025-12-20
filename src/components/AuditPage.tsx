@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { format, isAfter, isBefore, getISOWeek } from "date-fns";
+import { format, isAfter, isBefore, getISOWeek, getMonth, getYear } from "date-fns";
 import { nl } from "date-fns/locale";
 import type {
   Garden,
@@ -24,9 +24,15 @@ import {
   getAuditStatusHistory,
   deleteAudit,
 } from "../lib/api/audits";
+import { createGardenTask } from "../lib/api/gardenTasks";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { Calendar } from "./ui/calendar";
+import { Switch } from "./ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -48,6 +54,7 @@ import {
   FileText,
   Loader2,
   Trash2,
+  CalendarIcon,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { toast } from "sonner";
@@ -96,8 +103,16 @@ export function AuditPage({
   const [auditItems, setAuditItems] = useState<AuditItem[]>([]);
   const [statusHistory, setStatusHistory] = useState<any[]>([]);
 
-  // Notes modal state (for ❌ items)
-  const [notesModal, setNotesModal] = useState<{ item: AuditItem; notes: string } | null>(null);
+  // Notes modal state (for ❌ items) - extended with task creation
+  const [notesModal, setNotesModal] = useState<{
+    item: AuditItem;
+    notes: string;
+    step: "notes" | "task"; // step 1: notes, step 2: optional task creation
+    createTask: boolean;
+    taskTitle: string;
+    taskDescription: string;
+    taskDueDate: Date | null;
+  } | null>(null);
 
   const seedMap = useMemo(() => new Map(seeds.map((s) => [s.id, s])), [seeds]);
   const bedMap = useMemo(() => new Map(beds.map((b) => [b.id, b])), [beds]);
@@ -350,8 +365,16 @@ export function AuditPage({
     if (selectedAudit?.status === "goedgekeurd") return; // read-only when completed
 
     if (!isCorrect) {
-      // Require notes via modal
-      setNotesModal({ item, notes: item.notes || "" });
+      // Require notes via modal, with optional task creation
+      setNotesModal({
+        item,
+        notes: item.notes || "",
+        step: "notes",
+        createTask: false,
+        taskTitle: item.description || "",
+        taskDescription: item.notes || "",
+        taskDueDate: null,
+      });
       return;
     }
 
@@ -364,8 +387,23 @@ export function AuditPage({
     }
   };
 
-  // Save notes and mark as incorrect (NOTES REQUIRED)
-  const handleSaveNotes = async () => {
+  // Move from notes step to task step
+  const handleNotesToTaskStep = () => {
+    if (!notesModal) return;
+    const note = notesModal.notes?.trim() ?? "";
+    if (!note) {
+      toast.error("Opmerking is verplicht voor ❌.");
+      return;
+    }
+    setNotesModal({
+      ...notesModal,
+      step: "task",
+      taskDescription: note, // pre-fill task description with note
+    });
+  };
+
+  // Save notes (and optionally create task) then mark as incorrect
+  const handleSaveNotesAndTask = async () => {
     if (!notesModal) return;
 
     const note = notesModal.notes?.trim() ?? "";
@@ -375,12 +413,31 @@ export function AuditPage({
     }
 
     try {
+      // 1. Mark audit item as incorrect
       const updated = await validateAuditItem(notesModal.item.id, false, note);
       setAuditItems((prev) => prev.map((i) => (i.id === notesModal.item.id ? updated : i)));
+
+      // 2. Create garden task if requested
+      if (notesModal.createTask && notesModal.taskTitle.trim()) {
+        const dueDate = notesModal.taskDueDate || new Date();
+        await createGardenTask({
+          garden_id: garden.id,
+          title: notesModal.taskTitle.trim(),
+          description: notesModal.taskDescription.trim() || null,
+          due_month: getMonth(dueDate) + 1,
+          due_year: getYear(dueDate),
+          due_week: getISOWeek(dueDate),
+          is_recurring: false,
+          status: "pending",
+        });
+        toast.success("Tuintaak aangemaakt!");
+        await onDataChange(); // Refresh garden tasks
+      }
+
       setNotesModal(null);
     } catch (err) {
-      console.error("Failed to save notes:", err);
-      toast.error("Kon notities niet opslaan");
+      console.error("Failed to save notes/task:", err);
+      toast.error("Kon niet opslaan");
     }
   };
 
@@ -819,36 +876,142 @@ export function AuditPage({
       <div className="space-y-4">
         {renderAuditDetail()}
 
-        {/* Notes modal (comment REQUIRED for ❌) */}
+        {/* Notes modal - Step 1: Notes, Step 2: Optional task creation */}
         <Dialog open={!!notesModal} onOpenChange={(open) => !open && setNotesModal(null)}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Opmerking verplicht bij ❌</DialogTitle>
-            </DialogHeader>
-            <div className="py-4">
-              <p className="text-sm text-muted-foreground mb-3">
-                Wat klopt er niet bij: <strong>{notesModal?.item.description}</strong>?
-              </p>
-              <Textarea
-                value={notesModal?.notes || ""}
-                onChange={(e) =>
-                  setNotesModal((prev) => (prev ? { ...prev, notes: e.target.value } : null))
-                }
-                placeholder="Beschrijf wat er niet klopt… (verplicht)"
-                rows={4}
-              />
-              {!noteValid && (
-                <div className="mt-2 text-xs text-red-600">Voeg een korte opmerking toe om ❌ te kunnen opslaan.</div>
-              )}
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setNotesModal(null)}>
-                Annuleren
-              </Button>
-              <Button onClick={handleSaveNotes} disabled={!noteValid} title={!noteValid ? "Opmerking is verplicht" : ""}>
-                Opslaan
-              </Button>
-            </DialogFooter>
+          <DialogContent className="max-w-md">
+            {notesModal?.step === "notes" && (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Opmerking verplicht bij ❌</DialogTitle>
+                </DialogHeader>
+                <div className="py-4">
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Wat klopt er niet bij: <strong>{notesModal?.item.description}</strong>?
+                  </p>
+                  <Textarea
+                    value={notesModal?.notes || ""}
+                    onChange={(e) =>
+                      setNotesModal((prev) => (prev ? { ...prev, notes: e.target.value } : null))
+                    }
+                    placeholder="Beschrijf wat er niet klopt… (verplicht)"
+                    rows={4}
+                  />
+                  {!noteValid && (
+                    <div className="mt-2 text-xs text-red-600">Voeg een korte opmerking toe om door te gaan.</div>
+                  )}
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setNotesModal(null)}>
+                    Annuleren
+                  </Button>
+                  <Button onClick={handleNotesToTaskStep} disabled={!noteValid}>
+                    Volgende
+                  </Button>
+                </DialogFooter>
+              </>
+            )}
+
+            {notesModal?.step === "task" && (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Actie aanmaken?</DialogTitle>
+                </DialogHeader>
+                <div className="py-4 space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Wil je een tuintaak aanmaken voor dit item?
+                  </p>
+
+                  {/* Toggle create task */}
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="create-task" className="text-sm font-medium">
+                      Tuintaak aanmaken
+                    </Label>
+                    <Switch
+                      id="create-task"
+                      checked={notesModal.createTask}
+                      onCheckedChange={(checked) =>
+                        setNotesModal((prev) => (prev ? { ...prev, createTask: checked } : null))
+                      }
+                    />
+                  </div>
+
+                  {notesModal.createTask && (
+                    <div className="space-y-3 pt-2 border-t border-border">
+                      {/* Task title */}
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Titel</Label>
+                        <Input
+                          value={notesModal.taskTitle}
+                          onChange={(e) =>
+                            setNotesModal((prev) => (prev ? { ...prev, taskTitle: e.target.value } : null))
+                          }
+                          placeholder="Titel van de taak"
+                          className="mt-1"
+                        />
+                      </div>
+
+                      {/* Task description */}
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Beschrijving</Label>
+                        <Textarea
+                          value={notesModal.taskDescription}
+                          onChange={(e) =>
+                            setNotesModal((prev) => (prev ? { ...prev, taskDescription: e.target.value } : null))
+                          }
+                          placeholder="Optionele beschrijving"
+                          rows={2}
+                          className="mt-1"
+                        />
+                      </div>
+
+                      {/* Due date */}
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Deadline</Label>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button
+                              className={cn(
+                                "w-full mt-1 h-9 px-3 flex items-center gap-2 text-sm bg-muted/50 rounded-lg text-left border border-border",
+                                !notesModal.taskDueDate && "text-muted-foreground"
+                              )}
+                            >
+                              <CalendarIcon className="h-3.5 w-3.5" />
+                              {notesModal.taskDueDate
+                                ? format(notesModal.taskDueDate, "d MMM yyyy", { locale: nl })
+                                : "Kies datum"}
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={notesModal.taskDueDate || undefined}
+                              onSelect={(date) =>
+                                setNotesModal((prev) => (prev ? { ...prev, taskDueDate: date || null } : null))
+                              }
+                              className="pointer-events-auto"
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <DialogFooter className="gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setNotesModal((prev) => (prev ? { ...prev, step: "notes" } : null))}
+                  >
+                    Terug
+                  </Button>
+                  <Button
+                    onClick={handleSaveNotesAndTask}
+                    disabled={notesModal.createTask && !notesModal.taskTitle.trim()}
+                  >
+                    {notesModal.createTask ? "Opslaan & Taak aanmaken" : "Opslaan"}
+                  </Button>
+                </DialogFooter>
+              </>
+            )}
           </DialogContent>
         </Dialog>
       </div>
