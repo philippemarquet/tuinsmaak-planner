@@ -1,4 +1,3 @@
-// src/lib/api/cropTypes.ts
 import { supabase } from '../supabaseClient';
 import type { CropType } from '../types';
 import { withRetry } from '../apiRetry';
@@ -10,74 +9,49 @@ export async function listCropTypes(): Promise<CropType[]> {
       .from('crop_types')
       .select('*')
       .order('name', { ascending: true });
-
     if (error) throw error;
     return (data ?? []) as CropType[];
   });
 }
 
-/**
- * Nieuw gewastype aanmaken.
- * Let op: we gebruiken .maybeSingle() om PostgREST “single object” errors te vermijden
- * wanneer RLS geen body terug laat geven.
- *
- * We ondersteunen verschillende icon-velden; alleen aanwezige keys worden doorgeschoven.
- * (Gebruik er gewoon één in je schema, bv. icon_key)
- */
-type CreatePayload = {
+/** Nieuw gewastype aanmaken (alleen icon_key) */
+export async function createCropType(payload: {
   name: string;
-} & Partial<{
-  icon_key: string | null;
-  icon_url: string | null;
-  icon_slug: string | null;
-}>;
-
-export async function createCropType(payload: CreatePayload): Promise<CropType | null> {
+  /** path binnen 'crop-icons' bucket, bv 'tomato.svg' */
+  icon_key?: string | null;
+}): Promise<CropType> {
   return withRetry(async () => {
-    const toInsert: Record<string, any> = { name: payload.name };
-    if ('icon_key' in payload) toInsert.icon_key = payload.icon_key ?? null;
-    if ('icon_url' in payload) toInsert.icon_url = payload.icon_url ?? null;
-    if ('icon_slug' in payload) toInsert.icon_slug = payload.icon_slug ?? null;
-
     const { data, error } = await supabase
       .from('crop_types')
-      .insert(toInsert)
+      .insert({
+        name: payload.name,
+        icon_key: payload.icon_key ?? null,
+      })
       .select('*')
-      .maybeSingle(); // ⬅️ geen hard error bij 0 rows
-
+      .single(); // <- essentieel voor "single JSON object"
     if (error) throw error;
-    return (data ?? null) as CropType | null;
+    return data as CropType;
   });
 }
 
-/**
- * Gewastype bijwerken.
- * Ook hier .maybeSingle() om hetzelfde probleem te voorkomen.
- */
-type UpdatePayload = Partial<{
-  name: string;
-  icon_key: string | null;
-  icon_url: string | null;
-  icon_slug: string | null;
-}>;
-
-export async function updateCropType(id: string, payload: UpdatePayload): Promise<CropType | null> {
+/** Gewastype bijwerken (alleen icon_key) */
+export async function updateCropType(
+  id: string,
+  payload: Partial<{ name: string; icon_key: string | null }>
+): Promise<CropType> {
   return withRetry(async () => {
-    const toUpdate: Record<string, any> = {};
-    if ('name' in payload) toUpdate.name = payload.name;
-    if ('icon_key' in payload) toUpdate.icon_key = payload.icon_key;
-    if ('icon_url' in payload) toUpdate.icon_url = payload.icon_url;
-    if ('icon_slug' in payload) toUpdate.icon_slug = payload.icon_slug;
+    const updateObj: any = {};
+    if (payload.name !== undefined)     updateObj.name = payload.name;
+    if (payload.icon_key !== undefined) updateObj.icon_key = payload.icon_key;
 
     const { data, error } = await supabase
       .from('crop_types')
-      .update(toUpdate)
+      .update(updateObj)
       .eq('id', id)
       .select('*')
-      .maybeSingle(); // ⬅️ tolerant
-
+      .single(); // <- essentieel
     if (error) throw error;
-    return (data ?? null) as CropType | null;
+    return data as CropType;
   });
 }
 
