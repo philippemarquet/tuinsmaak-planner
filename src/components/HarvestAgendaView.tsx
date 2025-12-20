@@ -7,7 +7,6 @@ import { Calendar as CalendarIcon, List as ListIcon } from "lucide-react";
 /* ---------- Icon helpers (zelfde fallback als dashboard/planner) ---------- */
 const ICON_BUCKET = "crop-icons";
 const iconUrlCache = new Map<string, string>();
-
 function iconUrlForKey(key?: string | null): string | null {
   if (!key) return null;
   const cached = iconUrlCache.get(key);
@@ -26,14 +25,37 @@ function resolveSeedIconUrl(seed: Seed | undefined, cropTypesById: Map<string, C
 }
 
 /* ---------- Date helpers ---------- */
+const addDays = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 const startOfDay = (d: Date) => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
 const endOfDay = (d: Date) => { const x = new Date(d); x.setHours(23,59,59,999); return x; };
-const daysInMonth = (year: number, monthIdx0: number) => new Date(year, monthIdx0 + 1, 0).getDate();
+const daysInMonth = (y: number, m0: number) => new Date(y, m0 + 1, 0).getDate();
 const startOfMonth = (y: number, m0: number) => new Date(y, m0, 1, 0, 0, 0, 0);
 const endOfMonth = (y: number, m0: number) => new Date(y, m0, daysInMonth(y, m0), 23, 59, 59, 999);
-const fmtDay = (d: Date) => d.getDate();
 const monthName = (m0: number) =>
   new Date(2000, m0, 1).toLocaleString("nl-NL", { month: "long" }).replace(/^\w/, (c) => c.toUpperCase());
+/** Maandag=1..Zondag=7 */
+const dow1 = (d: Date) => { const w = d.getDay(); return w === 0 ? 7 : w; };
+/** Maandag van de week waarin d valt */
+const weekStart = (d: Date) => addDays(startOfDay(d), -((dow1(d) - 1) % 7));
+/** Bouw weekstarten die de hele maand afdekken */
+function weeksCoveringMonth(year: number, month0: number): Date[] {
+  const first = startOfMonth(year, month0);
+  const last = endOfMonth(year, month0);
+  const firstWeek = weekStart(first);
+  const weeks: Date[] = [];
+  let w = new Date(firstWeek);
+  while (w <= last) {
+    weeks.push(new Date(w));
+    w = addDays(w, 7);
+    // Voeg een extra week toe als de laatste dag nog niet in de grid zit
+    if (weeks.length > 6) break; // max 6 rijen safeguard
+  }
+  // Zorg dat de laatste week de einddag dekt
+  const lastWeekStart = weeks[weeks.length - 1];
+  const lastWeekEnd = addDays(lastWeekStart, 6);
+  if (lastWeekEnd < last) weeks.push(addDays(lastWeekStart, 7));
+  return weeks;
+}
 
 /* ---------- Harvest interval per planting ---------- */
 type Interval = { start: Date; end: Date };
@@ -47,23 +69,7 @@ function harvestIntervalOf(p: Planting): Interval | null {
   if (e < s) return null;
   return { start: s, end: e };
 }
-const overlaps = (a: Interval, b: Interval) => a.start <= b.end && b.start <= a.start ? true : a.start <= b.end && b.start <= a.end;
-
-/* ---------- Compact chip ---------- */
-function CropChip({ iconUrl, label }: { iconUrl: string | null; label: string }) {
-  return (
-    <div className="inline-flex items-center gap-2 rounded-md border bg-card px-2.5 py-1 text-xs">
-      <div className="relative w-4 h-4 rounded-sm overflow-hidden bg-emerald-500/70">
-        {iconUrl ? (
-          <img src={iconUrl} alt="" className="absolute inset-0 w-full h-full object-contain opacity-95" />
-        ) : (
-          <div className="absolute inset-0" />
-        )}
-      </div>
-      <span className="font-medium truncate">{label}</span>
-    </div>
-  );
-}
+const overlaps = (a: Interval, b: Interval) => a.start <= b.end && b.start <= a.end;
 
 /* ---------- Hoofdcomponent ---------- */
 export default function HarvestAgendaView({
@@ -87,7 +93,7 @@ export default function HarvestAgendaView({
   const [year, setYear] = useState(now.getFullYear());
   const [month0, setMonth0] = useState(now.getMonth()); // 0..11
 
-  /* Verrijkte plantings met harvest-interval + icon */
+  /* Verrijkte plantings met harvest-interval + icon + kleur */
   const enriched = useMemo(() => {
     return plantings
       .map((p) => {
@@ -95,27 +101,66 @@ export default function HarvestAgendaView({
         if (!iv) return null;
         const seed = seedsById[p.seed_id];
         const iconUrl = resolveSeedIconUrl(seed, cropTypesById);
-        return { p, seed, iconUrl, iv };
+        const color = p.color && (p.color.startsWith("#") || p.color.startsWith("rgb")) ? p.color : "#22c55e";
+        return { p, seed, iconUrl, iv, color };
       })
-      .filter(Boolean) as Array<{ p: Planting; seed?: Seed; iconUrl: string | null; iv: Interval }>;
+      .filter(Boolean) as Array<{ p: Planting; seed?: Seed; iconUrl: string | null; iv: Interval; color: string }>;
   }, [plantings, seedsById, cropTypesById]);
 
-  /* Kalenderweergave: items per dag */
-  const calendarDays = useMemo(() => {
-    const total = daysInMonth(year, month0);
-    const byDay: Array<{ date: Date; items: Array<{ seed?: Seed; iconUrl: string | null }> }> = [];
-    for (let d = 1; d <= total; d++) {
-      const date = new Date(year, month0, d);
-      const ivDay: Interval = { start: startOfDay(date), end: endOfDay(date) };
-      const items = enriched
-        .filter((x) => overlaps(x.iv, ivDay))
-        .map((x) => ({ seed: x.seed, iconUrl: x.iconUrl }));
-      byDay.push({ date, items });
-    }
-    return byDay;
-  }, [enriched, year, month0]);
+  /* ---------- KALENDERWEERGAVE: week-rijen met doorlopende balken ---------- */
 
-  /* Lijstweergave: per maand unieke gewassen */
+  type Bar = {
+    key: string;
+    label: string;
+    iconUrl: string | null;
+    color: string;
+    startCol: number; // 1..7
+    endCol: number;   // 1..7
+    span: number;     // endCol - startCol + 1
+    lane: number;     // verticale laag binnen de week
+  };
+
+  function buildWeekBars(weekStartDate: Date): Bar[] {
+    const weekIv: Interval = { start: startOfDay(weekStartDate), end: endOfDay(addDays(weekStartDate, 6)) };
+    // 1) maak ruwe bars (clamp binnen de week)
+    const raw = enriched
+      .filter((x) => overlaps(x.iv, weekIv))
+      .map((x) => {
+        const s = x.iv.start < weekIv.start ? weekIv.start : x.iv.start;
+        const e = x.iv.end > weekIv.end ? weekIv.end : x.iv.end;
+        const startCol = dow1(s);
+        const endCol = dow1(e);
+        const span = Math.max(1, endCol - startCol + 1);
+        return {
+          key: x.p.id,
+          label: x.seed?.name ?? "—",
+          iconUrl: x.iconUrl,
+          color: x.color,
+          startCol,
+          endCol,
+          span,
+        };
+      });
+
+    // 2) lane-toewijzing (greedy): per lane tracken we de laatst gebruikte endCol
+    raw.sort((a, b) => (a.startCol - b.startCol) || (a.endCol - b.endCol) || a.label.localeCompare(b.label, "nl", { sensitivity: "base" }));
+    const lanesEnd: number[] = []; // per lane: laatst eindkolom
+    const bars: Bar[] = [];
+    for (const r of raw) {
+      let lane = 0;
+      for (; lane < lanesEnd.length; lane++) {
+        if (r.startCol > lanesEnd[lane]) break; // past zonder overlap in deze lane
+      }
+      if (lane === lanesEnd.length) lanesEnd.push(0);
+      lanesEnd[lane] = r.endCol;
+      bars.push({ ...r, lane });
+    }
+    return bars;
+  }
+
+  const weekStarts = useMemo(() => weeksCoveringMonth(year, month0), [year, month0]);
+
+  /* ---------- LIJSTWEERGAVE: per maand unieke gewassen ---------- */
   const byMonth = useMemo(() => {
     const sets = Array.from({ length: 12 }, () => new Set<string>());
     for (const x of enriched) {
@@ -196,34 +241,72 @@ export default function HarvestAgendaView({
             </button>
           </div>
 
-          <div className="grid grid-cols-7 gap-2">
-            {["ma", "di", "wo", "do", "vr", "za", "zo"].map((w) => (
-              <div key={w} className="text-[11px] text-muted-foreground text-center uppercase tracking-wide">
-                {w}
-              </div>
-            ))}
-
-            {/* Lege cellen tot maandag */}
-            {(() => {
-              const first = new Date(year, month0, 1);
-              const weekDay = first.getDay() || 7; // zondag=0 -> 7
-              const blanks = weekDay === 1 ? 0 : weekDay - 1;
-              return Array.from({ length: blanks }).map((_, i) => <div key={`blank-${i}`} />);
-            })()}
-
-            {calendarDays.map(({ date, items }) => (
-              <div key={date.toISOString()} className="border rounded-lg p-1.5 min-h-[70px]">
-                <div className="text-[11px] font-medium mb-1">{fmtDay(date)}</div>
-                <div className="flex flex-wrap gap-1">
-                  {items.slice(0, 6).map((it, idx) => (
-                    <CropChip key={idx} iconUrl={it.iconUrl} label={it.seed?.name ?? "—"} />
-                  ))}
-                  {items.length > 6 && (
-                    <span className="text-[10px] text-muted-foreground">+{items.length - 6}</span>
-                  )}
+          {/* Week-rijen */}
+          <div className="space-y-3">
+            {/* Weekday headers */}
+            <div className="grid grid-cols-7 gap-2">
+              {["ma", "di", "wo", "do", "vr", "za", "zo"].map((w) => (
+                <div key={w} className="text-[11px] text-muted-foreground text-center uppercase tracking-wide">
+                  {w}
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
+
+            {weekStarts.map((ws) => {
+              const we = addDays(ws, 6);
+              const bars = buildWeekBars(ws);
+              const lanes = Math.max(0, ...bars.map((b) => b.lane)) + (bars.length ? 1 : 0);
+
+              // Dagcellen (bovenste rij met datums)
+              const dayCells = Array.from({ length: 7 }, (_, i) => {
+                const d = addDays(ws, i);
+                const inMonth = d.getMonth() === month0;
+                return (
+                  <div
+                    key={i}
+                    className={cn(
+                      "border rounded-lg p-1.5 min-h-[60px]",
+                      inMonth ? "bg-card" : "bg-muted/40 text-muted-foreground"
+                    )}
+                  >
+                    <div className="text-[11px] font-medium">{d.getDate()}</div>
+                  </div>
+                );
+              });
+
+              return (
+                <div key={ws.toISOString()} className="space-y-1">
+                  {/* dagrij */}
+                  <div className="grid grid-cols-7 gap-2">{dayCells}</div>
+
+                  {/* lanes met bars */}
+                  {Array.from({ length: lanes }).map((_, lane) => (
+                    <div key={lane} className="grid grid-cols-7 gap-2">
+                      {bars
+                        .filter((b) => b.lane === lane)
+                        .map((b) => (
+                          <div
+                            key={`${b.key}-${lane}`}
+                            className="h-7 rounded-md px-2 flex items-center gap-2 text-[11px] text-white overflow-hidden shadow-sm"
+                            style={{
+                              gridColumn: `${b.startCol} / span ${b.span}`,
+                              background: b.color,
+                            }}
+                            title={b.label}
+                          >
+                            {b.iconUrl ? (
+                              <img src={b.iconUrl} alt="" className="w-4 h-4 object-contain opacity-95" />
+                            ) : (
+                              <div className="w-4 h-4" />
+                            )}
+                            <span className="truncate">{b.label}</span>
+                          </div>
+                        ))}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -241,7 +324,16 @@ export default function HarvestAgendaView({
               ) : (
                 <div className="flex flex-wrap gap-1.5">
                   {items.map(({ seed, iconUrl }) => (
-                    <CropChip key={seed.id} iconUrl={iconUrl} label={seed.name} />
+                    <div key={seed.id} className="inline-flex items-center gap-2 rounded-md border bg-card px-2.5 py-1 text-xs">
+                      <div className="relative w-4 h-4 rounded-sm overflow-hidden bg-emerald-500/70">
+                        {iconUrl ? (
+                          <img src={iconUrl} alt="" className="absolute inset-0 w-full h-full object-contain opacity-95" />
+                        ) : (
+                          <div className="absolute inset-0" />
+                        )}
+                      </div>
+                      <span className="font-medium truncate">{seed.name}</span>
+                    </div>
                   ))}
                 </div>
               )}
