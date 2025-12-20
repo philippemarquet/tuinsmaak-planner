@@ -4,44 +4,48 @@ import type { Garden, GardenBed, Planting, Seed, CropType } from "../lib/types";
 import { supabase } from "../lib/supabaseClient";
 import { cn } from "../lib/utils";
 
-/* ===========================
-   Helpers voor icon URL
-=========================== */
+/* =========================================
+   Public URL helper + mini cache voor icons
+========================================= */
 
-/** Geeft public URL terug voor een object key in bucket 'crop-icons' */
+const ICON_BUCKET = "crop-icons";
+const iconUrlCache = new Map<string, string>();
+
 function getPublicIconUrl(iconKey?: string | null): string | null {
   if (!iconKey) return null;
-  const { data } = supabase.storage.from("crop-icons").getPublicUrl(iconKey);
-  return data?.publicUrl ?? null;
+  const cached = iconUrlCache.get(iconKey);
+  if (cached) return cached;
+  const { data } = supabase.storage.from(ICON_BUCKET).getPublicUrl(iconKey);
+  const url = data?.publicUrl ?? null;
+  if (url) iconUrlCache.set(iconKey, url);
+  return url;
 }
 
-/** Kies effectief icon:
+/** Bepaal effectief icoon voor een seed:
  * 1) seed.icon_key
  * 2) cropType.icon_key
- * 3) anders null (geen overlay)
+ * 3) anders null
  */
 function getEffectiveIconUrl(
   seed: Partial<Seed>,
   cropTypesById?: Map<string, CropType>
 ): string | null {
-  const seedUrl = getPublicIconUrl((seed as any).icon_key);
-  if (seedUrl) return seedUrl;
-
+  const own = getPublicIconUrl((seed as any).icon_key);
+  if (own) return own;
   const ctId = seed.crop_type_id as string | undefined;
   if (!ctId || !cropTypesById) return null;
-
   const ct = cropTypesById.get(ctId);
   return getPublicIconUrl((ct as any)?.icon_key);
 }
 
-/* ===========================
-   Icon overlay (diamond grid)
-=========================== */
+/* =========================================
+   Icon overlay (diamant verdeling in grid)
+========================================= */
 
 function IconTilingOverlay({
   iconUrl,
   segmentsUsed = 1,
-  densityPerSegment = 10, // ~aantal iconen per segment
+  densityPerSegment = 10,
   maxIcons = 100,
   minIcons = 6,
   opacity = 0.9,
@@ -54,7 +58,7 @@ function IconTilingOverlay({
   opacity?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  const [size, setSize] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
     if (!ref.current) return;
@@ -76,7 +80,7 @@ function IconTilingOverlay({
       Math.max(minIcons, Math.round((segmentsUsed || 1) * densityPerSegment))
     );
 
-    // Verdeel in rijen/kolommen o.b.v. aspect ratio zodat het "even" oogt
+    // verdeling afgestemd op aspect ratio
     const aspect = w / h;
     let cols = Math.max(2, Math.round(Math.sqrt(target) * Math.sqrt(aspect)));
     let rows = Math.max(2, Math.ceil(target / cols));
@@ -91,15 +95,16 @@ function IconTilingOverlay({
 
     const out: Array<{ x: number; y: number; size: number }> = [];
     for (let r = 0; r < rows; r++) {
-      const xOffset = (r % 2 === 0 ? 0.5 : 0) * xStep; // diamond-verschuiving
+      const xOffset = (r % 2 === 0 ? 0.5 : 0) * xStep; // diamant-verschoven rijen
       for (let c = 0; c < cols; c++) {
         const x = c * xStep + xStep / 2 + xOffset;
         const y = r * yStep + yStep / 2;
-        if (x < iconSize / 2 || x > w - iconSize / 2) continue; // clip aan randen door offset
+        if (x < iconSize / 2 || x > w - iconSize / 2) continue;
         out.push({ x, y, size: iconSize });
       }
     }
 
+    // dun uit als er te veel zijn
     if (out.length > maxIcons) {
       const stride = Math.ceil(out.length / maxIcons);
       return out.filter((_, i) => i % stride === 0);
@@ -107,10 +112,8 @@ function IconTilingOverlay({
     return out;
   }, [size, segmentsUsed, densityPerSegment, maxIcons, minIcons]);
 
-  if (!iconUrl) return null;
-
   return (
-    <div ref={ref} className="absolute inset-0 pointer-events-none select-none overflow-hidden">
+    <div ref={ref} className="absolute inset-0 pointer-events-none select-none overflow-hidden z-10">
       {items.map((pt, idx) => (
         <img
           key={idx}
@@ -124,6 +127,7 @@ function IconTilingOverlay({
             width: pt.size,
             height: pt.size,
             opacity,
+            objectFit: "contain",
             filter: "drop-shadow(0 0 0.5px rgba(0,0,0,0.15))",
           }}
         />
@@ -132,9 +136,9 @@ function IconTilingOverlay({
   );
 }
 
-/* ===========================
-   Planting tegel
-=========================== */
+/* =========================================
+   Planting tegel (positie binnen bed)
+========================================= */
 
 function PlantingTile({
   planting,
@@ -149,8 +153,8 @@ function PlantingTile({
 }) {
   const segCount = Math.max(1, bed.segments || 1);
 
-  // start_segment in jouw data kan 0- of 1-based zijn; we normaliseren
-  const startIndexRaw = (planting.start_segment ?? 1);
+  // start_segment is 1-based in UI -> normaliseer naar 0-based
+  const startIndexRaw = planting.start_segment ?? 1;
   const startIndex = startIndexRaw <= 0 ? 0 : startIndexRaw - 1;
 
   const used = Math.max(1, planting.segments_used ?? 1);
@@ -183,17 +187,17 @@ function PlantingTile({
         />
       )}
 
-      {/* label */}
-      <div className="absolute left-1.5 top-1.5 text-[11px] font-medium text-black/80 mix-blend-multiply">
+      {/* label bovenop */}
+      <div className="absolute left-1.5 top-1.5 text-[11px] font-medium text-black/85 mix-blend-multiply z-20">
         {seed.name}
       </div>
     </div>
   );
 }
 
-/* ===========================
-   Bed-tegel met segmentlijnen
-=========================== */
+/* =========================================
+   Bed-tegel met segment-lijnen
+========================================= */
 
 function BedTile({
   bed,
@@ -202,9 +206,10 @@ function BedTile({
   bed: GardenBed;
   children?: React.ReactNode;
 }) {
-  // Aspect-ratio = lengte / breedte (CSS: width/height)
-  const ar = Math.max(1, (bed.length_cm || 100) / (bed.width_cm || 100));
   const segCount = Math.max(1, bed.segments || 1);
+  const width = Math.max(1, bed.width_cm || 100);
+  const length = Math.max(1, bed.length_cm || 100);
+  const aspect = length / width; // lengte over breedte
 
   return (
     <div className="rounded-xl border bg-card">
@@ -213,14 +218,16 @@ function BedTile({
           {bed.name} {bed.is_greenhouse ? <span className="ml-1 text-xs text-emerald-600">(kas)</span> : null}
         </div>
         <div className="text-xs text-muted-foreground">
-          {bed.width_cm}×{bed.length_cm} cm • {segCount} segmenten
+          {width}×{length} cm • {segCount} segmenten
         </div>
       </div>
 
-      <div className="relative mx-3 mb-3 rounded-lg bg-muted/30 border border-border/50 overflow-hidden"
-           style={{ aspectRatio: `${ar}` }}>
-        {/* Segmentlijnen */}
-        <div className="absolute inset-0 pointer-events-none">
+      <div
+        className="relative mx-3 mb-3 rounded-lg bg-muted/30 border border-border/50 overflow-hidden"
+        style={{ aspectRatio: `${aspect}` }}
+      >
+        {/* Segmentlijnen (onder alles) */}
+        <div className="absolute inset-0 pointer-events-none z-0">
           {[...Array(segCount - 1)].map((_, i) => {
             const leftPct = ((i + 1) / segCount) * 100;
             return (
@@ -235,22 +242,20 @@ function BedTile({
               />
             );
           })}
-          {/* Buitenrand highlight */}
           <div className="absolute inset-0 ring-1 ring-black/10 rounded-lg pointer-events-none" />
         </div>
 
-        {/* Plantings container */}
-        <div className="absolute inset-0">
-          {children}
-        </div>
+        {/* Plantings (boven segmentlijnen) */}
+        <div className="absolute inset-0 z-10">{children}</div>
       </div>
     </div>
   );
 }
 
-/* ===========================
-   Hoofdpagina
-=========================== */
+/* =========================================
+   Planner hoofdpagina
+   - Hydrateert seeds/cropTypes als icon_key ontbreekt
+========================================= */
 
 export function PlannerPage({
   garden,
@@ -265,27 +270,79 @@ export function PlannerPage({
   seeds: Seed[];
   cropTypes: CropType[];
 }) {
-  const seedsById = useMemo(() => new Map(seeds.map(s => [s.id, s])), [seeds]);
-  const cropTypesById = useMemo(() => new Map(cropTypes.map(ct => [ct.id, ct])), [cropTypes]);
+  const [hydratedSeeds, setHydratedSeeds] = useState<Seed[]>(seeds);
+  const [hydratedCropTypes, setHydratedCropTypes] = useState<CropType[]>(cropTypes);
 
-  // Koppel plantings per bed
-  const plantingsByBed = useMemo(() => {
-    const map = new Map<string, Planting[]>();
-    for (const p of plantings) {
-      const arr = map.get(p.garden_bed_id) ?? [];
-      arr.push(p);
-      map.set(p.garden_bed_id, arr);
+  useEffect(() => setHydratedSeeds(seeds), [seeds]);
+  useEffect(() => setHydratedCropTypes(cropTypes), [cropTypes]);
+
+  // Als icon_key ontbreekt in props, haal lokale versies op met select('*')
+  useEffect(() => {
+    const needSeedIcons =
+      hydratedSeeds.length > 0 &&
+      (!hydratedSeeds.some((s: any) => "icon_key" in s) ||
+        hydratedSeeds.every((s: any) => (s.icon_key ?? null) == null));
+
+    const needCtIcons =
+      hydratedCropTypes.length > 0 &&
+      (!hydratedCropTypes.some((c: any) => "icon_key" in c) ||
+        hydratedCropTypes.every((c: any) => (c.icon_key ?? null) == null));
+
+    async function hydrate() {
+      try {
+        if (needSeedIcons) {
+          const ids = seeds.map((s) => s.id);
+          const { data, error } = await supabase
+            .from("seeds")
+            .select("*")
+            .in("id", ids);
+          if (!error && data) {
+            const byId = new Map(data.map((r: any) => [r.id, r]));
+            setHydratedSeeds(seeds.map((s) => ({ ...(byId.get(s.id) as any) ?? s } as Seed)));
+          }
+        }
+        if (needCtIcons) {
+          const ids = cropTypes.map((c) => c.id);
+          const { data, error } = await supabase
+            .from("crop_types")
+            .select("*")
+            .in("id", ids);
+          if (!error && data) {
+            const byId = new Map(data.map((r: any) => [r.id, r]));
+            setHydratedCropTypes(cropTypes.map((c) => ({ ...(byId.get(c.id) as any) ?? c } as CropType)));
+          }
+        }
+      } catch {
+        // stil falen; planner blijft bruikbaar
+      }
     }
-    return map;
+
+    if (needSeedIcons || needCtIcons) hydrate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const seedsById = useMemo(() => new Map(hydratedSeeds.map((s) => [s.id, s])), [hydratedSeeds]);
+  const cropTypesById = useMemo(
+    () => new Map(hydratedCropTypes.map((ct) => [ct.id, ct])),
+    [hydratedCropTypes]
+  );
+
+  // Groepeer plantings per bed
+  const plantingsByBed = useMemo(() => {
+    const m = new Map<string, Planting[]>();
+    for (const p of plantings) {
+      const arr = m.get(p.garden_bed_id) ?? [];
+      arr.push(p);
+      m.set(p.garden_bed_id, arr);
+    }
+    return m;
   }, [plantings]);
 
   return (
     <div className="space-y-4">
       <div className="flex items-baseline justify-between">
         <h2 className="text-2xl font-bold">Planner</h2>
-        <div className="text-sm text-muted-foreground">
-          {garden.name}
-        </div>
+        <div className="text-sm text-muted-foreground">{garden.name}</div>
       </div>
 
       {beds.length === 0 ? (
