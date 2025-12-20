@@ -497,7 +497,43 @@ export function AuditPage({
   const renderAuditDetail = () => {
     if (!selectedAudit) return null;
 
-    const plantingItems = auditItems.filter((i) => i.item_type === "planting" || i.item_type === "voorzaai");
+    // Natural sort comparator for bed names (bak 10 after bak 9)
+    const naturalSort = (a: string | null, b: string | null): number => {
+      if (!a && !b) return 0;
+      if (!a) return 1;
+      if (!b) return -1;
+      return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+    };
+
+    // Split voorzaai items (sorted by presow date)
+    const voorzaaiItems = auditItems
+      .filter((i) => i.item_type === "voorzaai")
+      .sort((a, b) => {
+        // Sort by presow date from planting reference
+        const pA = plantings.find((p) => p.id === a.reference_id);
+        const pB = plantings.find((p) => p.id === b.reference_id);
+        const dateA = pA?.actual_presow_date || pA?.planned_presow_date || "";
+        const dateB = pB?.actual_presow_date || pB?.planned_presow_date || "";
+        return dateA.localeCompare(dateB);
+      });
+
+    // Split planted items into Tuin and Kas (sorted by bed name naturally)
+    const plantedItems = auditItems.filter((i) => i.item_type === "planting");
+    
+    const tuinItems = plantedItems
+      .filter((i) => {
+        const bed = beds.find((b) => b.name === i.bed_name);
+        return bed && !bed.is_greenhouse;
+      })
+      .sort((a, b) => naturalSort(a.bed_name, b.bed_name));
+
+    const kasItems = plantedItems
+      .filter((i) => {
+        const bed = beds.find((b) => b.name === i.bed_name);
+        return bed && bed.is_greenhouse;
+      })
+      .sort((a, b) => naturalSort(a.bed_name, b.bed_name));
+
     const overdueMoestuin = auditItems.filter((i) => i.item_type === "moestuin_task");
     const overdueGarden = auditItems.filter((i) => i.item_type === "garden_task");
 
@@ -545,15 +581,41 @@ export function AuditPage({
           </div>
         </div>
 
-        {/* Plantings section (only if present) */}
-        {plantingItems.length > 0 && (
+        {/* Voorzaai section */}
+        {voorzaaiItems.length > 0 && (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Sprout className="w-4 h-4 text-blue-600" />
+              <h3 className="text-sm font-semibold">Voorzaaien (binnen)</h3>
+            </div>
+            <div className="space-y-2">
+              {voorzaaiItems.map((item) => renderAuditItemRow(item, isCompleted))}
+            </div>
+          </div>
+        )}
+
+        {/* Tuin plantings section */}
+        {tuinItems.length > 0 && (
           <div>
             <div className="flex items-center gap-2 mb-3">
               <Leaf className="w-4 h-4 text-green-600" />
-              <h3 className="text-sm font-semibold">Plantingen & Voorzaai</h3>
+              <h3 className="text-sm font-semibold">Tuin (buiten)</h3>
             </div>
             <div className="space-y-2">
-              {plantingItems.map((item) => renderAuditItemRow(item, isCompleted))}
+              {tuinItems.map((item) => renderAuditItemRow(item, isCompleted))}
+            </div>
+          </div>
+        )}
+
+        {/* Kas plantings section */}
+        {kasItems.length > 0 && (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Leaf className="w-4 h-4 text-amber-600" />
+              <h3 className="text-sm font-semibold">Kas</h3>
+            </div>
+            <div className="space-y-2">
+              {kasItems.map((item) => renderAuditItemRow(item, isCompleted))}
             </div>
           </div>
         )}

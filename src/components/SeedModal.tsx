@@ -24,11 +24,14 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Default purchase date to today for new seeds
+  const todayStr = format(new Date(), "yyyy-MM-dd");
+
   const [form, setForm] = useState<Partial<Seed>>({
     garden_id: gardenId,
     name: seed.name ?? "",
     crop_type_id: seed.crop_type_id ?? null,
-    purchase_date: seed.purchase_date ?? "",
+    purchase_date: seed.purchase_date ?? (seed.id ? "" : todayStr),
     row_spacing_cm: seed.row_spacing_cm ?? null,
     plant_spacing_cm: seed.plant_spacing_cm ?? null,
     greenhouse_compatible: seed.greenhouse_compatible ?? false,
