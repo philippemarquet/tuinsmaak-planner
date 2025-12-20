@@ -1,346 +1,469 @@
-import { useEffect, useMemo, useState } from "react";
-import type { Planting, Seed, CropType } from "../lib/types";
+import React, { useMemo, useState } from "react";
+import type { GardenBed, Planting, Seed, CropType } from "../lib/types";
+import { format } from "date-fns";
+import { nl } from "date-fns/locale";
+import { CalendarDays, List as ListIcon } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
-import { cn } from "../lib/utils";
-import { Calendar as CalendarIcon, List as ListIcon } from "lucide-react";
 
-/* ---------- Icon helpers (zelfde fallback als dashboard/planner) ---------- */
+/*
+  HarvestAgendaView
+  - Calendar <-> List toggle
+  - Calendar renders multi-day harvest as ONE continuous bar spanning the days
+  - List shows per-month compact list of crops that can be harvested (icon + name, no dates)
+*/
+
 const ICON_BUCKET = "crop-icons";
 const iconUrlCache = new Map<string, string>();
-function iconUrlForKey(key?: string | null): string | null {
-  if (!key) return null;
-  const cached = iconUrlCache.get(key);
+
+function getPublicIconUrl(iconKey?: string | null): string | null {
+  if (!iconKey) return null;
+  const cached = iconUrlCache.get(iconKey);
   if (cached) return cached;
-  const { data } = supabase.storage.from(ICON_BUCKET).getPublicUrl(key);
+  const { data } = supabase.storage.from(ICON_BUCKET).getPublicUrl(iconKey as string);
   const url = data?.publicUrl ?? null;
-  if (url) iconUrlCache.set(key, url);
+  if (url) iconUrlCache.set(iconKey, url);
   return url;
 }
-function resolveSeedIconUrl(seed: Seed | undefined, cropTypesById: Map<string, CropType>): string | null {
+
+function getEffectiveIconUrl(seed: Seed | undefined, cropTypesById: Map<string, CropType>): string | null {
   if (!seed) return null;
-  const seedKey = (seed as any).icon_key || null;
-  if (seedKey) return iconUrlForKey(seedKey);
+  const own = getPublicIconUrl((seed as any).icon_key);
+  if (own) return own;
   const ct = seed.crop_type_id ? cropTypesById.get(seed.crop_type_id) : undefined;
-  return iconUrlForKey((ct as any)?.icon_key || null);
+  return getPublicIconUrl((ct as any)?.icon_key);
 }
 
-/* ---------- Date helpers ---------- */
-const addDays = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
-const startOfDay = (d: Date) => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
-const endOfDay = (d: Date) => { const x = new Date(d); x.setHours(23,59,59,999); return x; };
-const daysInMonth = (y: number, m0: number) => new Date(y, m0 + 1, 0).getDate();
-const startOfMonth = (y: number, m0: number) => new Date(y, m0, 1, 0, 0, 0, 0);
-const endOfMonth = (y: number, m0: number) => new Date(y, m0, daysInMonth(y, m0), 23, 59, 59, 999);
-const monthName = (m0: number) =>
-  new Date(2000, m0, 1).toLocaleString("nl-NL", { month: "long" }).replace(/^\w/, (c) => c.toUpperCase());
-/** Maandag=1..Zondag=7 */
-const dow1 = (d: Date) => { const w = d.getDay(); return w === 0 ? 7 : w; };
-/** Maandag van de week waarin d valt */
-const weekStart = (d: Date) => addDays(startOfDay(d), -((dow1(d) - 1) % 7));
-/** Bouw weekstarten die de hele maand afdekken */
-function weeksCoveringMonth(year: number, month0: number): Date[] {
-  const first = startOfMonth(year, month0);
-  const last = endOfMonth(year, month0);
-  const firstWeek = weekStart(first);
-  const weeks: Date[] = [];
-  let w = new Date(firstWeek);
-  while (w <= last) {
-    weeks.push(new Date(w));
-    w = addDays(w, 7);
-    // Voeg een extra week toe als de laatste dag nog niet in de grid zit
-    if (weeks.length > 6) break; // max 6 rijen safeguard
+const addDays = (d: Date, n: number) => {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  return x;
+};
+
+const startOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
+const endOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth() + 1, 0);
+
+// Monday as start of week
+const startOfWeekMon = (d: Date) => {
+  const day = d.getDay(); // 0=Sun..6=Sat
+  const diff = (day === 0 ? -6 : 1) - day; // move to Monday
+  return addDays(d, diff);
+};
+const endOfWeekSun = (d: Date) => addDays(startOfWeekMon(d), 6);
+
+function clampRangeToWeek(rangeStart: Date, rangeEnd: Date, weekStart: Date, weekEnd: Date) {
+  const s = rangeStart > weekStart ? rangeStart : weekStart;
+  const e = rangeEnd < weekEnd ? rangeEnd : weekEnd;
+  if (s > e) return null;
+  return { s, e };
+}
+
+function getWeeksMatrix(monthDate: Date) {
+  const first = startOfMonth(monthDate);
+  const last = endOfMonth(monthDate);
+  const gridStart = startOfWeekMon(first);
+  const gridEnd = endOfWeekSun(last);
+
+  const weeks: Date[][] = [];
+  let cursor = new Date(gridStart);
+  while (cursor <= gridEnd) {
+    const row: Date[] = [];
+    for (let i = 0; i < 7; i++) {
+      row.push(addDays(cursor, i));
+    }
+    weeks.push(row);
+    cursor = addDays(cursor, 7);
   }
-  // Zorg dat de laatste week de einddag dekt
-  const lastWeekStart = weeks[weeks.length - 1];
-  const lastWeekEnd = addDays(lastWeekStart, 6);
-  if (lastWeekEnd < last) weeks.push(addDays(lastWeekStart, 7));
-  return weeks;
+  return { weeks, first, last, gridStart, gridEnd };
 }
 
-/* ---------- Harvest interval per planting ---------- */
-type Interval = { start: Date; end: Date };
-function harvestIntervalOf(p: Planting): Interval | null {
-  const sISO = p.actual_harvest_start || p.planned_harvest_start || null;
-  const eISO = p.actual_harvest_end || p.planned_harvest_end || null;
-  if (!sISO || !eISO) return null;
-  const s = startOfDay(new Date(sISO));
-  const e = endOfDay(new Date(eISO));
-  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return null;
-  if (e < s) return null;
-  return { start: s, end: e };
+function isSameDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
-const overlaps = (a: Interval, b: Interval) => a.start <= b.end && b.start <= a.end;
 
-/* ---------- Hoofdcomponent ---------- */
+function dayIndexMonSun(d: Date) {
+  // Monday=0 .. Sunday=6
+  const js = d.getDay(); // 0..6 where 0 is Sunday
+  return (js + 6) % 7;
+}
+
+function hexWithOpacity(hex: string, alpha: number) {
+  // Accepts #RGB, #RRGGBB; returns rgba()
+  let r = 34, g = 197, b = 94; // emerald fallback
+  const s = hex?.trim() || "";
+  const m3 = /^#([0-9a-f]{3})$/i.exec(s);
+  const m6 = /^#([0-9a-f]{6})$/i.exec(s);
+  if (m6) {
+    r = parseInt(m6[1].slice(0, 2), 16);
+    g = parseInt(m6[1].slice(2, 4), 16);
+    b = parseInt(m6[1].slice(4, 6), 16);
+  } else if (m3) {
+    r = parseInt(m3[1][0] + m3[1][0], 16);
+    g = parseInt(m3[1][1] + m3[1][1], 16);
+    b = parseInt(m3[1][2] + m3[1][2], 16);
+  }
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 export default function HarvestAgendaView({
+  beds,
   seeds,
   plantings,
   cropTypes,
+  greenhouseOnly,
+  cropTypeFilters,
 }: {
+  beds: GardenBed[];
   seeds: Seed[];
   plantings: Planting[];
   cropTypes: CropType[];
+  greenhouseOnly?: boolean;
+  cropTypeFilters?: string[];
 }) {
-  const cropTypesById = useMemo(() => new Map<string, CropType>(cropTypes.map((c) => [c.id, c])), [cropTypes]);
-  const seedsById = useMemo(() => Object.fromEntries(seeds.map((s) => [s.id, s])), [seeds]);
+  const [mode, setMode] = useState<"calendar" | "list">("calendar");
+  const [currentMonth, setCurrentMonth] = useState<Date>(() => startOfMonth(new Date()));
 
-  const [mode, setMode] = useState<"calendar" | "list">(
-    () => (localStorage.getItem("harvestView") as any) || "calendar"
-  );
-  useEffect(() => { localStorage.setItem("harvestView", mode); }, [mode]);
+  const seedsById = useMemo(() => new Map(seeds.map((s) => [s.id, s])), [seeds]);
+  const bedsById = useMemo(() => new Map(beds.map((b) => [b.id, b])), [beds]);
+  const cropTypesById = useMemo(() => new Map(cropTypes.map((c) => [c.id, c])), [cropTypes]);
 
-  const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month0, setMonth0] = useState(now.getMonth()); // 0..11
+  // Filters (kas, crop types)
+  const filteredPlantings = useMemo(() => {
+    return (plantings || []).filter((p) => {
+      const bed = bedsById.get(p.garden_bed_id);
+      if (!bed) return false;
+      if (greenhouseOnly && !bed.is_greenhouse) return false;
 
-  /* Verrijkte plantings met harvest-interval + icon + kleur */
-  const enriched = useMemo(() => {
-    return plantings
-      .map((p) => {
-        const iv = harvestIntervalOf(p);
-        if (!iv) return null;
-        const seed = seedsById[p.seed_id];
-        const iconUrl = resolveSeedIconUrl(seed, cropTypesById);
-        const color = p.color && (p.color.startsWith("#") || p.color.startsWith("rgb")) ? p.color : "#22c55e";
-        return { p, seed, iconUrl, iv, color };
-      })
-      .filter(Boolean) as Array<{ p: Planting; seed?: Seed; iconUrl: string | null; iv: Interval; color: string }>;
-  }, [plantings, seedsById, cropTypesById]);
-
-  /* ---------- KALENDERWEERGAVE: week-rijen met doorlopende balken ---------- */
-
-  type Bar = {
-    key: string;
-    label: string;
-    iconUrl: string | null;
-    color: string;
-    startCol: number; // 1..7
-    endCol: number;   // 1..7
-    span: number;     // endCol - startCol + 1
-    lane: number;     // verticale laag binnen de week
-  };
-
-  function buildWeekBars(weekStartDate: Date): Bar[] {
-    const weekIv: Interval = { start: startOfDay(weekStartDate), end: endOfDay(addDays(weekStartDate, 6)) };
-    // 1) maak ruwe bars (clamp binnen de week)
-    const raw = enriched
-      .filter((x) => overlaps(x.iv, weekIv))
-      .map((x) => {
-        const s = x.iv.start < weekIv.start ? weekIv.start : x.iv.start;
-        const e = x.iv.end > weekIv.end ? weekIv.end : x.iv.end;
-        const startCol = dow1(s);
-        const endCol = dow1(e);
-        const span = Math.max(1, endCol - startCol + 1);
-        return {
-          key: x.p.id,
-          label: x.seed?.name ?? "—",
-          iconUrl: x.iconUrl,
-          color: x.color,
-          startCol,
-          endCol,
-          span,
-        };
-      });
-
-    // 2) lane-toewijzing (greedy): per lane tracken we de laatst gebruikte endCol
-    raw.sort((a, b) => (a.startCol - b.startCol) || (a.endCol - b.endCol) || a.label.localeCompare(b.label, "nl", { sensitivity: "base" }));
-    const lanesEnd: number[] = []; // per lane: laatst eindkolom
-    const bars: Bar[] = [];
-    for (const r of raw) {
-      let lane = 0;
-      for (; lane < lanesEnd.length; lane++) {
-        if (r.startCol > lanesEnd[lane]) break; // past zonder overlap in deze lane
+      const seed = seedsById.get(p.seed_id);
+      if (!seed) return false;
+      if (cropTypeFilters && cropTypeFilters.length > 0) {
+        const id = seed.crop_type_id ?? "";
+        if (!(cropTypeFilters.includes("__none__") && !id) && !cropTypeFilters.includes(id)) return false;
       }
-      if (lane === lanesEnd.length) lanesEnd.push(0);
-      lanesEnd[lane] = r.endCol;
-      bars.push({ ...r, lane });
-    }
-    return bars;
-  }
 
-  const weekStarts = useMemo(() => weeksCoveringMonth(year, month0), [year, month0]);
-
-  /* ---------- LIJSTWEERGAVE: per maand unieke gewassen ---------- */
-  const byMonth = useMemo(() => {
-    const sets = Array.from({ length: 12 }, () => new Set<string>());
-    for (const x of enriched) {
-      for (let m = 0; m < 12; m++) {
-        const ivM: Interval = { start: startOfMonth(year, m), end: endOfMonth(year, m) };
-        if (overlaps(x.iv, ivM) && x.seed) sets[m].add(x.seed.id);
-      }
-    }
-    return sets.map((set, m) => {
-      const items = Array.from(set)
-        .map((id) => {
-          const seed = seedsById[id];
-          if (!seed) return null;
-          const iconUrl = resolveSeedIconUrl(seed, cropTypesById);
-          return { seed, iconUrl };
-        })
-        .filter(Boolean) as Array<{ seed: Seed; iconUrl: string | null }>;
-      items.sort((a, b) => a.seed.name.localeCompare(b.seed.name, "nl", { sensitivity: "base" }));
-      return { month0: m, items };
+      return !!p.planned_harvest_start && !!p.planned_harvest_end;
     });
-  }, [enriched, seedsById, cropTypesById, year]);
+  }, [plantings, bedsById, seedsById, greenhouseOnly, cropTypeFilters]);
+
+  // Data for list view: unique seeds that have any harvest overlap with current month
+  const monthRange = useMemo(() => {
+    const first = startOfMonth(currentMonth);
+    const last = endOfMonth(currentMonth);
+    return { first, last };
+  }, [currentMonth]);
+
+  const listSeedsForMonth = useMemo(() => {
+    const set = new Map<string, Seed>();
+    for (const p of filteredPlantings) {
+      const hs = new Date(p.planned_harvest_start as string);
+      const he = new Date(p.planned_harvest_end as string);
+      const overlaps = !(he < monthRange.first || hs > monthRange.last);
+      if (overlaps) {
+        const seed = seedsById.get(p.seed_id);
+        if (seed) set.set(seed.id, seed);
+      }
+    }
+    return Array.from(set.values()).sort((a, b) => a.name.localeCompare(b.name, "nl"));
+  }, [filteredPlantings, monthRange, seedsById]);
+
+  const goPrev = () => setCurrentMonth(startOfMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1)));
+  const goNext = () => setCurrentMonth(startOfMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1)));
+  const goToday = () => setCurrentMonth(startOfMonth(new Date()));
 
   return (
     <section className="space-y-4">
-      {/* Header + view switch */}
-      <div className="flex items-center justify-between">
-        <h3 className="text-xl font-semibold">Oogstagenda</h3>
-        <div className="flex items-center gap-1 p-1 bg-muted/40 rounded-lg">
+      {/* Header with toggle */}
+      <div className="flex items-center gap-2 justify-between">
+        <div className="flex items-center gap-2">
           <button
-            className={cn(
-              "inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-md",
-              mode === "calendar" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
-            )}
-            onClick={() => setMode("calendar")}
-            title="Kalenderweergave"
+            onClick={goPrev}
+            className="px-3 py-2 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted"
           >
-            <CalendarIcon className="w-4 h-4" />
-            Kalender
+            ←
+          </button>
+          <div className="px-4 py-2 text-sm font-semibold">
+            {format(currentMonth, "MMMM yyyy", { locale: nl })}
+          </div>
+          <button
+            onClick={goNext}
+            className="px-3 py-2 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted"
+          >
+            →
           </button>
           <button
-            className={cn(
-              "inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-md",
-              mode === "list" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
-            )}
-            onClick={() => setMode("list")}
-            title="Lijstweergave per maand"
+            onClick={goToday}
+            className="ml-2 px-3 py-2 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground"
           >
-            <ListIcon className="w-4 h-4" />
-            Lijst
+            Vandaag
+          </button>
+        </div>
+
+        <div className="flex items-center gap-1 p-0.5 bg-muted/40 rounded-lg">
+          <button
+            onClick={() => setMode("calendar")}
+            className={`inline-flex items-center gap-2 px-3 py-2 text-sm rounded-md ${
+              mode === "calendar" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+            }`}
+            title="Kalenderweergave"
+          >
+            <CalendarDays className="h-4 w-4" /> Kalender
+          </button>
+          <button
+            onClick={() => setMode("list")}
+            className={`inline-flex items-center gap-2 px-3 py-2 text-sm rounded-md ${
+              mode === "list" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+            }`}
+            title="Lijstweergave"
+          >
+            <ListIcon className="h-4 w-4" /> Lijst
           </button>
         </div>
       </div>
 
-      {/* Kalender */}
-      {mode === "calendar" && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <button
-              className="px-2 py-1 rounded-md border hover:bg-muted"
-              onClick={() => {
-                const m = month0 - 1;
-                if (m < 0) { setMonth0(11); setYear((y) => y - 1); } else setMonth0(m);
-              }}
-            >
-              ←
-            </button>
-            <div className="px-3 py-1.5 rounded-md bg-muted/40 text-sm font-medium">
-              {monthName(month0)} {year}
-            </div>
-            <button
-              className="px-2 py-1 rounded-md border hover:bg-muted"
-              onClick={() => {
-                const m = month0 + 1;
-                if (m > 11) { setMonth0(0); setYear((y) => y + 1); } else setMonth0(m);
-              }}
-            >
-              →
-            </button>
+      {mode === "calendar" ? (
+        <MonthCalendar
+          monthDate={currentMonth}
+          bedsById={bedsById}
+          seedsById={seedsById}
+          cropTypesById={cropTypesById}
+          plantings={filteredPlantings}
+        />
+      ) : (
+        <MonthList
+          monthDate={currentMonth}
+          seeds={listSeedsForMonth}
+          cropTypesById={cropTypesById}
+        />
+      )}
+    </section>
+  );
+}
+
+function MonthList({
+  monthDate,
+  seeds,
+  cropTypesById,
+}: {
+  monthDate: Date;
+  seeds: Seed[];
+  cropTypesById: Map<string, CropType>;
+}) {
+  return (
+    <div className="p-4 border rounded-xl bg-card">
+      <h4 className="text-sm font-semibold mb-3 text-muted-foreground capitalize">
+        Oogstbaar in {format(monthDate, "MMMM", { locale: nl })}
+      </h4>
+      {seeds.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Geen gewassen voor deze maand.</p>
+      ) : (
+        <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))" }}>
+          {seeds.map((s) => {
+            const icon = getEffectiveIconUrl(s, cropTypesById);
+            return (
+              <div key={s.id} className="flex items-center gap-2.5 p-2 rounded-lg border bg-muted/20">
+                {icon ? (
+                  <img src={icon} alt="" className="h-6 w-6 object-contain" />
+                ) : (
+                  <div className="h-6 w-6 rounded bg-emerald-500/20" />
+                )}
+                <span className="text-sm font-medium truncate">{s.name}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MonthCalendar({
+  monthDate,
+  bedsById,
+  seedsById,
+  cropTypesById,
+  plantings,
+}: {
+  monthDate: Date;
+  bedsById: Map<string, GardenBed>;
+  seedsById: Map<string, Seed>;
+  cropTypesById: Map<string, CropType>;
+  plantings: Planting[];
+}) {
+  const { weeks, first, last } = useMemo(() => getWeeksMatrix(monthDate), [monthDate]);
+
+  // Build bar segments per week (continuous, not per-day blocks)
+  type BarSeg = {
+    plantingId: string;
+    seedId: string;
+    bedId: string;
+    color: string;
+    weekIdx: number;
+    colStart: number; // 0..6 (Mon..Sun)
+    colEnd: number; // 0..6 inclusive
+  };
+
+  const segments: BarSeg[] = useMemo(() => {
+    const out: BarSeg[] = [];
+    plantings.forEach((p) => {
+      const hs = new Date(p.planned_harvest_start as string);
+      const he = new Date(p.planned_harvest_end as string);
+      if (he < first || hs > last) return; // no overlap with this month grid
+
+      // For each week row, slice the bar portion
+      weeks.forEach((row, wIdx) => {
+        const weekStart = row[0];
+        const weekEnd = row[6];
+        const part = clampRangeToWeek(hs, he, weekStart, weekEnd);
+        if (!part) return;
+        const startCol = dayIndexMonSun(part.s);
+        const endCol = dayIndexMonSun(part.e);
+        out.push({
+          plantingId: p.id,
+          seedId: p.seed_id,
+          bedId: p.garden_bed_id,
+          color: p.color?.startsWith("#") ? (p.color as string) : (seedsById.get(p.seed_id)?.default_color as string) || "#22c55e",
+          weekIdx: wIdx,
+          colStart: startCol,
+          colEnd: endCol,
+        });
+      });
+    });
+    return out;
+  }, [plantings, weeks, first, last, seedsById]);
+
+  // Lane assignment per week to prevent overlap collisions
+  const segmentsByWeek = useMemo(() => {
+    const map = new Map<number, BarSeg[]>();
+    segments.forEach((s) => {
+      const arr = map.get(s.weekIdx) || [];
+      arr.push(s);
+      map.set(s.weekIdx, arr);
+    });
+    // For each week, sort and assign lanes
+    const placed = new Map<number, Array<BarSeg & { lane: number }>>();
+
+    map.forEach((arr, wIdx) => {
+      arr.sort((a, b) => a.colStart - b.colStart || a.colEnd - b.colEnd);
+      const lanesEnd: number[] = [];
+      const out: Array<BarSeg & { lane: number }> = [];
+      for (const seg of arr) {
+        let lane = 0;
+        while (lane < lanesEnd.length && lanesEnd[lane] >= seg.colStart) lane++;
+        if (lane === lanesEnd.length) lanesEnd.push(seg.colEnd);
+        else lanesEnd[lane] = seg.colEnd;
+        out.push({ ...seg, lane });
+      }
+      placed.set(wIdx, out);
+    });
+
+    return placed;
+  }, [segments]);
+
+  const weekdayLabels = ["Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"];
+
+  return (
+    <div className="rounded-xl border bg-card overflow-hidden">
+      {/* Weekday header */}
+      <div className="grid grid-cols-7 bg-muted/40 border-b text-xs font-medium">
+        {weekdayLabels.map((d) => (
+          <div key={d} className="px-3 py-2 text-muted-foreground uppercase tracking-wide">
+            {d}
           </div>
+        ))}
+      </div>
 
-          {/* Week-rijen */}
-          <div className="space-y-3">
-            {/* Weekday headers */}
-            <div className="grid grid-cols-7 gap-2">
-              {["ma", "di", "wo", "do", "vr", "za", "zo"].map((w) => (
-                <div key={w} className="text-[11px] text-muted-foreground text-center uppercase tracking-wide">
-                  {w}
-                </div>
-              ))}
-            </div>
-
-            {weekStarts.map((ws) => {
-              const we = addDays(ws, 6);
-              const bars = buildWeekBars(ws);
-              const lanes = Math.max(0, ...bars.map((b) => b.lane)) + (bars.length ? 1 : 0);
-
-              // Dagcellen (bovenste rij met datums)
-              const dayCells = Array.from({ length: 7 }, (_, i) => {
-                const d = addDays(ws, i);
-                const inMonth = d.getMonth() === month0;
+      {/* Weeks */}
+      <div className="divide-y">
+        {weeks.map((row, wIdx) => (
+          <div key={wIdx} className="relative">
+            {/* Day cells */}
+            <div className="grid grid-cols-7">
+              {row.map((d, i) => {
+                const outside = d.getMonth() !== monthDate.getMonth();
                 return (
                   <div
                     key={i}
-                    className={cn(
-                      "border rounded-lg p-1.5 min-h-[60px]",
-                      inMonth ? "bg-card" : "bg-muted/40 text-muted-foreground"
-                    )}
+                    className={`h-20 border-r last:border-r-0 p-2 ${outside ? "bg-muted/20 text-muted-foreground" : "bg-background"}`}
                   >
                     <div className="text-[11px] font-medium">{d.getDate()}</div>
                   </div>
                 );
-              });
-
-              return (
-                <div key={ws.toISOString()} className="space-y-1">
-                  {/* dagrij */}
-                  <div className="grid grid-cols-7 gap-2">{dayCells}</div>
-
-                  {/* lanes met bars */}
-                  {Array.from({ length: lanes }).map((_, lane) => (
-                    <div key={lane} className="grid grid-cols-7 gap-2">
-                      {bars
-                        .filter((b) => b.lane === lane)
-                        .map((b) => (
-                          <div
-                            key={`${b.key}-${lane}`}
-                            className="h-7 rounded-md px-2 flex items-center gap-2 text-[11px] text-white overflow-hidden shadow-sm"
-                            style={{
-                              gridColumn: `${b.startCol} / span ${b.span}`,
-                              background: b.color,
-                            }}
-                            title={b.label}
-                          >
-                            {b.iconUrl ? (
-                              <img src={b.iconUrl} alt="" className="w-4 h-4 object-contain opacity-95" />
-                            ) : (
-                              <div className="w-4 h-4" />
-                            )}
-                            <span className="truncate">{b.label}</span>
-                          </div>
-                        ))}
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Lijst per maand */}
-      {mode === "list" && (
-        <div className="space-y-4">
-          {byMonth.map(({ month0: m, items }) => (
-            <div key={m} className="border rounded-lg p-3 bg-card">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                {monthName(m)}
-              </div>
-              {items.length === 0 ? (
-                <div className="text-xs text-muted-foreground">—</div>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {items.map(({ seed, iconUrl }) => (
-                    <div key={seed.id} className="inline-flex items-center gap-2 rounded-md border bg-card px-2.5 py-1 text-xs">
-                      <div className="relative w-4 h-4 rounded-sm overflow-hidden bg-emerald-500/70">
-                        {iconUrl ? (
-                          <img src={iconUrl} alt="" className="absolute inset-0 w-full h-full object-contain opacity-95" />
-                        ) : (
-                          <div className="absolute inset-0" />
-                        )}
-                      </div>
-                      <span className="font-medium truncate">{seed.name}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              })}
             </div>
-          ))}
-        </div>
-      )}
-    </section>
+
+            {/* Bars overlay */}
+            <WeekBarsOverlay
+              weekIdx={wIdx}
+              segments={segmentsByWeek.get(wIdx) || []}
+              seedsById={seedsById}
+              cropTypesById={cropTypesById}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WeekBarsOverlay({
+  weekIdx,
+  segments,
+  seedsById,
+  cropTypesById,
+}: {
+  weekIdx: number;
+  segments: Array<{
+    plantingId: string;
+    seedId: string;
+    bedId: string;
+    color: string;
+    colStart: number;
+    colEnd: number;
+    lane: number;
+  }>;
+  seedsById: Map<string, Seed>;
+  cropTypesById: Map<string, CropType>;
+}) {
+  const laneHeight = 22; // px
+  const topOffset = 20; // leave room under day numbers
+  const totalHeight = topOffset + (Math.max(0, Math.max(-1, ...segments.map((s) => s.lane))) + 1) * (laneHeight + 4) + 8;
+
+  return (
+    <div className="absolute left-0 right-0" style={{ top: 0, height: totalHeight }}>
+      {segments.map((s) => {
+        const span = s.colEnd - s.colStart + 1;
+        const leftPct = (s.colStart / 7) * 100;
+        const widthPct = (span / 7) * 100;
+        const seed = seedsById.get(s.seedId);
+        const icon = getEffectiveIconUrl(seed, cropTypesById);
+        const bg = s.color?.startsWith("#") ? s.color : "#22c55e";
+        return (
+          <div
+            key={`${weekIdx}-${s.plantingId}-${s.colStart}`}
+            className="absolute rounded-md text-[11px] text-white flex items-center gap-2 px-2 shadow"
+            style={{
+              left: `${leftPct}%`,
+              width: `${widthPct}%`,
+              top: topOffset + s.lane * (laneHeight + 4),
+              height: laneHeight,
+              background: bg,
+            }}
+            title={seed?.name ?? "Gewas"}
+          >
+            <div
+              className="absolute inset-0 rounded-md"
+              style={{ background: hexWithOpacity(bg, 0.15) }}
+            />
+            {icon ? (
+              <img src={icon} alt="" className="relative h-4 w-4 object-contain" />
+            ) : (
+              <span className="relative inline-block h-3 w-3 rounded-full bg-white/80" />
+            )}
+            <span className="relative truncate font-medium leading-none">
+              {seed?.name ?? "Gewas"}
+            </span>
+          </div>
+        );
+      })}
+    </div>
   );
 }
