@@ -568,7 +568,7 @@ function BedBlock({
     onMove(bed.id, pos.x, pos.y);
   }
 
-  // Kas styling
+  // Kas styling — nu met grondkleur binnenin
   if (bed.is_greenhouse) {
     return (
       <div
@@ -602,31 +602,54 @@ function BedBlock({
             padding: 4,
           }}
         >
-          {/* Glas panelen */}
+          {/* Binnenkant: grond i.p.v. grijze ruitjes */}
           <div 
             className="w-full h-full rounded-md overflow-hidden relative"
             style={{
-              background: "linear-gradient(135deg, rgba(135,206,250,0.25) 0%, rgba(255,255,255,0.5) 30%, rgba(135,206,250,0.25) 60%, rgba(255,255,255,0.4) 100%)",
-              boxShadow: "inset 0 0 20px rgba(255,255,255,0.3)",
+              background: `
+                radial-gradient(ellipse at 30% 40%, rgba(101,67,33,1) 0%, transparent 50%),
+                radial-gradient(ellipse at 70% 60%, rgba(89,60,31,1) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 30%, rgba(110,75,38,1) 0%, transparent 40%),
+                linear-gradient(180deg, #5c4033 0%, #4a3328 50%, #3e2723 100%)
+              `,
+              boxShadow: "inset 0 2px 8px rgba(0,0,0,0.4)",
             }}
           >
-            {/* Glas reflectie */}
+            {/* Subtiele glas-reflectie zodat het nog kas oogt */}
             <div 
               className="absolute inset-0 pointer-events-none"
               style={{
-                background: "linear-gradient(135deg, rgba(255,255,255,0.6) 0%, transparent 30%, transparent 70%, rgba(255,255,255,0.2) 100%)",
+                background: "linear-gradient(135deg, rgba(255,255,255,0.18) 0%, transparent 35%, transparent 70%, rgba(255,255,255,0.08) 100%)",
               }}
             />
             
-            {/* Kas frame lijnen */}
-            <div className="absolute inset-0 pointer-events-none" style={{
-              backgroundImage: `
-                linear-gradient(90deg, rgba(192,192,192,0.5) 1px, transparent 1px),
-                linear-gradient(0deg, rgba(192,192,192,0.5) 1px, transparent 1px)
-              `,
-              backgroundSize: `${w / 4}px ${h / 3}px`,
-            }} />
-            
+            {/* (Optioneel) segmentlijnen haaks op de langste zijde */}
+            {bed.segments > 1 && (() => {
+              const isWide = w >= h; // langste zijde is horizontaal => verticale lijntjes
+              const segPercent = 100 / bed.segments;
+              const lineColor = "rgba(255,255,255,0.08)";
+              const style = isWide
+                ? {
+                    backgroundImage: `repeating-linear-gradient(
+                      90deg,
+                      transparent 0,
+                      transparent calc(${segPercent}% - 1px),
+                      ${lineColor} calc(${segPercent}% - 1px),
+                      ${lineColor} ${segPercent}%
+                    )`,
+                  }
+                : {
+                    backgroundImage: `repeating-linear-gradient(
+                      0deg,
+                      transparent 0,
+                      transparent calc(${segPercent}% - 1px),
+                      ${lineColor} calc(${segPercent}% - 1px),
+                      ${lineColor} ${segPercent}%
+                    )`,
+                  };
+              return <div className="absolute inset-0 pointer-events-none" style={style} />;
+            })()}
+
             {/* Naam label */}
             <div className="absolute inset-0 flex items-center justify-center">
               <span 
