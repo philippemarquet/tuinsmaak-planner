@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Garden, Seed, CropType } from "../lib/types";
 import { createSeed, updateSeed, deleteSeed } from "../lib/api/seeds";
-import { listCropTypes } from "../lib/api/cropTypes";
-import { Copy, Trash2, PlusCircle, ChevronDown, Search, Carrot, Leaf, Apple, Cherry, Flower2, Salad, Bean, Wheat } from "lucide-react";
+import { listCropTypes, createCropType, updateCropType, deleteCropType } from "../lib/api/cropTypes";
+import { Copy, Trash2, PlusCircle, ChevronDown, Search, Carrot, Leaf, Apple, Cherry, Flower2, Salad, Bean, Wheat, Edit2 } from "lucide-react";
 import { SeedModal } from "./SeedModal";
 import { cn } from "../lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Checkbox } from "./ui/checkbox";
+
+/** Iconify (voor categorie-icoontjes uit een grote set) */
+import { Icon } from "@iconify/react";
 
 /* ---------- helpers ---------- */
 
@@ -25,8 +28,8 @@ function nextCopyName(name: string) {
   return `${name} (kopie)`;
 }
 
-// Icon mapping for crop types
-function getCropTypeIcon(name: string) {
+// Huidige fallback naar Lucide wanneer geen icon_slug staat
+function getCropTypeLucideIcon(name: string) {
   const lower = name.toLowerCase();
   if (lower.includes('wortel') || lower.includes('knol')) return Carrot;
   if (lower.includes('sla') || lower.includes('blad')) return Salad;
@@ -36,6 +39,15 @@ function getCropTypeIcon(name: string) {
   if (lower.includes('graan') || lower.includes('mais')) return Wheat;
   if (lower.includes('bloem')) return Flower2;
   return Leaf;
+}
+
+/** Render een icoon: eerst icon_slug (Iconify), anders Lucide fallback */
+function CropIcon({ iconSlug, fallbackName, className }: { iconSlug?: string | null; fallbackName: string; className?: string }) {
+  if (iconSlug && typeof iconSlug === "string" && iconSlug.trim().length > 0) {
+    return <Icon icon={iconSlug} className={cn("h-4 w-4", className)} />;
+  }
+  const Fallback = getCropTypeLucideIcon(fallbackName);
+  return <Fallback className={cn("h-4 w-4 text-primary/70", className)} />;
 }
 
 /* ---------- kaartje ---------- */
@@ -110,18 +122,22 @@ function SeedCard({
 
 function SeedGroup({
   group,
+  cropTypesById,
   onEdit,
   onDelete,
   onDuplicate,
 }: {
   group: { id: string; label: string; items: Seed[] };
+  cropTypesById: Map<string, CropType>;
   onEdit: (s: Seed) => void;
   onDelete: (s: Seed) => void;
   onDuplicate: (s: Seed) => void;
 }) {
   const [isOpen, setIsOpen] = useState(true);
   const count = group.items.length;
-  const Icon = getCropTypeIcon(group.label);
+
+  const ct = group.id !== "__none__" ? cropTypesById.get(group.id) : undefined;
+  const iconSlug = (ct as any)?.icon_slug as string | undefined;
 
   return (
     <section className="space-y-2">
@@ -136,7 +152,7 @@ function SeedGroup({
             isOpen && "rotate-180"
           )} 
         />
-        <Icon className="h-4 w-4 text-primary/70" />
+        <CropIcon iconSlug={iconSlug} fallbackName={group.label} className="text-primary/70" />
         <h3 className="text-base font-semibold group-hover:text-primary transition-colors">
           {group.label} <span className="text-sm text-muted-foreground font-normal">({count})</span>
         </h3>
@@ -165,7 +181,254 @@ function SeedGroup({
   );
 }
 
+/* ---------- IconPicker (voor categorieën) ---------- */
+
+/** Curated lijst met herkenbare voedsel/groente/fruit iconen (Material Design Icons via Iconify) */
+const ICON_CHOICES = [
+  "mdi:carrot",
+  "mdi:food-apple-outline",
+  "mdi:fruit-cherries-outline",
+  "mdi:fruit-grapes-outline",
+  "mdi:fruit-citrus-outline",
+  "mdi:fruit-pineapple",
+  "mdi:fruit-watermelon",
+  "mdi:fruit-strawberry",
+  "mdi:pepper",
+  "mdi:corn",
+  "mdi:mushroom-outline",
+  "mdi:leaf",
+  "mdi:sprout",
+  "mdi:wheat",
+  "mdi:eggplant",
+  "mdi:fruit-pear",
+  "mdi:fruit-grapes",
+  "mdi:seed-outline",
+  "mdi:flower-outline",
+  "mdi:grass",
+  "mdi:herb",
+  "mdi:pot",
+  "mdi:pot-steam-outline",
+  "mdi:pumpkin",
+  "mdi:cabbage",
+  "mdi:garlic",
+  "mdi:onion",
+  "mdi:tomato",
+  "mdi:cucumber",
+  "mdi:pot-mix",
+];
+
+function IconPicker({
+  value,
+  onChange,
+}: {
+  value?: string | null;
+  onChange: (slug: string | null) => void;
+}) {
+  const [q, setQ] = useState("");
+  const filtered = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    if (!t) return ICON_CHOICES;
+    return ICON_CHOICES.filter((s) => s.toLowerCase().includes(t));
+  }, [q]);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Zoek icoon…"
+          className="w-full px-3 py-2 text-sm bg-muted/30 border-0 rounded-lg focus:ring-2 focus:ring-primary/20 focus:bg-background transition-all placeholder:text-muted-foreground/60"
+        />
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          className="px-2 py-2 text-xs rounded-lg bg-muted hover:bg-muted/70"
+          title="Zonder icoon"
+        >
+          Geen
+        </button>
+      </div>
+      <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 gap-2 max-h-60 overflow-y-auto">
+        {filtered.map((slug) => {
+          const active = value === slug;
+          return (
+            <button
+              key={slug}
+              type="button"
+              onClick={() => onChange(slug)}
+              className={cn(
+                "aspect-square rounded-lg border flex items-center justify-center hover:bg-muted transition-colors",
+                active ? "border-primary ring-2 ring-primary/30" : "border-border/60"
+              )}
+              title={slug}
+            >
+              <Icon icon={slug} className="w-6 h-6" />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Categoriebeheer (tab) ---------- */
+
+function CategoriesManager({
+  cropTypes,
+  onReload,
+}: {
+  cropTypes: CropType[];
+  onReload: () => Promise<void>;
+}) {
+  const [editing, setEditing] = useState<null | { id?: string; name: string; icon_slug: string | null }>(null);
+  const [busy, setBusy] = useState(false);
+
+  function startCreate() {
+    setEditing({ name: "", icon_slug: null });
+  }
+  function startEdit(ct: CropType) {
+    setEditing({
+      id: (ct as any).id,
+      name: ct.name,
+      icon_slug: ((ct as any).icon_slug ?? null) as string | null,
+    });
+  }
+
+  async function handleSave() {
+    if (!editing) return;
+    const { id, name, icon_slug } = editing;
+    if (!name.trim()) {
+      alert("Voer een naam in.");
+      return;
+    }
+    try {
+      setBusy(true);
+      if (id) {
+        await updateCropType(id as any, { name: name.trim(), icon_slug: icon_slug ?? null });
+      } else {
+        await createCropType({ name: name.trim(), icon_slug: icon_slug ?? null });
+      }
+      setEditing(null);
+      await onReload();
+    } catch (e: any) {
+      alert("Opslaan mislukt: " + (e?.message ?? String(e)));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm("Categorie verwijderen?")) return;
+    try {
+      setBusy(true);
+      await deleteCropType(id as any);
+      await onReload();
+    } catch (e: any) {
+      alert("Verwijderen mislukt: " + (e?.message ?? String(e)));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold">Categorieën beheren</h3>
+        <button
+          onClick={startCreate}
+          className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+        >
+          <PlusCircle className="h-4 w-4" />
+          Nieuwe categorie
+        </button>
+      </div>
+
+      {/* lijst */}
+      <div className="grid gap-2">
+        {cropTypes.length === 0 && (
+          <p className="text-sm text-muted-foreground">Nog geen categorieën.</p>
+        )}
+        {cropTypes.map((ct) => (
+          <div key={ct.id} className="flex items-center gap-3 px-3 py-2 border rounded-lg bg-card">
+            <CropIcon iconSlug={(ct as any).icon_slug} fallbackName={ct.name} />
+            <span className="text-sm font-medium flex-1 truncate">{ct.name}</span>
+            <button
+              onClick={() => startEdit(ct)}
+              className="p-1.5 rounded hover:bg-muted transition-colors"
+              title="Bewerken"
+            >
+              <Edit2 className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => handleDelete((ct as any).id)}
+              className="p-1.5 rounded hover:bg-destructive/10 text-destructive transition-colors"
+              title="Verwijderen"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* modal */}
+      {editing && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => !busy && setEditing(null)}>
+          <div className="bg-card rounded-2xl w-full max-w-lg border border-border/50 shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-border/30 bg-gradient-to-r from-primary/5 to-transparent">
+              <h4 className="text-lg font-semibold">{editing.id ? "Categorie bewerken" : "Nieuwe categorie"}</h4>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Naam</label>
+                <input
+                  value={editing.name}
+                  onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                  className="w-full mt-1.5 bg-muted/30 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                  placeholder="Bijv. Koolgewassen"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Icoon</label>
+                <IconPicker
+                  value={editing.icon_slug}
+                  onChange={(slug) => setEditing({ ...editing, icon_slug: slug })}
+                />
+                {editing.icon_slug && (
+                  <div className="mt-2 text-xs text-muted-foreground flex items-center gap-2">
+                    Voorbeeld:
+                    <Icon icon={editing.icon_slug} className="h-5 w-5" />
+                    <code className="px-1.5 py-0.5 rounded bg-muted">{editing.icon_slug}</code>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="px-5 py-4 border-t border-border/30 bg-muted/20 flex justify-end gap-2">
+              <button
+                onClick={() => !busy && setEditing(null)}
+                className="px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted transition-colors"
+                disabled={busy}
+              >
+                Annuleren
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={busy || !editing.name.trim()}
+                className="px-5 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+              >
+                {busy ? "Opslaan..." : "Opslaan"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------- pagina ---------- */
+
+type InvView = "seeds" | "categories";
 
 export function InventoryPage({
   garden,
@@ -178,6 +441,8 @@ export function InventoryPage({
   cropTypes: CropType[];
   onDataChange: () => Promise<void>;
 }) {
+  const [view, setView] = useState<InvView>(() => (localStorage.getItem("inventoryView") as InvView) || "seeds");
+
   const [seeds, setSeeds] = useState<Seed[]>(initialSeeds);
   const [cropTypes, setCropTypes] = useState<CropType[]>(initialCropTypes);
   const [editorOpen, setEditorOpen] = useState<{ seed: Seed | null } | null>(null);
@@ -187,6 +452,10 @@ export function InventoryPage({
   const [cropTypeFilter, setCropTypeFilter] = useState<string>("all");
   const [q, setQ] = useState<string>(() => localStorage.getItem("inventoryQ") ?? "");
 
+  useEffect(() => {
+    localStorage.setItem("inventoryView", view);
+  }, [view]);
+
   // Sync met centrale data + lokale fetch als fallback
   useEffect(() => {
     setSeeds(initialSeeds);
@@ -195,12 +464,18 @@ export function InventoryPage({
     }
   }, [initialSeeds, initialCropTypes]);
 
-  // Fetch cropTypes lokaal als ze leeg zijn (fallback)
+  // Fetch cropTypes lokaal als ze leeg zijn (fallback of na wijzigingen)
+  const reloadCropTypes = async () => {
+    try {
+      const types = await listCropTypes();
+      setCropTypes(types);
+    } catch (err) {
+      console.error('Failed to fetch crop types:', err);
+    }
+  };
   useEffect(() => {
     if (cropTypes.length === 0) {
-      listCropTypes()
-        .then(setCropTypes)
-        .catch((err) => console.error('Failed to fetch crop types:', err));
+      reloadCropTypes();
     }
   }, [cropTypes.length]);
 
@@ -283,12 +558,12 @@ export function InventoryPage({
 
   // groepering op gewastype
   const groups = useMemo(() => {
-    const nameById = new Map<string, string>(cropTypes.map(ct => [ct.id, ct.name]));
+    const byId = new Map<string, CropType>(cropTypes.map(ct => [ct.id, ct]));
     const map = new Map<string, { label: string; items: Seed[] }>();
 
     for (const s of filtered) {
       const key = s.crop_type_id || "__none__";
-      const label = s.crop_type_id ? (nameById.get(s.crop_type_id) || "Onbekend") : "Overig";
+      const label = s.crop_type_id ? (byId.get(s.crop_type_id)?.name || "Onbekend") : "Overig";
       if (!map.has(key)) map.set(key, { label, items: [] });
       map.get(key)!.items.push(s);
     }
@@ -302,135 +577,167 @@ export function InventoryPage({
         items: g.items.slice().sort((a, b) => a.name.localeCompare(b.name, "nl")),
       }));
 
-    return out;
+    return { groups: out, cropTypesById: byId };
   }, [filtered, cropTypes]);
 
   return (
     <div className="space-y-6">
-      {/* header + filters */}
+      {/* header + view toggle */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-2xl font-bold">Voorraad</h2>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Modern search field */}
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60" />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Zoek op naam…"
-              className="w-48 md:w-56 pl-9 pr-3 py-2 text-sm bg-muted/30 border-0 rounded-lg focus:ring-2 focus:ring-primary/20 focus:bg-background transition-all placeholder:text-muted-foreground/50"
-            />
+        <div className="flex items-center gap-2">
+          <div className="p-0.5 bg-muted/40 rounded-lg">
+            <button
+              onClick={() => setView("seeds")}
+              className={cn(
+                "px-3 py-2 text-sm font-medium rounded-md",
+                view === "seeds" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Zaden
+            </button>
+            <button
+              onClick={() => setView("categories")}
+              className={cn(
+                "px-3 py-2 text-sm font-medium rounded-md",
+                view === "categories" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Categorieën
+            </button>
           </div>
-
-          {/* In voorraad - Toggle Pill */}
-          <button
-            onClick={() => setInStockOnly(!inStockOnly)}
-            className={cn(
-              "px-3 py-2 text-sm font-medium rounded-lg transition-all",
-              inStockOnly 
-                ? "bg-primary text-primary-foreground shadow-sm" 
-                : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
-            )}
-          >
-            In voorraad
-          </button>
-
-          {/* Gewastype filter - Modern Popover */}
-          <Popover>
-            <PopoverTrigger asChild>
-              <button className="px-3 py-2 text-sm rounded-lg flex items-center gap-2 bg-muted/30 hover:bg-muted/50 transition-all">
-                <span className={cn(
-                  "truncate max-w-32",
-                  cropTypeFilter === "all" ? "text-muted-foreground" : "text-foreground font-medium"
-                )}>
-                  {cropTypeFilter === "all"
-                    ? "Gewastype"
-                    : cropTypeFilter === "__none__"
-                    ? "Overig"
-                    : cropTypes.find((ct) => ct.id === cropTypeFilter)?.name || "Gewastype"}
-                </span>
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-52 p-2 max-h-64 overflow-y-auto bg-popover/95 backdrop-blur-sm border-border/50">
-              <div className="space-y-0.5">
-                <button 
-                  onClick={() => setCropTypeFilter("all")}
-                  className={cn(
-                    "w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors",
-                    cropTypeFilter === "all" ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted/50"
-                  )}
-                >
-                  Alle gewastypen
-                </button>
-                {cropTypes.map((ct) => {
-                  const Icon = getCropTypeIcon(ct.name);
-                  return (
-                    <button 
-                      key={ct.id} 
-                      onClick={() => setCropTypeFilter(ct.id)}
-                      className={cn(
-                        "w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors flex items-center gap-2",
-                        cropTypeFilter === ct.id ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted/50"
-                      )}
-                    >
-                      <Icon className="h-3.5 w-3.5 text-primary/70" />
-                      {ct.name}
-                    </button>
-                  );
-                })}
-                <button 
-                  onClick={() => setCropTypeFilter("__none__")}
-                  className={cn(
-                    "w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors text-muted-foreground",
-                    cropTypeFilter === "__none__" ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted/50"
-                  )}
-                >
-                  Overig (geen soort)
-                </button>
-              </div>
-            </PopoverContent>
-          </Popover>
-
-          <button
-            onClick={() => setEditorOpen({ seed: null })}
-            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-          >
-            <PlusCircle className="h-4 w-4" />
-            Nieuw zaad
-          </button>
         </div>
       </div>
 
-      {/* gegroepeerde kaarten - twee kolommen op grote schermen */}
-      {groups.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Geen zaden gevonden.</p>
-      ) : (
-        <div className="space-y-6">
-          {groups.map((g) => (
-            <SeedGroup
-              key={g.id}
-              group={g}
-              onEdit={(s) => setEditorOpen({ seed: s })}
-              onDelete={handleDelete}
-              onDuplicate={handleDuplicate}
-            />
-          ))}
-        </div>
-      )}
+      {view === "seeds" ? (
+        <>
+          {/* filters */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Modern search field */}
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60" />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Zoek op naam…"
+                className="w-48 md:w-56 pl-9 pr-3 py-2 text-sm bg-muted/30 border-0 rounded-lg focus:ring-2 focus:ring-primary/20 focus:bg-background transition-all placeholder:text-muted-foreground/50"
+              />
+            </div>
 
-      {editorOpen && (
-        <SeedModal
-          gardenId={garden.id}
-          seed={(editorOpen.seed as any) || ({} as any)}
-          onClose={() => setEditorOpen(null)}
-          onSaved={async (saved) => {
-            upsertLocal(saved);
-            setEditorOpen(null);
-            await onDataChange();
-          }}
-        />
+            {/* In voorraad - Toggle Pill */}
+            <button
+              onClick={() => setInStockOnly(!inStockOnly)}
+              className={cn(
+                "px-3 py-2 text-sm font-medium rounded-lg transition-all",
+                inStockOnly 
+                  ? "bg-primary text-primary-foreground shadow-sm" 
+                  : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+              )}
+            >
+              In voorraad
+            </button>
+
+            {/* Gewastype filter - Modern Popover */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button className="px-3 py-2 text-sm rounded-lg flex items-center gap-2 bg-muted/30 hover:bg-muted/50 transition-all">
+                  <span className={cn(
+                    "truncate max-w-32",
+                    cropTypeFilter === "all" ? "text-muted-foreground" : "text-foreground font-medium"
+                  )}>
+                    {cropTypeFilter === "all"
+                      ? "Gewastype"
+                      : cropTypeFilter === "__none__"
+                      ? "Overig"
+                      : cropTypes.find((ct) => ct.id === cropTypeFilter)?.name || "Gewastype"}
+                  </span>
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-56 p-2 max-h-64 overflow-y-auto bg-popover/95 backdrop-blur-sm border-border/50">
+                <div className="space-y-0.5">
+                  <button 
+                    onClick={() => setCropTypeFilter("all")}
+                    className={cn(
+                      "w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors",
+                      cropTypeFilter === "all" ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted/50"
+                    )}
+                  >
+                    Alle gewastypen
+                  </button>
+                  {cropTypes.map((ct) => {
+                    const slug = (ct as any).icon_slug as string | undefined;
+                    return (
+                      <button 
+                        key={ct.id} 
+                        onClick={() => setCropTypeFilter(ct.id)}
+                        className={cn(
+                          "w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors flex items-center gap-2",
+                          cropTypeFilter === ct.id ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted/50"
+                        )}
+                      >
+                        <CropIcon iconSlug={slug} fallbackName={ct.name} />
+                        {ct.name}
+                      </button>
+                    );
+                  })}
+                  <button 
+                    onClick={() => setCropTypeFilter("__none__")}
+                    className={cn(
+                      "w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors text-muted-foreground flex items-center gap-2",
+                      cropTypeFilter === "__none__" ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted/50"
+                    )}
+                  >
+                    <Leaf className="h-4 w-4" />
+                    Overig (geen soort)
+                  </button>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            <button
+              onClick={() => setEditorOpen({ seed: null })}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors ml-auto"
+            >
+              <PlusCircle className="h-4 w-4" />
+              Nieuw zaad
+            </button>
+          </div>
+
+          {/* gegroepeerde kaarten */}
+          {groups.groups.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Geen zaden gevonden.</p>
+          ) : (
+            <div className="space-y-6">
+              {groups.groups.map((g) => (
+                <SeedGroup
+                  key={g.id}
+                  group={g}
+                  cropTypesById={groups.cropTypesById}
+                  onEdit={(s) => setEditorOpen({ seed: s })}
+                  onDelete={handleDelete}
+                  onDuplicate={handleDuplicate}
+                />
+              ))}
+            </div>
+          )}
+
+          {editorOpen && (
+            <SeedModal
+              gardenId={garden.id}
+              seed={(editorOpen.seed as any) || ({} as any)}
+              onClose={() => setEditorOpen(null)}
+              onSaved={async (saved) => {
+                upsertLocal(saved);
+                setEditorOpen(null);
+                await onDataChange();
+              }}
+            />
+          )}
+        </>
+      ) : (
+        <CategoriesManager cropTypes={cropTypes} onReload={reloadCropTypes} />
       )}
     </div>
   );
