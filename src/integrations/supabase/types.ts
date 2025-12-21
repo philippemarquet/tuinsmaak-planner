@@ -152,16 +152,19 @@ export type Database = {
       crop_types: {
         Row: {
           created_at: string
+          icon_key: string | null
           id: string
           name: string
         }
         Insert: {
           created_at?: string
+          icon_key?: string | null
           id?: string
           name: string
         }
         Update: {
           created_at?: string
+          icon_key?: string | null
           id?: string
           name?: string
         }
@@ -534,6 +537,7 @@ export type Database = {
           grow_duration_weeks: number | null
           harvest_duration_weeks: number | null
           harvest_months: number[] | null
+          icon_key: string | null
           id: string
           in_stock: boolean
           name: string
@@ -557,6 +561,7 @@ export type Database = {
           grow_duration_weeks?: number | null
           harvest_duration_weeks?: number | null
           harvest_months?: number[] | null
+          icon_key?: string | null
           id?: string
           in_stock?: boolean
           name: string
@@ -580,6 +585,7 @@ export type Database = {
           grow_duration_weeks?: number | null
           harvest_duration_weeks?: number | null
           harvest_months?: number[] | null
+          icon_key?: string | null
           id?: string
           in_stock?: boolean
           name?: string
