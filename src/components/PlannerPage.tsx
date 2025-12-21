@@ -1,6 +1,7 @@
 // src/components/PlannerPage.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Garden, GardenBed, Planting, Seed, CropType, UUID } from "../lib/types";
+import { GardenPlotCanvas } from "./GardenPlotCanvas";
 import { createPlanting, updatePlanting, deletePlanting } from "../lib/api/plantings";
 import { DndContext, useDraggable, useDroppable, DragOverlay } from "@dnd-kit/core";
 import { supabase } from "../lib/supabaseClient";
@@ -1454,7 +1455,32 @@ export function PlannerPage({
             {view === "list" && listViewContent}
             {view === "map" && (
               <div className="p-6 h-full">
-                <PlannerMap />
+                <GardenPlotCanvas
+                  beds={beds}
+                  plantings={plantings}
+                  seeds={seeds}
+                  cropTypes={cropTypes}
+                  storagePrefix="plannerMap"
+                  activePlantingFilter={(p) => isActiveInWeek(p, currentWeek)}
+                  ghostPlantingFilter={(p) => showGhosts && isFutureRelativeToWeek(p, currentWeek)}
+                  onPlantingEdit={(p) => {
+                    const seed = seedsById[p.seed_id];
+                    const bed = beds.find(b => b.id === p.garden_bed_id);
+                    if (seed && bed) setPopup({ mode: "edit", planting: p, seed, bed, segmentIndex: p.start_segment ?? 0 });
+                  }}
+                  onPlantingDelete={(id) => deletePlanting(id).then(reload)}
+                  conflictsMap={conflictsMap}
+                  onBedConflictClick={() => setView("conflicts")}
+                  renderDropTargets={(bed, segCount) => (
+                    <>
+                      {Array.from({ length: segCount }, (_, i) => (
+                        <div key={i} className="relative">
+                          <MapDroppable id={`bed__${bed.id}__segment__${i}`} />
+                        </div>
+                      ))}
+                    </>
+                  )}
+                />
               </div>
             )}
             {view === "timeline" && (
