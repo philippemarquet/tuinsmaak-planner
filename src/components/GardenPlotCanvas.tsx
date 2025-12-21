@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { GardenBed, Planting, Seed, CropType, UUID } from "../lib/types";
-import { ZoomIn, ZoomOut, Maximize2, RotateCcw, Copy, Edit3, Trash2 } from "lucide-react";
+import { ZoomIn, ZoomOut, Maximize2, Copy, Edit3, Trash2 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 
 /* =========================================
@@ -267,18 +267,15 @@ export function GardenPlotCanvas({
   // State
   const [zoom, setZoom] = useState(() => {
     const saved = localStorage.getItem(`${storagePrefix}Zoom`);
-    return saved ? parseFloat(saved) : 0.5;
-  });
-  const [isRotated, setIsRotated] = useState(() => {
-    return localStorage.getItem(`${storagePrefix}Rotated`) === "1";
+    return saved ? parseFloat(saved) : 1.0;
   });
 
-  const minZoom = 0.1;
+  const minZoom = 0.2;
   const maxZoom = 2;
 
-  // Effective canvas dimensions based on rotation
-  const CANVAS_W = isRotated ? BASE_CANVAS_H : BASE_CANVAS_W;
-  const CANVAS_H = isRotated ? BASE_CANVAS_W : BASE_CANVAS_H;
+  // Canvas dimensions (no rotation)
+  const CANVAS_W = BASE_CANVAS_W;
+  const CANVAS_H = BASE_CANVAS_H;
 
   // Season
   const season = getSeason();
@@ -294,12 +291,6 @@ export function GardenPlotCanvas({
     localStorage.setItem(`${storagePrefix}Zoom`, clamped.toString());
   };
 
-  const toggleRotation = () => {
-    const next = !isRotated;
-    setIsRotated(next);
-    localStorage.setItem(`${storagePrefix}Rotated`, next ? "1" : "0");
-  };
-
   const fitToViewport = () => {
     const vp = viewportRef.current;
     if (!vp) return;
@@ -307,10 +298,11 @@ export function GardenPlotCanvas({
     const vh = vp.clientHeight - 32;
     const zx = vw / CANVAS_W;
     const zy = vh / CANVAS_H;
+    // Use the larger zoom that still fits, ensuring max visibility
     setZoomClamped(Math.min(zx, zy));
   };
 
-  // Auto-fit on first render
+  // Auto-fit on first render to maximize visible size
   useEffect(() => {
     if (!localStorage.getItem(`${storagePrefix}Zoom`)) {
       const t = setTimeout(fitToViewport, 100);
@@ -318,35 +310,18 @@ export function GardenPlotCanvas({
     }
   }, []);
 
-  // Re-fit when rotation changes
-  useEffect(() => {
-    const t = setTimeout(fitToViewport, 50);
-    return () => clearTimeout(t);
-  }, [isRotated]);
-
   const bedHasConflict = (bedId: UUID) => {
     if (!conflictsMap) return false;
     return plantings.some((p) => p.garden_bed_id === bedId && (conflictsMap.get(p.id)?.length ?? 0) > 0);
   };
 
-  // Calculate bed position with rotation
+  // Calculate bed position
   const getBedTransform = (bed: GardenBed) => {
     const origX = bed.location_x ?? 50;
     const origY = bed.location_y ?? 50;
     const origW = Math.max(60, bed.length_cm || 200);
     const origH = Math.max(40, bed.width_cm || 100);
-
-    if (!isRotated) {
-      return { x: origX, y: origY, w: origW, h: origH };
-    }
-
-    // 90 degree rotation: swap and mirror
-    return {
-      x: origY,
-      y: BASE_CANVAS_W - origX - origW,
-      w: origH,
-      h: origW,
-    };
+    return { x: origX, y: origY, w: origW, h: origH };
   };
 
   return (
@@ -355,17 +330,6 @@ export function GardenPlotCanvas({
       <div className="flex items-center justify-between flex-shrink-0">
         <h3 className="text-xl font-semibold">Plattegrond</h3>
         <div className="flex items-center gap-2">
-          {/* Rotation */}
-          <button
-            className="inline-flex items-center gap-1.5 border rounded-md px-3 py-1.5 bg-secondary hover:bg-secondary/80 text-sm font-medium transition-colors"
-            onClick={toggleRotation}
-            title="Draai 90°"
-          >
-            <RotateCcw className="h-4 w-4" />
-            Roteer
-          </button>
-          
-          <div className="h-5 w-px bg-border mx-1" />
           
           {/* Zoom controls */}
           <button
@@ -456,7 +420,7 @@ export function GardenPlotCanvas({
                   borderWidth={WOOD_BORDER}
                   canvasSize={{ w: CANVAS_W, h: CANVAS_H }}
                   zoom={zoom}
-                  isRotated={isRotated}
+                  
                   onMove={onBedMove}
                   onDuplicate={onBedDuplicate}
                   // Planting data
@@ -519,7 +483,7 @@ interface BedBlockProps {
   borderWidth: number;
   canvasSize: { w: number; h: number };
   zoom: number;
-  isRotated: boolean;
+  
   onMove?: (id: UUID, x: number, y: number) => void;
   onDuplicate?: (bed: GardenBed) => void;
   // Planting
@@ -545,7 +509,7 @@ function BedBlock({
   borderWidth,
   canvasSize,
   zoom,
-  isRotated,
+  
   onMove,
   onDuplicate,
   plantings,
@@ -606,14 +570,7 @@ function BedBlock({
     (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
 
     // Convert back if rotated
-    if (isRotated) {
-      // Reverse the rotation transform
-      const origY = pos.x;
-      const origX = canvasSize.h - pos.y - h;
-      onMove(bed.id, origX, origY);
-    } else {
-      onMove(bed.id, pos.x, pos.y);
-    }
+    onMove(bed.id, pos.x, pos.y);
   }
 
   const frameStyle = bed.is_greenhouse
