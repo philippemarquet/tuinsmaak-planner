@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { GardenBed, Planting, Seed, CropType, UUID } from "../lib/types";
 import { ZoomIn, ZoomOut, Maximize2, Copy, Edit3, Trash2 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
+import { getContrastTextColor } from "../lib/utils";
 
 /* =========================================
    Icon helpers (shared with PlannerPage)
@@ -690,11 +691,12 @@ function BedBlock({
             const pHasConflict = (conflictsMap?.get(p.id)?.length ?? 0) > 0;
             const iconUrl = getEffectiveIconUrl(seed, cropTypesById);
 
+            const textColor = getContrastTextColor(color);
             return (
               <div
                 key={p.id}
-                className={`absolute rounded text-white text-[10px] px-1 flex items-center overflow-hidden ${pHasConflict ? "ring-2 ring-red-500 ring-offset-1" : ""}`}
-                style={{ ...rect, backgroundColor: color }}
+                className={`absolute rounded text-[10px] px-1 flex items-center overflow-hidden ${pHasConflict ? "ring-2 ring-red-500 ring-offset-1" : ""}`}
+                style={{ ...rect, backgroundColor: color, color: textColor }}
                 title={seed?.name ?? "—"}
               >
                 {iconUrl && (
@@ -751,6 +753,7 @@ function BedBlock({
             const segW = vertical ? innerW / segCount : innerW;
             const segH = vertical ? innerH : innerH / segCount;
             const bg = p.color?.startsWith("#") ? p.color : "rgba(34,197,94,.35)";
+            const ghostTextColor = getContrastTextColor(p.color);
 
             const rect = vertical
               ? { top: inset, height: Math.max(1, innerH - inset * 2), left: inset + startSeg * segW, width: Math.max(1, used * segW - inset * 2) }
@@ -759,8 +762,8 @@ function BedBlock({
             return (
               <div
                 key={`ghost-${p.id}`}
-                className="absolute rounded text-white text-[10px] px-1 flex items-center pointer-events-none"
-                style={{ ...rect, backgroundColor: bg, opacity: 0.35, border: "1px dashed rgba(0,0,0,.45)" }}
+                className="absolute rounded text-[10px] px-1 flex items-center pointer-events-none"
+                style={{ ...rect, backgroundColor: bg, opacity: 0.35, border: "1px dashed rgba(0,0,0,.45)", color: ghostTextColor }}
               >
                 <span className="truncate">{seed.name}</span>
               </div>
