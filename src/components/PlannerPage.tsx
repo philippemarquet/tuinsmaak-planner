@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { format } from "date-fns";
 import { nl } from "date-fns/locale";
-import { cn } from "../lib/utils";
+import { cn, getContrastTextColor } from "../lib/utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1262,11 +1262,12 @@ export function PlannerPage({
                             const hasConflict = (conflictsMap.get(p.id)?.length ?? 0) > 0;
                             const iconUrl = getEffectiveIconUrl(seed, cropTypesById);
 
+                            const textColor = getContrastTextColor(color);
                             return (
                               <div
                                 key={p.id}
-                                className={`absolute rounded text-white text-[10px] px-1 flex items-center ${hasConflict ? "ring-2 ring-red-500 ring-offset-1" : ""} overflow-hidden`}
-                                style={{ ...rect, backgroundColor: color }}
+                                className={`absolute rounded text-[10px] px-1 flex items-center ${hasConflict ? "ring-2 ring-red-500 ring-offset-1" : ""} overflow-hidden`}
+                                style={{ ...rect, backgroundColor: color, color: textColor }}
                                 title={`${seed?.name ?? "—"} • ${fmtDMY(p.planned_date)} → ${fmtDMY(p.planned_harvest_end)}`}
                               >
                                 {/* icon overlay */}
@@ -1323,6 +1324,7 @@ export function PlannerPage({
                               const segW = vertical ? innerW / segCount : innerW;
                               const segH = vertical ? innerH : innerH / segCount;
                               const bg = p.color?.startsWith("#") ? p.color : "rgba(34,197,94,.35)";
+                              const ghostTextColor = getContrastTextColor(p.color);
 
                               const rect = vertical
                                 ? { top: inset, height: Math.max(1, innerH - inset * 2), left: inset + start * segW, width: Math.max(1, used * segW - inset * 2) }
@@ -1331,8 +1333,8 @@ export function PlannerPage({
                               return (
                                 <div
                                   key={`ghost-${p.id}`}
-                                  className="absolute rounded text-white text-[10px] px-1 flex items-center"
-                                  style={{ ...rect, backgroundColor: bg, opacity: 0.35, border: "1px dashed rgba(0,0,0,.45)" }}
+                                  className="absolute rounded text-[10px] px-1 flex items-center"
+                                  style={{ ...rect, backgroundColor: bg, opacity: 0.35, border: "1px dashed rgba(0,0,0,.45)", color: ghostTextColor }}
                                 >
                                   <span className="truncate">{seed.name}</span>
                                 </div>

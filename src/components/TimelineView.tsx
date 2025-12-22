@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Button } from "./ui/button";
 import { format, addDays as dateAddDays } from "date-fns";
 import { nl } from "date-fns/locale";
-import { cn } from "../lib/utils";
+import { cn, getContrastTextColor } from "../lib/utils";
 import { toast } from "sonner";
 
 interface TimelineViewProps {
@@ -350,14 +350,15 @@ export function TimelineView({
                       {/* Events */}
                       {segEvents.map((ev, idx) => {
                         const style = calculateEventStyle(ev);
+                        const textColor = getContrastTextColor(ev.color);
                         return (
                           <div
                             key={ev.id}
                             className={cn(
-                              "absolute top-1.5 h-9 rounded-lg px-2 text-white text-xs flex items-center justify-between cursor-pointer shadow-sm transition-all duration-150 hover:shadow-md hover:scale-[1.01]",
+                              "absolute top-1.5 h-9 rounded-lg px-2 text-xs flex items-center justify-between cursor-pointer shadow-sm transition-all duration-150 hover:shadow-md hover:scale-[1.01]",
                               ev.hasConflict && "ring-2 ring-red-500 ring-offset-1"
                             )}
-                            style={{ ...style, backgroundColor: ev.color, zIndex: 10 + idx }}
+                            style={{ ...style, backgroundColor: ev.color, color: textColor, zIndex: 10 + idx }}
                             title={`${ev.seedName}\n${formatDate(ev.startDate)} - ${formatDate(ev.endDate)}\nWeken ${getWeekNumber(ev.startDate)}-${getWeekNumber(ev.endDate)}`}
                           >
                             <div className="flex items-center gap-1 min-w-0">

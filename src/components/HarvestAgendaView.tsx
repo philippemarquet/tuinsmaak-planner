@@ -4,6 +4,7 @@ import { format } from "date-fns";
 import { nl } from "date-fns/locale";
 import { CalendarDays, List as ListIcon } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
+import { getContrastTextColor } from "../lib/utils";
 
 /*
   HarvestAgendaView
@@ -436,16 +437,18 @@ function WeekBarsOverlay({
         const seed = seedsById.get(s.seedId);
         const icon = getEffectiveIconUrl(seed, cropTypesById);
         const bg = s.color?.startsWith("#") ? s.color : "#22c55e";
+        const textColor = getContrastTextColor(bg);
         return (
           <div
             key={`${weekIdx}-${s.plantingId}-${s.colStart}`}
-            className="absolute rounded-md text-[11px] text-white flex items-center gap-2 px-2 shadow"
+            className="absolute rounded-md text-[11px] flex items-center gap-2 px-2 shadow"
             style={{
               left: `${leftPct}%`,
               width: `${widthPct}%`,
               top: topOffset + s.lane * (laneHeight + 4),
               height: laneHeight,
               background: bg,
+              color: textColor,
             }}
             title={seed?.name ?? "Gewas"}
           >
