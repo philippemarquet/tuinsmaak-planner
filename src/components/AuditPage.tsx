@@ -58,7 +58,7 @@ import {
   Trash2,
   CalendarIcon,
 } from "lucide-react";
-import { cn } from "../lib/utils";
+import { cn, getContrastTextColor } from "../lib/utils";
 import { toast } from "sonner";
 
 interface AuditPageProps {
@@ -867,7 +867,7 @@ export function AuditPage({
                       className="absolute inset-0 w-full h-full p-0.5 object-contain pointer-events-none"
                     />
                   ) : (
-                    <Leaf className="w-3 h-3 text-white/80" />
+                    <Leaf className="w-3 h-3" style={{ color: getContrastTextColor(relatedColor || "#22c55e") }} />
                   )}
                 </span>
               )}
