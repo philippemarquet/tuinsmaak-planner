@@ -123,6 +123,7 @@ export default function HarvestAgendaView({
 }) {
   const [mode, setMode] = useState<"calendar" | "list" | "dashboard">("calendar");
   const [currentMonth, setCurrentMonth] = useState<Date>(() => startOfMonth(new Date()));
+  const [dashboardYear, setDashboardYear] = useState<number>(() => new Date().getFullYear());
 
   const seedsById = useMemo(() => new Map(seeds.map((s) => [s.id, s])), [seeds]);
   const bedsById = useMemo(() => new Map(beds.map((b) => [b.id, b])), [beds]);
@@ -174,30 +175,58 @@ export default function HarvestAgendaView({
   return (
     <section className="space-y-4">
       {/* Header with toggle */}
-      <div className="flex items-center gap-2 justify-between">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={goPrev}
-            className="px-3 py-2 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted"
-          >
-            ←
-          </button>
-          <div className="px-4 py-2 text-sm font-semibold">
-            {format(currentMonth, "MMMM yyyy", { locale: nl })}
+      <div className="flex items-center gap-2 justify-between flex-wrap">
+        {/* Month navigation - only show for calendar/list */}
+        {mode !== "dashboard" ? (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={goPrev}
+              className="px-3 py-2 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted"
+            >
+              ←
+            </button>
+            <div className="px-4 py-2 text-sm font-semibold">
+              {format(currentMonth, "MMMM yyyy", { locale: nl })}
+            </div>
+            <button
+              onClick={goNext}
+              className="px-3 py-2 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted"
+            >
+              →
+            </button>
+            <button
+              onClick={goToday}
+              className="ml-2 px-3 py-2 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground"
+            >
+              Vandaag
+            </button>
           </div>
-          <button
-            onClick={goNext}
-            className="px-3 py-2 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted"
-          >
-            →
-          </button>
-          <button
-            onClick={goToday}
-            className="ml-2 px-3 py-2 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground"
-          >
-            Vandaag
-          </button>
-        </div>
+        ) : (
+          /* Year selector for dashboard */
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setDashboardYear((y) => y - 1)}
+              className="px-3 py-2 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted"
+            >
+              ←
+            </button>
+            <div className="px-4 py-2 text-sm font-semibold">
+              {dashboardYear}
+            </div>
+            <button
+              onClick={() => setDashboardYear((y) => y + 1)}
+              className="px-3 py-2 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted"
+            >
+              →
+            </button>
+            <button
+              onClick={() => setDashboardYear(new Date().getFullYear())}
+              className="ml-2 px-3 py-2 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground"
+            >
+              Dit jaar
+            </button>
+          </div>
+        )}
 
         <div className="flex items-center gap-1 p-0.5 bg-muted/40 rounded-lg">
           <button
@@ -249,7 +278,7 @@ export default function HarvestAgendaView({
           plantings={filteredPlantings}
           seedsById={seedsById}
           cropTypesById={cropTypesById}
-          currentYear={currentMonth.getFullYear()}
+          selectedYear={dashboardYear}
         />
       )}
     </section>
@@ -494,27 +523,41 @@ function HarvestDashboard({
   plantings,
   seedsById,
   cropTypesById,
-  currentYear,
+  selectedYear,
 }: {
   plantings: Planting[];
   seedsById: Map<string, Seed>;
   cropTypesById: Map<string, CropType>;
-  currentYear: number;
+  selectedYear: number;
 }) {
+  // Filter plantings to only those with harvest in selected year
+  const yearFilteredPlantings = useMemo(() => {
+    const yearStart = new Date(selectedYear, 0, 1);
+    const yearEnd = new Date(selectedYear, 11, 31);
+    
+    return plantings.filter((p) => {
+      if (!p.planned_harvest_start || !p.planned_harvest_end) return false;
+      const hs = new Date(p.planned_harvest_start);
+      const he = new Date(p.planned_harvest_end);
+      // Check if harvest period overlaps with selected year
+      return !(he < yearStart || hs > yearEnd);
+    });
+  }, [plantings, selectedYear]);
+
   // Generate all months of the year
   const months = useMemo(() => {
-    const yearStart = startOfYear(new Date(currentYear, 0, 1));
+    const yearStart = startOfYear(new Date(selectedYear, 0, 1));
     const yearEnd = endOfYear(yearStart);
     return eachMonthOfInterval({ start: yearStart, end: yearEnd });
-  }, [currentYear]);
+  }, [selectedYear]);
 
-  // Get unique seeds with their colors
+  // Get unique seeds with their colors (from filtered plantings)
   const uniqueSeeds = useMemo(() => {
-    const seedIds = new Set(plantings.map((p) => p.seed_id));
+    const seedIds = new Set(yearFilteredPlantings.map((p) => p.seed_id));
     return Array.from(seedIds)
       .map((id) => seedsById.get(id))
       .filter(Boolean) as Seed[];
-  }, [plantings, seedsById]);
+  }, [yearFilteredPlantings, seedsById]);
 
   // Calculate harvest data per month per seed
   const monthlyData = useMemo(() => {
@@ -525,7 +568,7 @@ function HarvestDashboard({
 
       const seedCounts: Record<string, number> = {};
       
-      plantings.forEach((p) => {
+      yearFilteredPlantings.forEach((p) => {
         if (!p.planned_harvest_start || !p.planned_harvest_end) return;
         const hs = new Date(p.planned_harvest_start);
         const he = new Date(p.planned_harvest_end);
@@ -546,13 +589,13 @@ function HarvestDashboard({
         total: Object.values(seedCounts).reduce((a, b) => a + b, 0),
       };
     });
-  }, [months, plantings, seedsById]);
+  }, [months, yearFilteredPlantings, seedsById]);
 
-  // Pie chart data: total harvests per seed
+  // Pie chart data: total harvests per seed (from year-filtered data)
   const pieData = useMemo(() => {
     const counts: Record<string, { name: string; value: number; color: string }> = {};
     
-    plantings.forEach((p) => {
+    yearFilteredPlantings.forEach((p) => {
       if (!p.planned_harvest_start || !p.planned_harvest_end) return;
       const seed = seedsById.get(p.seed_id);
       if (!seed) return;
@@ -566,11 +609,11 @@ function HarvestDashboard({
     });
 
     return Object.values(counts).sort((a, b) => b.value - a.value);
-  }, [plantings, seedsById]);
+  }, [yearFilteredPlantings, seedsById]);
 
   // Stats
   const stats = useMemo(() => {
-    const totalPlantings = plantings.length;
+    const totalPlantings = yearFilteredPlantings.length;
     const uniqueCrops = uniqueSeeds.length;
     
     // Peak month
@@ -580,12 +623,12 @@ function HarvestDashboard({
     const activeMonths = monthlyData.filter((m) => m.total > 0).length;
 
     return { totalPlantings, uniqueCrops, peakMonth: peakMonth.month, peakCount: peakMonth.total, activeMonths };
-  }, [plantings, uniqueSeeds, monthlyData]);
+  }, [yearFilteredPlantings, uniqueSeeds, monthlyData]);
 
   // Color map for seeds
   const seedColors = useMemo(() => {
     const map = new Map<string, string>();
-    plantings.forEach((p) => {
+    yearFilteredPlantings.forEach((p) => {
       if (!map.has(p.seed_id)) {
         const seed = seedsById.get(p.seed_id);
         const color = p.color?.startsWith("#") ? p.color : seed?.default_color?.startsWith("#") ? seed.default_color : "#22c55e";
@@ -593,7 +636,7 @@ function HarvestDashboard({
       }
     });
     return map;
-  }, [plantings, seedsById]);
+  }, [yearFilteredPlantings, seedsById]);
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
@@ -650,9 +693,9 @@ function HarvestDashboard({
 
       {/* Stacked bar chart */}
       <div className="p-4 rounded-xl border bg-card">
-        <h3 className="text-sm font-semibold mb-4">Oogsten per maand ({currentYear})</h3>
-        {plantings.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-8 text-center">Geen oogstdata beschikbaar.</p>
+        <h3 className="text-sm font-semibold mb-4">Oogsten per maand ({selectedYear})</h3>
+        {yearFilteredPlantings.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-8 text-center">Geen oogstdata voor {selectedYear}.</p>
         ) : (
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={monthlyData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
