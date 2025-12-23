@@ -14,7 +14,7 @@ import { GardenTaskModal } from "./GardenTaskModal";
 import { Plus, AlertCircle, Check, Sprout, Trash2, X, CalendarIcon, Calendar as CalendarTabIcon, LayoutDashboard, Leaf, RefreshCw } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Calendar } from "./ui/calendar";
-import { cn, getContrastTextColor } from "../lib/utils";
+import { cn } from "../lib/utils";
 import { listCropTypes } from "../lib/api/cropTypes";
 import { supabase } from "../lib/supabaseClient";
 
@@ -490,7 +490,7 @@ export function Dashboard({
                   draggable={false}
                 />
               ) : (
-                <Leaf className="absolute inset-0 w-3/4 h-3/4 m-auto" style={{ color: getContrastTextColor(color) }} />
+                <Leaf className="absolute inset-0 w-3/4 h-3/4 m-auto text-white/90" />
               )}
             </div>
 

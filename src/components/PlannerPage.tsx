@@ -882,12 +882,11 @@ export function PlannerPage({
                                     const hasConflict = (conflictsMap.get(p.id)?.length ?? 0) > 0;
                                     const iconUrl = getEffectiveIconUrl(seed, cropTypesById);
 
-                                    const textColor = getContrastTextColor(color);
                                     return (
                                       <div
                                         key={`${p.id}-${i}`}
-                                        className="relative rounded px-1.5 py-0.5 text-[10px] flex items-center justify-between overflow-hidden"
-                                        style={{ background: color, color: textColor }}
+                                        className="relative rounded px-1.5 py-0.5 text-white text-[10px] flex items-center justify-between overflow-hidden"
+                                        style={{ background: color }}
                                         title={`${seed?.name ?? "—"} • ${fmtDMY(p.planned_date)} → ${fmtDMY(p.planned_harvest_end)}`}
                                       >
                                         {/* icon overlay */}
@@ -900,8 +899,7 @@ export function PlannerPage({
                                           <span className="truncate">{seed?.name ?? "—"}</span>
                                           {hasConflict && (
                                             <button
-                                              className="text-[9px] underline underline-offset-1 opacity-90"
-                                              style={{ textDecorationColor: textColor === "white" ? "rgba(255,255,255,0.7)" : "rgba(0,0,0,0.5)" }}
+                                              className="text-[9px] underline decoration-white/70 underline-offset-1 opacity-90"
                                               onClick={(e) => {
                                                 e.stopPropagation();
                                                 setView("conflicts");
