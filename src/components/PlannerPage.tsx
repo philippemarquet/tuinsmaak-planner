@@ -881,12 +881,13 @@ export function PlannerPage({
                                     const color = p.color?.startsWith("#") ? p.color : "#22c55e";
                                     const hasConflict = (conflictsMap.get(p.id)?.length ?? 0) > 0;
                                     const iconUrl = getEffectiveIconUrl(seed, cropTypesById);
+                                    const textColor = getContrastTextColor(color);
 
                                     return (
                                       <div
                                         key={`${p.id}-${i}`}
-                                        className="relative rounded px-1.5 py-0.5 text-white text-[10px] flex items-center justify-between overflow-hidden"
-                                        style={{ background: color }}
+                                        className="relative rounded px-1.5 py-0.5 text-[10px] flex items-center justify-between overflow-hidden"
+                                        style={{ background: color, color: textColor }}
                                         title={`${seed?.name ?? "—"} • ${fmtDMY(p.planned_date)} → ${fmtDMY(p.planned_harvest_end)}`}
                                       >
                                         {/* icon overlay */}
