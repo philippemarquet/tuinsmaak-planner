@@ -1,6 +1,4 @@
-// src/components/GardenPlotCanvas.tsx (SAFE HYDRATE FIX)
-// — behoudt alle features; voorkomt pan.x undefined door robuuste localStorage parsing.
-
+// src/components/GardenPlotCanvas.tsx — CLEAN SINGLE-DEFS FIX
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GardenBed } from "../lib/types";
 import { cn } from "../lib/utils";
@@ -21,9 +19,6 @@ import {
   Move3D,
 } from "lucide-react";
 
-/** =========================
- *  Types & constants
- *  ========================= */
 type UUID = string;
 type WorldCM = number;
 
@@ -39,11 +34,7 @@ type PlotObject = {
   z: number;
   label?: string;
 };
-
-type BedMeta = {
-  rot?: number;
-  z?: number;
-};
+type BedMeta = { rot?: number; z?: number };
 
 const DEFAULT_BED_HEIGHT_CM = 25;
 const ROT_STEP = 15;
@@ -56,12 +47,10 @@ const STORAGE_BEDMETA = (p: string) => `${p}:bedMeta`;
 const STORAGE_VIEW = (p: string) => `${p}:view`;
 const STORAGE_GRID = (p: string) => `${p}:grid`;
 
-/** Utils */
 const clamp = (n: number, a: number, b: number) => Math.max(a, Math.min(b, n));
 const rad = (deg: number) => (deg * Math.PI) / 180;
 const snap = (v: number, step: number) => Math.round(v / step) * step;
 
-/** ===== Safe loaders to prevent pan.x undefined ===== */
 function safeLoadJSON(raw: string | null): any {
   if (!raw) return {};
   try {
@@ -90,9 +79,6 @@ function safeLoadGrid(prefix: string) {
   };
 }
 
-/** =========================
- *  Component
- *  ========================= */
 export function GardenPlotCanvas({
   beds,
   storagePrefix = "bedsLayout",
@@ -104,36 +90,33 @@ export function GardenPlotCanvas({
   onBedMove: (id: UUID, x: number, y: number) => void | Promise<void>;
   onBedDuplicate?: (bed: GardenBed) => void;
 }) {
-  /** Viewport (safe hydrate) */
+  // ===== Viewport (safe hydrate)
   const initialViewRef = useRef(safeLoadView(storagePrefix));
   const [scale, setScale] = useState<number>(initialViewRef.current.scale);
   const [pan, setPan] = useState<{ x: number; y: number }>(initialViewRef.current.pan);
 
-  /** Grid state (safe hydrate) */
-  const initialGridRef = useRef(safeLoadGrid(storagePrefix));
-  const [showGrid, setShowGrid] = useState<boolean>(initialGridRef.current.showGrid);
-  const [snapGrid, setSnapGrid] = useState<boolean>(initialGridRef.current.snapGrid);
-  const [fixedStep, setFixedStep] = useState<0 | 10 | 20 | 50>(0); // 0=auto
-
-  // write back sanitized view/grid once
+  // write back sanitized once
   useEffect(() => {
     localStorage.setItem(STORAGE_VIEW(storagePrefix), JSON.stringify({ scale, pan }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+    localStorage.setItem(STORAGE_VIEW(storagePrefix), JSON.stringify({ scale, pan }));
+  }, [scale, pan, storagePrefix]);
+
+  // ===== Grid state
+  const initialGridRef = useRef(safeLoadGrid(storagePrefix));
+  const [showGrid, setShowGrid] = useState<boolean>(initialGridRef.current.showGrid);
+  const [snapGrid, setSnapGrid] = useState<boolean>(initialGridRef.current.snapGrid);
+  const [fixedStep, setFixedStep] = useState<0 | 10 | 20 | 50>(0);
   useEffect(() => {
     localStorage.setItem(STORAGE_GRID(storagePrefix), JSON.stringify({ showGrid, snapGrid }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // keep storage in sync when changing
-  useEffect(() => {
-    localStorage.setItem(STORAGE_VIEW(storagePrefix), JSON.stringify({ scale, pan }));
-  }, [scale, pan, storagePrefix]);
   useEffect(() => {
     localStorage.setItem(STORAGE_GRID(storagePrefix), JSON.stringify({ showGrid, snapGrid }));
   }, [showGrid, snapGrid, storagePrefix]);
 
-  // auto-step grid based on zoom
   const gridStep = useMemo<10 | 20 | 50>(() => {
     if (fixedStep) return fixedStep;
     if (scale < 0.8) return 50;
@@ -141,7 +124,7 @@ export function GardenPlotCanvas({
     return 10;
   }, [scale, fixedStep]);
 
-  /** Local objects & bed meta */
+  // ===== Local objects & bed meta
   const [objects, setObjects] = useState<PlotObject[]>(() => {
     const raw = localStorage.getItem(STORAGE_OBJECTS(storagePrefix));
     const arr = safeLoadJSON(raw);
@@ -159,7 +142,7 @@ export function GardenPlotCanvas({
     localStorage.setItem(STORAGE_BEDMETA(storagePrefix), JSON.stringify(bedMeta));
   }, [bedMeta, storagePrefix]);
 
-  /** Selection & tools */
+  // ===== Selection
   type Sel = { kind: "bed"; id: UUID } | { kind: "obj"; id: string } | null;
   const [selection, setSelection] = useState<Sel[]>([]);
   const isSelected = useCallback(
@@ -183,32 +166,28 @@ export function GardenPlotCanvas({
   const [tool, setTool] = useState<"select" | "ruler">("select");
   const [ruler, setRuler] = useState<null | { x1: number; y1: number; x2: number; y2: number }>(null);
 
-  /** Refs */
+  // ===== Refs & conversions
   const wrapRef = useRef<HTMLDivElement>(null);
+  const cmToPx = (cm: number) => cm * scale;
+  const worldToScreen = (x: number, y: number) => ({ x: x * scale + pan.x, y: y * scale + pan.y });
+  const screenToWorld = (sx: number, sy: number) => ({ x: (sx - pan.x) / scale, y: (sy - pan.y) / scale });
+  const extrudeOffset = (heightCm: number) => {
+    const k = 0.18;
+    const off = cmToPx(heightCm) * k;
+    return { dx: off, dy: off * 0.6 };
+  };
 
-  /** Conversions */
-  const worldToScreen = (x: number, y: number) => ({
-    x: x * scale + pan.x,
-    y: y * scale + pan.y,
-  });
-  const screenToWorld = (sx: number, sy: number) => ({
-    x: (sx - pan.x) / scale,
-    y: (sy - pan.y) / scale,
-  });
-
-  /** Zoom */
+  // ===== Zoom / Fit
   const zoomAt = (deltaY: number, cx: number, cy: number) => {
     const factor = Math.pow(1.001, -deltaY);
     const newScale = clamp(scale * factor, 0.2, 5);
-    // keep cursor steady
     const before = screenToWorld(cx, cy);
     setScale(newScale);
     const after = screenToWorld(cx, cy);
     setPan((p) => ({ x: p.x + (after.x - before.x) * newScale, y: p.y + (after.y - before.y) * newScale }));
   };
 
-  /** Fit all */
-  const getSceneBounds = () => {
+  function getSceneBounds() {
     let xs: number[] = [];
     let ys: number[] = [];
     for (const b of beds) {
@@ -233,7 +212,7 @@ export function GardenPlotCanvas({
     }
     if (xs.length === 0) return { minX: -500, maxX: 500, minY: -300, maxY: 300 };
     return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
-  };
+  }
   const fitAll = () => {
     if (!wrapRef.current) return;
     const PAD = 120;
@@ -251,7 +230,7 @@ export function GardenPlotCanvas({
     });
   };
 
-  /** Add objects */
+  // ===== Objects
   const addObject = (type: PlotObjectType) => {
     const center = screenToWorld(window.innerWidth * 0.5, window.innerHeight * 0.4);
     const base: Record<PlotObjectType, PlotObject> = {
@@ -264,8 +243,10 @@ export function GardenPlotCanvas({
     setSelection([{ kind: "obj", id: base[type].id }]);
   };
 
-  /** Styles */
-  const cmToPx = (cm: number) => cm * scale;
+  // ===== Visuals
+  const grassBG =
+    "radial-gradient(circle at 25% 20%, rgba(255,255,255,0.15) 0 12%, transparent 13%) , radial-gradient(circle at 70% 60%, rgba(0,0,0,0.05) 0 18%, transparent 19%), #cfe8cf";
+
   const gridBG = useMemo(() => {
     if (!showGrid) return "transparent";
     const stepPx = Math.max(8, cmToPx(gridStep));
@@ -279,15 +260,6 @@ export function GardenPlotCanvas({
     return col + row;
   }, [showGrid, gridStep, scale]);
 
-  const grassBG =
-    "radial-gradient(circle at 25% 20%, rgba(255,255,255,0.15) 0 12%, transparent 13%) , radial-gradient(circle at 70% 60%, rgba(0,0,0,0.05) 0 18%, transparent 19%), #cfe8cf";
-
-  const extrudeOffset = (heightCm: number) => {
-    const k = 0.18;
-    const off = cmToPx(heightCm) * k;
-    return { dx: off, dy: off * 0.6 };
-  };
-
   const bedStyles = (isGreenhouse: boolean) => {
     const wood = isGreenhouse
       ? "linear-gradient(90deg, #9ccbee, #7db2db)"
@@ -297,7 +269,6 @@ export function GardenPlotCanvas({
     return { wood, soil };
   };
 
-  /** Segments (always perpendicular to longest side) */
   function SegmentPath({ w, h, segments }: { w: number; h: number; segments: number }) {
     const d: string[] = [];
     if (segments > 1) {
@@ -318,7 +289,7 @@ export function GardenPlotCanvas({
     return <path d={d.join(" ")} />;
   }
 
-  /** Hit tests */
+  // ===== Hit tests
   const hitBed = (wx: number, wy: number): GardenBed | null => {
     for (let i = beds.length - 1; i >= 0; i--) {
       const b = beds[i];
@@ -348,7 +319,7 @@ export function GardenPlotCanvas({
     return null;
   };
 
-  /** Pointer state */
+  // ===== Pointer + drag state
   const dragState = useRef<{
     mode: "none" | "pan" | "drag-beds" | "drag-objects" | "rotate" | "ruler";
     startX: number;
@@ -358,7 +329,6 @@ export function GardenPlotCanvas({
     altClone?: boolean;
   }>({ mode: "none", startX: 0, startY: 0, prevPan: { x: 0, y: 0 }, startWorld: { x: 0, y: 0 } });
 
-  /** Wheel: zoom with ctrl/cmd, else pan */
   const onWheel = (e: React.WheelEvent) => {
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
@@ -368,7 +338,49 @@ export function GardenPlotCanvas({
     }
   };
 
-  /** Pointer down */
+  function getBBoxForSel() {
+    const rects: { minX: number; maxX: number; minY: number; maxY: number }[] = [];
+    for (const s of selection) {
+      if (!s) continue;
+      if (s.kind === "bed") {
+        const b = beds.find((x) => x.id === s.id);
+        if (!b) continue;
+        const rot = rad(bedMeta[b.id]?.rot ?? 0);
+        const hw = (b.width_cm ?? 100) / 2;
+        const hh = (b.length_cm ?? 100) / 2;
+        const { dx, dy } = tempMove.current && tempMoveIds.current.includes(b.id) ? tempMove.current : { dx: 0, dy: 0 };
+        const cx = (b.location_x ?? 0) + dx;
+        const cy = (b.location_y ?? 0) + dy;
+        const dxr = Math.abs(hw * Math.cos(rot)) + Math.abs(hh * Math.sin(rot));
+        const dyr = Math.abs(hw * Math.sin(rot)) + Math.abs(hh * Math.cos(rot));
+        rects.push({ minX: cx - dxr, maxX: cx + dxr, minY: cy - dyr, maxY: cy + dyr });
+      } else {
+        const o = objects.find((x) => x.id === s.id);
+        if (!o) continue;
+        const rot = rad(o.rot);
+        const hw = o.w / 2, hh = o.h / 2;
+        const dxr = Math.abs(hw * Math.cos(rot)) + Math.abs(hh * Math.sin(rot));
+        const dyr = Math.abs(hw * Math.sin(rot)) + Math.abs(hh * Math.cos(rot));
+        rects.push({ minX: o.x - dxr, maxX: o.x + dxr, minY: o.y - dyr, maxY: o.y + dyr });
+      }
+    }
+    if (!rects.length) return null;
+    return {
+      minX: Math.min(...rects.map((r) => r.minX)),
+      maxX: Math.max(...rects.map((r) => r.maxX)),
+      minY: Math.min(...rects.map((r) => r.minY)),
+      maxY: Math.max(...rects.map((r) => r.maxY)),
+    };
+  }
+  function getRotateHandlePosition(single: Sel | null) {
+    if (!single) return null;
+    const box = getBBoxForSel();
+    if (!box) return null;
+    const cx = (box.minX + box.maxX) / 2;
+    const cy = (box.minY + box.maxY) / 2;
+    return { x: cx, y: box.minY - 30 / scale };
+  }
+
   const onPointerDown = (e: React.PointerEvent) => {
     const el = wrapRef.current;
     if (!el) return;
@@ -383,7 +395,6 @@ export function GardenPlotCanvas({
       return;
     }
 
-    // rotate handle?
     const single = selection.length === 1 ? selection[0] : null;
     if (single) {
       const handlePt = getRotateHandlePosition(single);
@@ -419,7 +430,9 @@ export function GardenPlotCanvas({
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
 
-  /** Pointer move */
+  const tempMove = useRef<null | { dx: number; dy: number }>(null);
+  const tempMoveIds = useRef<string[]>([]);
+
   const onPointerMove = (e: React.PointerEvent) => {
     const el = wrapRef.current;
     if (!el) return;
@@ -436,7 +449,6 @@ export function GardenPlotCanvas({
       setPan({ x: ds.prevPan.x + dx, y: ds.prevPan.y + dy });
       return;
     }
-
     if (ds.mode === "ruler") {
       setRuler((r) => (r ? { ...r, x2: w.x, y2: w.y } : r));
       return;
@@ -453,14 +465,11 @@ export function GardenPlotCanvas({
       dragState.current.startWorld = w;
       return;
     }
-
     if (ds.mode === "drag-beds") {
-      // visual-only during drag; commit on pointerup
       tempMove.current = { dx: doSnap(dxw), dy: doSnap(dyw) };
-      tempMoveIds.current = selection.filter((s) => s.kind === "bed").map((s) => s.id);
+      tempMoveIds.current = selection.filter((s) => s?.kind === "bed").map((s) => (s as any).id as string);
       return;
     }
-
     if (ds.mode === "rotate") {
       const center = getSelectionCenter();
       if (!center) return;
@@ -473,7 +482,6 @@ export function GardenPlotCanvas({
     }
   };
 
-  /** Pointer up */
   const onPointerUp = async () => {
     const ds = dragState.current;
     dragState.current = { ...dragState.current, mode: "none" };
@@ -507,12 +515,8 @@ export function GardenPlotCanvas({
     }
   };
 
-  /** Temp drag visuals for beds */
-  const tempMove = useRef<null | { dx: number; dy: number }>(null);
-  const tempMoveIds = useRef<string[]>([]);
-
-  /** Rotation helpers */
-  const getSelectionCenter = () => {
+  // ===== Rotation helpers
+  function getSelectionCenter() {
     const pts: { x: number; y: number }[] = [];
     for (const s of selection) {
       if (!s) continue;
@@ -531,8 +535,8 @@ export function GardenPlotCanvas({
     const x = pts.reduce((a, p) => a + p.x, 0) / pts.length;
     const y = pts.reduce((a, p) => a + p.y, 0) / pts.length;
     return { x, y };
-  };
-  const applyRotation = (delta: number, step: number) => {
+  }
+  function applyRotation(delta: number, step: number) {
     setBedMeta((prev) => {
       const next = { ...prev };
       for (const s of selection) {
@@ -545,9 +549,9 @@ export function GardenPlotCanvas({
     setObjects((prev) =>
       prev.map((o) => (isSelected("obj", o.id) ? { ...o, rot: Math.round((o.rot + delta) / step) * step } : o))
     );
-  };
+  }
 
-  /** Keyboard */
+  // ===== Keyboard
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() === "r") {
@@ -570,51 +574,7 @@ export function GardenPlotCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection, objects, beds, bedMeta, scale]);
 
-  /** Selection box + handle */
-  const getBBoxForSel = () => {
-    const rects: { minX: number; maxX: number; minY: number; maxY: number }[] = [];
-    for (const s of selection) {
-      if (!s) continue;
-      if (s.kind === "bed") {
-        const b = beds.find((x) => x.id === s.id);
-        if (!b) continue;
-        const rot = rad(bedMeta[b.id]?.rot ?? 0);
-        const hw = (b.width_cm ?? 100) / 2;
-        const hh = (b.length_cm ?? 100) / 2;
-        const { dx, dy } = tempMove.current && tempMoveIds.current.includes(b.id) ? tempMove.current : { dx: 0, dy: 0 };
-        const cx = (b.location_x ?? 0) + dx;
-        const cy = (b.location_y ?? 0) + dy;
-        const dxr = Math.abs(hw * Math.cos(rot)) + Math.abs(hh * Math.sin(rot));
-        const dyr = Math.abs(hw * Math.sin(rot)) + Math.abs(hh * Math.cos(rot));
-        rects.push({ minX: cx - dxr, maxX: cx + dxr, minY: cy - dyr, maxY: cy + dyr });
-      } else {
-        const o = objects.find((x) => x.id === s.id);
-        if (!o) continue;
-        const rot = rad(o.rot);
-        const hw = o.w / 2, hh = o.h / 2;
-        const dxr = Math.abs(hw * Math.cos(rot)) + Math.abs(hh * Math.sin(rot));
-        const dyr = Math.abs(hw * Math.sin(rot)) + Math.abs(hh * Math.cos(rot));
-        rects.push({ minX: o.x - dxr, maxX: o.x + dxr, minY: o.y - dyr, maxY: o.y + dyr });
-      }
-    }
-    if (!rects.length) return null;
-    return {
-      minX: Math.min(...rects.map((r) => r.minX)),
-      maxX: Math.max(...rects.map((r) => r.maxX)),
-      minY: Math.min(...rects.map((r) => r.minY)),
-      maxY: Math.max(...rects.map((r) => r.maxY)),
-    };
-  };
-  const getRotateHandlePosition = (single: Sel | null) => {
-    if (!single) return null;
-    const box = getBBoxForSel();
-    if (!box) return null;
-    const cx = (box.minX + box.maxX) / 2;
-    const cy = (box.minY + box.maxY) / 2;
-    return { x: cx, y: box.minY - 30 / scale };
-  };
-
-  /** Inspector helpers */
+  // ===== Inspector helpers
   const updateSelected = (patch: Partial<PlotObject> & Partial<BedMeta>) => {
     setObjects((prev) => prev.map((o) => (isSelected("obj", o.id) ? { ...o, ...patch } : o)));
     setBedMeta((prev) => {
@@ -631,7 +591,7 @@ export function GardenPlotCanvas({
     setSelection((sel) => sel.filter((s) => s?.kind !== "obj"));
   };
 
-  /** Align tools (unchanged) */
+  // ===== Align tools
   const align = (mode: "left" | "right" | "top" | "bottom" | "hcenter" | "vcenter" | "hspace" | "vspace") => {
     const sels = selection.filter(Boolean) as Exclude<Sel, null>[];
     if (sels.length < 2) return;
@@ -642,7 +602,7 @@ export function GardenPlotCanvas({
       if (s.kind === "bed") {
         const b = beds.find((x) => x.id === s.id)!;
         const { dx, dy } = tempMove.current && tempMoveIds.current.includes(b.id) ? tempMove.current : { dx: 0, dy: 0 };
-        return { x: (b.location_x ?? 0) + dx, y: (b.location_y ?? 0) + dy, w: b.width_cm ?? 100, h: b.length_cm ?? 100, rot: bedMeta[b.id]?.rot ?? 0 };
+        return { x: (b.location_x ?? 0) + dx, y: (b.location_y ?? 0) + dy, w: b.width_cm ?? 100, h: b.length_cm ?? 300, rot: bedMeta[b.id]?.rot ?? 0 };
       } else {
         const o = objects.find((x) => x.id === s.id)!;
         return { x: o.x, y: o.y, w: o.w, h: o.h, rot: o.rot };
@@ -685,48 +645,36 @@ export function GardenPlotCanvas({
     }
 
     if (mode === "left") {
-      const L = Math.min(...lefts);
-      applyAlign((e) => ({ x: L + e.w / 2, y: e.y }));
+      const L = Math.min(...lefts); applyAlign((e) => ({ x: L + e.w / 2, y: e.y }));
     } else if (mode === "right") {
-      const R = Math.max(...rights);
-      applyAlign((e) => ({ x: R - e.w / 2, y: e.y }));
+      const R = Math.max(...rights); applyAlign((e) => ({ x: R - e.w / 2, y: e.y }));
     } else if (mode === "top") {
-      const T = Math.min(...tops);
-      applyAlign((e) => ({ x: e.x, y: T + e.h / 2 }));
+      const T = Math.min(...tops); applyAlign((e) => ({ x: e.x, y: T + e.h / 2 }));
     } else if (mode === "bottom") {
-      const B = Math.max(...bottoms);
-      applyAlign((e) => ({ x: e.x, y: B - e.h / 2 }));
+      const B = Math.max(...bottoms); applyAlign((e) => ({ x: e.x, y: B - e.h / 2 }));
     } else if (mode === "hcenter") {
-      const cx = (box.minX + box.maxX) / 2;
-      applyAlign((e) => ({ x: cx, y: e.y }));
+      const cx = (box.minX + box.maxX) / 2; applyAlign((e) => ({ x: cx, y: e.y }));
     } else if (mode === "vcenter") {
-      const cy = (box.minY + box.maxY) / 2;
-      applyAlign((e) => ({ x: e.x, y: cy }));
+      const cy = (box.minY + box.maxY) / 2; applyAlign((e) => ({ x: e.x, y: cy }));
     } else if (mode === "hspace") {
       const sorted = elems.slice().sort((a, b) => a.x - b.x);
-      const L = Math.min(...lefts);
-      const R = Math.max(...rights);
+      const L = Math.min(...lefts), R = Math.max(...rights);
       const totalW = sorted.reduce((s, e) => s + e.w, 0);
       const gaps = sorted.length - 1;
       const space = (R - L - totalW) / gaps;
       let cursor = L;
       for (const e of sorted) {
-        const nx = cursor + e.w / 2;
-        moveCenter(e, nx, e.y);
-        cursor += e.w + space;
+        const nx = cursor + e.w / 2; moveCenter(e, nx, e.y); cursor += e.w + space;
       }
     } else if (mode === "vspace") {
       const sorted = elems.slice().sort((a, b) => a.y - b.y);
-      const T = Math.min(...tops);
-      const B = Math.max(...bottoms);
+      const T = Math.min(...tops), B = Math.max(...bottoms);
       const totalH = sorted.reduce((s, e) => s + e.h, 0);
       const gaps = sorted.length - 1;
       const space = (B - T - totalH) / gaps;
       let cursor = T;
       for (const e of sorted) {
-        const ny = cursor + e.h / 2;
-        moveCenter(e, e.x, ny);
-        cursor += e.h + space;
+        const ny = cursor + e.h / 2; moveCenter(e, e.x, ny); cursor += e.h + space;
       }
     }
 
@@ -734,17 +682,21 @@ export function GardenPlotCanvas({
     Promise.all(Object.entries(patchBed).map(([id, v]) => onBedMove(id, v.x!, v.y!))).catch(() => {});
   };
 
-  /** Rotate-handle position */
-  const getRotateHandlePosition = (single: Sel | null) => {
-    if (!single) return null;
-    const box = getBBoxForSel();
-    if (!box) return null;
-    const cx = (box.minX + box.maxX) / 2;
-    const cy = (box.minY + box.maxY) / 2;
-    return { x: cx, y: box.minY - 30 / scale };
-  };
-
-  /** Inspector UI */
+  // ===== Inspector UI
+  function Num({ label, value, onChange, disabled }: { label: string; value: number; onChange: (v: number) => void; disabled?: boolean }) {
+    return (
+      <label className="text-[11px] text-muted-foreground block">
+        {label}
+        <input
+          type="number"
+          className="mt-1 w-full border rounded px-2 py-1 text-sm disabled:opacity-50"
+          disabled={disabled}
+          value={Number.isFinite(value) ? value : 0}
+          onChange={(e) => onChange(parseFloat(e.target.value || "0"))}
+        />
+      </label>
+    );
+  }
   function Inspector({
     selection,
     beds,
@@ -829,22 +781,26 @@ export function GardenPlotCanvas({
             </div>
 
             <div className="flex items-center gap-2">
-              <button className="btn" onClick={onDuplicate}><Copy className="w-4 h-4 mr-1" />Dupliceren</button>
-              <button className="btn danger" onClick={onDelete}><Trash2 className="w-4 h-4 mr-1" />Verwijderen</button>
+              <button className="inline-flex items-center px-2.5 py-1.5 rounded-md border bg-white hover:bg-muted transition text-sm" onClick={onDuplicate}>
+                <Copy className="w-4 h-4 mr-1" />Dupliceren
+              </button>
+              <button className="inline-flex items-center px-2.5 py-1.5 rounded-md border bg-red-50 hover:bg-red-100 border-red-200 text-red-700 transition text-sm" onClick={onDelete}>
+                <Trash2 className="w-4 h-4 mr-1" />Verwijderen
+              </button>
             </div>
 
             {selection.length >= 2 && (
               <div className="border-t pt-3 space-y-2">
                 <div className="text-[11px] text-muted-foreground">Uitlijnen / Verdelen</div>
                 <div className="grid grid-cols-4 gap-1">
-                  <button className="btn tiny" onClick={() => align("left")}>Links</button>
-                  <button className="btn tiny" onClick={() => align("hcenter")}>H-center</button>
-                  <button className="btn tiny" onClick={() => align("right")}>Rechts</button>
-                  <button className="btn tiny" onClick={() => align("hspace")}>H-spatie</button>
-                  <button className="btn tiny" onClick={() => align("top")}>Boven</button>
-                  <button className="btn tiny" onClick={() => align("vcenter")}>V-center</button>
-                  <button className="btn tiny" onClick={() => align("bottom")}>Onder</button>
-                  <button className="btn tiny" onClick={() => align("vspace")}>V-spatie</button>
+                  <button className="px-2 py-1 text-xs rounded border bg-white hover:bg-muted transition" onClick={() => align("left")}>Links</button>
+                  <button className="px-2 py-1 text-xs rounded border bg-white hover:bg-muted transition" onClick={() => align("hcenter")}>H-center</button>
+                  <button className="px-2 py-1 text-xs rounded border bg-white hover:bg-muted transition" onClick={() => align("right")}>Rechts</button>
+                  <button className="px-2 py-1 text-xs rounded border bg-white hover:bg-muted transition" onClick={() => align("hspace")}>H-spatie</button>
+                  <button className="px-2 py-1 text-xs rounded border bg-white hover:bg-muted transition" onClick={() => align("top")}>Boven</button>
+                  <button className="px-2 py-1 text-xs rounded border bg-white hover:bg-muted transition" onClick={() => align("vcenter")}>V-center</button>
+                  <button className="px-2 py-1 text-xs rounded border bg-white hover:bg-muted transition" onClick={() => align("bottom")}>Onder</button>
+                  <button className="px-2 py-1 text-xs rounded border bg-white hover:bg-muted transition" onClick={() => align("vspace")}>V-spatie</button>
                 </div>
               </div>
             )}
@@ -854,50 +810,21 @@ export function GardenPlotCanvas({
     );
   }
 
-  /** Small input */
-  function Num({ label, value, onChange, disabled }: { label: string; value: number; onChange: (v: number) => void; disabled?: boolean }) {
-    return (
-      <label className="text-[11px] text-muted-foreground block">
-        {label}
-        <input
-          type="number"
-          className="mt-1 w-full border rounded px-2 py-1 text-sm disabled:opacity-50"
-          disabled={disabled}
-          value={Number.isFinite(value) ? value : 0}
-          onChange={(e) => onChange(parseFloat(e.target.value || "0"))}
-        />
-      </label>
-    );
-  }
-
-  /** Helpers for objects */
-  const extrudeOffset = (heightCm: number) => {
-    const k = 0.18;
-    const off = cmToPx(heightCm) * k;
-    return { dx: off, dy: off * 0.6 };
-  };
-  const cmToPx = (cm: number) => cm * scale;
-
-  /** Render object */
+  // ===== Render helpers
   const ObjectRect = ({ o, selected, onSelect }: { o: PlotObject; selected: boolean; onSelect: (add: boolean) => void; }) => {
     const theme = useMemo(() => {
       switch (o.type) {
-        case "greenhouse":
-          return { fill: "rgba(173, 216, 230, 0.4)", stroke: "#6ca6d9" };
-        case "grass":
-          return { fill: "rgba(104, 180, 104, 0.45)", stroke: "#4e9c4e" };
-        case "shrub":
-          return { fill: "rgba(46, 125, 50, 0.7)", stroke: "#2e7d32" };
+        case "greenhouse": return { fill: "rgba(173, 216, 230, 0.4)", stroke: "#6ca6d9" };
+        case "grass":      return { fill: "rgba(104, 180, 104, 0.45)", stroke: "#4e9c4e" };
+        case "shrub":      return { fill: "rgba(46, 125, 50, 0.7)", stroke: "#2e7d32" };
         case "gravel":
-        default:
-          return { fill: "rgba(160, 160, 160, 0.45)", stroke: "#7a7a7a" };
+        default:           return { fill: "rgba(160, 160, 160, 0.45)", stroke: "#7a7a7a" };
       }
     }, [o.type]);
-
     const e = extrudeOffset(o.z);
 
     return (
-      <g transform={`translate(${o.x}, ${o.y}) rotate(${o.rot})`} onPointerDown={(e) => { e.stopPropagation(); onSelect(e.shiftKey); }}>
+      <g transform={`translate(${o.x}, ${o.y}) rotate(${o.rot})`} onPointerDown={(ev) => { ev.stopPropagation(); onSelect((ev as any).shiftKey); }}>
         {o.z > 0 && (
           <g opacity={0.35} transform={`translate(${e.dx}, ${e.dy})`}>
             <rect x={-o.w / 2} y={-o.h / 2} width={o.w} height={o.h} rx={6} ry={6} fill="#000" />
@@ -915,7 +842,6 @@ export function GardenPlotCanvas({
     );
   };
 
-  /** Scale bar */
   function ScaleBar({ scale }: { scale: number }) {
     const candidates = [20, 50, 100, 200, 500, 1000];
     const targetPx = 140;
@@ -933,48 +859,45 @@ export function GardenPlotCanvas({
     );
   }
 
-  /** UI */
-  const grassBG =
-    "radial-gradient(circle at 25% 20%, rgba(255,255,255,0.15) 0 12%, transparent 13%) , radial-gradient(circle at 70% 60%, rgba(0,0,0,0.05) 0 18%, transparent 19%), #cfe8cf";
-
+  // ===== UI
   return (
     <div className="relative rounded-xl border bg-muted/30" style={{ height: "70vh" }}>
       {/* Toolbar */}
       <div className="absolute z-50 left-3 top-3 flex flex-wrap gap-2 p-2 rounded-xl bg-white/90 shadow-lg border">
-        <button className="icon-btn" title="Selecteren (S)" onClick={() => setTool("select")}>
+        <button className="inline-flex items-center justify-center w-8 h-8 rounded-md border bg-white hover:bg-muted transition" title="Selecteren (S)" onClick={() => setTool("select")}>
           <Pointer className="w-4 h-4" />
         </button>
-        <button className={cn("icon-btn", tool === "ruler" && "bg-primary text-primary-foreground")} title="Meetlint (R)" onClick={() => setTool((t) => (t === "ruler" ? "select" : "ruler"))}>
+        <button className={cn("inline-flex items-center justify-center w-8 h-8 rounded-md border transition", tool === "ruler" ? "bg-primary text-primary-foreground" : "bg-white hover:bg-muted")} title="Meetlint (R)" onClick={() => setTool((t) => (t === "ruler" ? "select" : "ruler"))}>
           <Ruler className="w-4 h-4" />
         </button>
         <div className="w-px h-6 bg-border mx-1" />
-        <button className="icon-btn" title="Zoom in (+)" onClick={() => setScale((s) => clamp(s * 1.1, 0.2, 5))}>
+        <button className="inline-flex items-center justify-center w-8 h-8 rounded-md border bg-white hover:bg-muted transition" title="Zoom in (+)" onClick={() => setScale((s) => clamp(s * 1.1, 0.2, 5))}>
           <ZoomIn className="w-4 h-4" />
         </button>
-        <button className="icon-btn" title="Zoom uit (-)" onClick={() => setScale((s) => clamp(s / 1.1, 0.2, 5))}>
+        <button className="inline-flex items-center justify-center w-8 h-8 rounded-md border bg-white hover:bg-muted transition" title="Zoom uit (-)" onClick={() => setScale((s) => clamp(s / 1.1, 0.2, 5))}>
           <ZoomOut className="w-4 h-4" />
         </button>
-        <button className="icon-btn" title="Alles in beeld (0)" onClick={fitAll}>
+        <button className="inline-flex items-center justify-center w-8 h-8 rounded-md border bg-white hover:bg-muted transition" title="Alles in beeld (0)" onClick={fitAll}>
           <Maximize2 className="w-4 h-4" />
         </button>
         <div className="w-px h-6 bg-border mx-1" />
-        <button className={cn("icon-btn", showGrid && "bg-primary/10")} title="Raster weergeven" onClick={() => setShowGrid((v) => !v)}>
+        <button className={cn("inline-flex items-center justify-center w-8 h-8 rounded-md border transition", showGrid ? "bg-primary/10" : "bg-white hover:bg-muted")} title="Raster weergeven" onClick={() => setShowGrid((v) => !v)}>
           <GridIcon className="w-4 h-4" />
         </button>
-        <button className={cn("icon-btn", snapGrid && "bg-primary/10")} title="Snappen aan raster" onClick={() => setSnapGrid((v) => !v)}>
+        <button className={cn("inline-flex items-center justify-center w-8 h-8 rounded-md border transition", snapGrid ? "bg-primary/10" : "bg-white hover:bg-muted")} title="Snappen aan raster" onClick={() => setSnapGrid((v) => !v)}>
           <Square className="w-4 h-4" />
         </button>
         <div className="w-px h-6 bg-border mx-1" />
-        <button className="icon-btn" title="Kas toevoegen" onClick={() => addObject("greenhouse")}>
+        <button className="inline-flex items-center justify-center w-8 h-8 rounded-md border bg-white hover:bg-muted transition" title="Kas toevoegen" onClick={() => addObject("greenhouse")}>
           <Factory className="w-4 h-4" />
         </button>
-        <button className="icon-btn" title="Grasvlak toevoegen" onClick={() => addObject("grass")}>
+        <button className="inline-flex items-center justify-center w-8 h-8 rounded-md border bg-white hover:bg-muted transition" title="Grasvlak toevoegen" onClick={() => addObject("grass")}>
           <Trees className="w-4 h-4" />
         </button>
-        <button className="icon-btn" title="Struik toevoegen" onClick={() => addObject("shrub")}>
+        <button className="inline-flex items-center justify-center w-8 h-8 rounded-md border bg-white hover:bg-muted transition" title="Struik toevoegen" onClick={() => addObject("shrub")}>
           <Mountain className="w-4 h-4" />
         </button>
-        <button className="icon-btn" title="Grindvlak toevoegen" onClick={() => addObject("gravel")}>
+        <button className="inline-flex items-center justify-center w-8 h-8 rounded-md border bg-white hover:bg-muted transition" title="Grindvlak toevoegen" onClick={() => addObject("gravel")}>
           <Move3D className="w-4 h-4" />
         </button>
       </div>
@@ -1021,7 +944,7 @@ export function GardenPlotCanvas({
       >
         <svg className="absolute inset-0" width="100%" height="100%">
           <g transform={`translate(${pan.x}, ${pan.y}) scale(${scale})`}>
-            {/* Background objects (grass, gravel) */}
+            {/* Background objects */}
             {objects.filter((o) => o.type === "grass" || o.type === "gravel").map((o) => (
               <ObjectRect key={o.id} o={o as any} selected={isSelected("obj", o.id)} onSelect={(add) => toggleSelect({ kind: "obj", id: o.id }, add)} />
             ))}
@@ -1030,19 +953,16 @@ export function GardenPlotCanvas({
             {beds.map((b) => {
               const rot = bedMeta[b.id]?.rot ?? 0;
               const z = bedMeta[b.id]?.z ?? DEFAULT_BED_HEIGHT_CM;
-
               const cx = (b.location_x ?? 0) + (tempMove.current && tempMoveIds.current.includes(b.id) ? tempMove.current.dx : 0);
               const cy = (b.location_y ?? 0) + (tempMove.current && tempMoveIds.current.includes(b.id) ? tempMove.current.dy : 0);
-
               const w = b.width_cm ?? 120;
               const h = b.length_cm ?? 300;
               const segs = Math.max(1, b.segments ?? 1);
               const styles = bedStyles(!!b.is_greenhouse);
-
               const ext = extrudeOffset(z);
 
               return (
-                <g key={b.id} transform={`translate(${cx}, ${cy}) rotate(${rot})`} onPointerDown={(e) => { e.stopPropagation(); toggleSelect({ kind: "bed", id: b.id }, e.shiftKey); }}>
+                <g key={b.id} transform={`translate(${cx}, ${cy}) rotate(${rot})`} onPointerDown={(ev) => { ev.stopPropagation(); toggleSelect({ kind: "bed", id: b.id }, (ev as any).shiftKey); }}>
                   {/* pseudo 3D */}
                   <g opacity={0.45} transform={`translate(${ext.dx / scale}, ${ext.dy / scale})`}>
                     <rect x={-w / 2} y={-h / 2} width={w} height={h} rx={6 / scale} ry={6 / scale} fill="#000" />
@@ -1065,12 +985,12 @@ export function GardenPlotCanvas({
               );
             })}
 
-            {/* Foreground objects (greenhouse, shrubs) */}
+            {/* Foreground objects */}
             {objects.filter((o) => o.type === "greenhouse" || o.type === "shrub").map((o) => (
               <ObjectRect key={o.id} o={o as any} selected={isSelected("obj", o.id)} onSelect={(add) => toggleSelect({ kind: "obj", id: o.id }, add)} />
             ))}
 
-            {/* Rotate handle for single selection */}
+            {/* Rotate handle */}
             {selection.length === 1 && (() => {
               const pt = getRotateHandlePosition(selection[0]);
               if (!pt) return null;
@@ -1116,12 +1036,3 @@ export function GardenPlotCanvas({
     </div>
   );
 }
-
-/** Tailwind helpers (optional, keep for button look) */
-declare module "react" { interface HTMLAttributes<T> {} }
-const style = `
-.icon-btn{ @apply inline-flex items-center justify-center w-8 h-8 rounded-md border bg-white hover:bg-muted transition; }
-.btn{ @apply inline-flex items-center px-2.5 py-1.5 rounded-md border bg-white hover:bg-muted transition text-sm;}
-.btn.tiny{ @apply px-2 py-1 text-xs}
-.btn.danger{ @apply bg-red-50 border-red-200 text-red-700 hover:bg-red-100}
-`;
