@@ -212,26 +212,51 @@ function Section({
   onReorder: (orderedIds: UUID[]) => void;
 }) {
   const [isOpen, setIsOpen] = useState(true); // Default open for compact cards
-  const [localIds, setLocalIds] = useState<UUID[]>(items.map(i => i.id));
+  const [localIds, setLocalIds] = useState<UUID[]>(() => items.map((i) => i.id));
   const count = items.length;
 
+  const itemsById = useMemo(
+    () => new Map(items.map((i) => [i.id, i] as const)),
+    [items]
+  );
+  const itemIds = useMemo(() => items.map((i) => i.id), [items]);
+
   useEffect(() => {
-    setLocalIds(items.map(i => i.id));
-  }, [items]);
+    // Houd lokale volgorde vast, maar verwijder ids die niet meer in deze sectie zitten
+    // (bv. als een bak van Buiten -> Kas wordt verplaatst) en append nieuwe ids.
+    setLocalIds((prev) => {
+      const allowed = new Set(itemIds);
+      const kept = prev.filter((id) => allowed.has(id));
+      const keptSet = new Set(kept);
+      const missing = itemIds.filter((id) => !keptSet.has(id));
+      return [...kept, ...missing];
+    });
+  }, [itemIds]);
+
+  const orderedItems = useMemo(
+    () =>
+      localIds
+        .map((id) => itemsById.get(id))
+        .filter((b): b is GardenBed => Boolean(b)),
+    [localIds, itemsById]
+  );
 
   function handleDragEnd(evt: DragEndEvent) {
     const activeId = String(evt.active.id);
     const overId = evt.over?.id ? String(evt.over.id) : null;
     if (!overId || activeId === overId) return;
 
-    const oldIndex = localIds.indexOf(activeId);
-    const newIndex = localIds.indexOf(overId);
-    if (oldIndex === -1 || newIndex === -1) return;
+    setLocalIds((prev) => {
+      const current = prev.filter((id) => itemsById.has(id));
+      const oldIndex = current.indexOf(activeId);
+      const newIndex = current.indexOf(overId);
+      if (oldIndex === -1 || newIndex === -1) return prev;
 
-    const next = localIds.slice();
-    next.splice(newIndex, 0, next.splice(oldIndex, 1)[0]);
-    setLocalIds(next);
-    onReorder(next);
+      const next = current.slice();
+      next.splice(newIndex, 0, next.splice(oldIndex, 1)[0]);
+      onReorder(next);
+      return next;
+    });
   }
 
   if (count === 0) {
@@ -265,14 +290,13 @@ function Section({
       {isOpen && (
         <DndContext onDragEnd={handleDragEnd}>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-            {localIds.map((id, index) => {
-              const b = items.find(x => x.id === id)!;
+            {orderedItems.map((b, index) => {
               return (
                 <SortableCard key={b.id} id={b.id}>
                   {(drag) => (
                     <div
                       className="flex items-center gap-1.5 px-2 py-1.5 border rounded-lg bg-card hover:bg-accent/50 transition cursor-pointer group animate-fade-in"
-                      style={{ animationDelay: `${index * 20}ms`, animationFillMode: 'backwards' }}
+                      style={{ animationDelay: `${index * 20}ms`, animationFillMode: "backwards" }}
                       onClick={() => onEdit(b)}
                     >
                       {/* Drag handle */}
@@ -288,21 +312,27 @@ function Section({
                       </button>
 
                       <span className="font-medium text-xs truncate flex-1">{b.name}</span>
-                      
+
                       <span className="text-[10px] text-muted-foreground flex-shrink-0 hidden sm:inline">
                         {b.segments}s
                       </span>
 
                       <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition flex-shrink-0">
                         <button
-                          onClick={(e) => { e.stopPropagation(); onDuplicate(b); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDuplicate(b);
+                          }}
                           className="p-0.5 text-muted-foreground hover:text-primary"
                           title="Dupliceren"
                         >
                           <Copy className="h-3 w-3" />
                         </button>
                         <button
-                          onClick={(e) => { e.stopPropagation(); onDelete(b.id); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDelete(b.id);
+                          }}
                           className="p-0.5 text-muted-foreground hover:text-destructive"
                           title="Verwijderen"
                         >
