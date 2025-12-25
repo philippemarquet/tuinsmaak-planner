@@ -179,9 +179,8 @@ export function BedsPage({
       {/* Modal */}
       {upsertOpen && (
         <BedModal
-          // Als jouw BedModal geen gardenId nodig heeft, laat deze prop weg
-          // gardenId={garden.id}
-          bed={("id" in upsertOpen && upsertOpen.id) ? (upsertOpen as GardenBed) : null}
+          gardenId={garden.id}
+          bed={"id" in upsertOpen && upsertOpen.id ? (upsertOpen as GardenBed) : null}
           onClose={() => setUpsertOpen(null)}
           onUpdated={async (b) => {
             upsertLocal(b);
