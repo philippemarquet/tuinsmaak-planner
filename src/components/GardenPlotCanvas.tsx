@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { GardenBed, Planting, Seed, CropType, UUID } from "../lib/types";
-import { ZoomIn, ZoomOut, Maximize2, Edit3, Trash2, Grid3X3, LayoutGrid, Move } from "lucide-react";
+import { ZoomIn, ZoomOut, Maximize2, Copy, Edit3, Trash2 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import { getContrastTextColor } from "../lib/utils";
 
 /* =========================================
-   Icon helpers
+   Icon helpers (shared with PlannerPage)
 ========================================= */
 const ICON_BUCKET = "crop-icons";
 const iconUrlCache = new Map<string, string>();
@@ -128,7 +128,7 @@ function IconTilingOverlay({
 type Season = "winter" | "spring" | "summer" | "autumn";
 
 function getSeason(date: Date = new Date()): Season {
-  const month = date.getMonth();
+  const month = date.getMonth(); // 0-11
   if (month >= 2 && month <= 4) return "spring";
   if (month >= 5 && month <= 7) return "summer";
   if (month >= 8 && month <= 10) return "autumn";
@@ -206,12 +206,24 @@ function getSeasonalBackground(season: Season): { base: string; overlay: string 
 /* =========================================
    Types
 ========================================= */
-type LayoutMode = "auto" | "freeform";
+interface PlantingBlockData {
+  id: string;
+  color: string;
+  startSegment: number;
+  segmentsUsed: number;
+  seedName: string;
+  seedId: string;
+  iconUrl: string | null;
+  hasConflict?: boolean;
+  tooltip?: string;
+}
 
 interface GardenPlotCanvasProps {
   beds: GardenBed[];
+  // For layout editing mode (BedsPage)
   onBedMove?: (id: UUID, x: number, y: number) => void;
   onBedDuplicate?: (bed: GardenBed) => void;
+  // For planner mode (PlannerPage)
   plantings?: Planting[];
   seeds?: Seed[];
   cropTypes?: CropType[];
@@ -221,12 +233,14 @@ interface GardenPlotCanvasProps {
   onPlantingDelete?: (plantingId: string) => void;
   conflictsMap?: Map<string, any[]>;
   onBedConflictClick?: (bedId: string) => void;
+  // Drop handlers for DnD
   renderDropTargets?: (bed: GardenBed, segmentCount: number) => React.ReactNode;
+  // Storage key for persisting settings
   storagePrefix?: string;
 }
 
 /* =========================================
-   Main Component - Completely Redesigned
+   Main Component
 ========================================= */
 export function GardenPlotCanvas({
   beds,
@@ -244,303 +258,209 @@ export function GardenPlotCanvas({
   renderDropTargets,
   storagePrefix = "gardenPlot",
 }: GardenPlotCanvasProps) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const [containerSize, setContainerSize] = useState({ w: 800, h: 600 });
-  
-  // Layout mode: auto (grid) or freeform (drag)
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => {
-    const saved = localStorage.getItem(`${storagePrefix}LayoutMode`);
-    return (saved as LayoutMode) || "auto";
-  });
+  const viewportRef = useRef<HTMLDivElement | null>(null);
 
-  // Scale for beds - how big each bed appears
-  const [bedScale, setBedScale] = useState(() => {
-    const saved = localStorage.getItem(`${storagePrefix}BedScale`);
+  // Canvas dimensions - landscape oriented
+  const BASE_CANVAS_W = 3000;
+  const BASE_CANVAS_H = 1200;
+  const WOOD_BORDER = 8;
+
+  // State
+  const [zoom, setZoom] = useState(() => {
+    const saved = localStorage.getItem(`${storagePrefix}Zoom`);
     return saved ? parseFloat(saved) : 1.0;
   });
 
-  const minScale = 0.5;
-  const maxScale = 2.0;
+  const minZoom = 0.2;
+  const maxZoom = 2;
 
+  // Canvas dimensions (no rotation)
+  const CANVAS_W = BASE_CANVAS_W;
+  const CANVAS_H = BASE_CANVAS_H;
+
+  // Season
   const season = getSeason();
   const seasonalBg = getSeasonalBackground(season);
 
+  // Helpers
   const seedsById = useMemo(() => new Map(seeds.map((s) => [s.id, s])), [seeds]);
   const cropTypesById = useMemo(() => new Map(cropTypes.map((c) => [c.id, c])), [cropTypes]);
 
-  // Track container size
+  const setZoomClamped = (v: number) => {
+    const clamped = Math.max(minZoom, Math.min(maxZoom, v));
+    setZoom(clamped);
+    localStorage.setItem(`${storagePrefix}Zoom`, clamped.toString());
+  };
+
+  const fitToViewport = () => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const vw = vp.clientWidth - 32;
+    const vh = vp.clientHeight - 32;
+    const zx = vw / CANVAS_W;
+    const zy = vh / CANVAS_H;
+    // Use the larger zoom that still fits, ensuring max visibility
+    setZoomClamped(Math.min(zx, zy));
+  };
+
+  // Auto-fit on first render to maximize visible size
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    
-    const ro = new ResizeObserver((entries) => {
-      const rect = entries[0].contentRect;
-      setContainerSize({ w: rect.width, h: rect.height });
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
+    if (!localStorage.getItem(`${storagePrefix}Zoom`)) {
+      const t = setTimeout(fitToViewport, 100);
+      return () => clearTimeout(t);
+    }
   }, []);
-
-  const setScaleClamped = useCallback((v: number) => {
-    const clamped = Math.max(minScale, Math.min(maxScale, v));
-    setBedScale(clamped);
-    localStorage.setItem(`${storagePrefix}BedScale`, clamped.toString());
-  }, [storagePrefix]);
-
-  const toggleLayoutMode = useCallback(() => {
-    const next = layoutMode === "auto" ? "freeform" : "auto";
-    setLayoutMode(next);
-    localStorage.setItem(`${storagePrefix}LayoutMode`, next);
-  }, [layoutMode, storagePrefix]);
 
   const bedHasConflict = (bedId: UUID) => {
     if (!conflictsMap) return false;
     return plantings.some((p) => p.garden_bed_id === bedId && (conflictsMap.get(p.id)?.length ?? 0) > 0);
   };
 
-  // Sort beds: greenhouses first, then by sort_order
-  const sortedBeds = useMemo(() => {
-    return [...beds].sort((a, b) => {
-      if (a.is_greenhouse !== b.is_greenhouse) {
-        return a.is_greenhouse ? -1 : 1;
-      }
-      return (a.sort_order ?? 0) - (b.sort_order ?? 0);
-    });
-  }, [beds]);
-
-  // Calculate auto-layout grid positions
-  const autoLayoutPositions = useMemo(() => {
-    const gap = 16;
-    const padding = 24;
-    const availableW = containerSize.w - padding * 2;
-    const availableH = containerSize.h - padding * 2;
-    
-    if (sortedBeds.length === 0) return [];
-
-    // Calculate base bed size from actual dimensions, scaled
-    const bedSizes = sortedBeds.map(bed => ({
-      w: Math.max(80, (bed.length_cm || 200) * 0.5 * bedScale),
-      h: Math.max(60, (bed.width_cm || 100) * 0.5 * bedScale),
-    }));
-
-    // Find optimal columns that maximize space usage
-    const avgW = bedSizes.reduce((sum, s) => sum + s.w, 0) / bedSizes.length;
-    let cols = Math.max(1, Math.floor((availableW + gap) / (avgW + gap)));
-    
-    // Try to fit all beds with current columns
-    const positions: { x: number; y: number; w: number; h: number }[] = [];
-    let currentX = padding;
-    let currentY = padding;
-    let rowHeight = 0;
-    let col = 0;
-
-    for (let i = 0; i < sortedBeds.length; i++) {
-      const size = bedSizes[i];
-      
-      // Check if we need a new row
-      if (col >= cols || currentX + size.w > availableW + padding) {
-        currentX = padding;
-        currentY += rowHeight + gap;
-        rowHeight = 0;
-        col = 0;
-      }
-
-      positions.push({
-        x: currentX,
-        y: currentY,
-        w: size.w,
-        h: size.h,
-      });
-
-      currentX += size.w + gap;
-      rowHeight = Math.max(rowHeight, size.h);
-      col++;
-    }
-
-    return positions;
-  }, [sortedBeds, containerSize, bedScale]);
-
-  // Freeform positions from bed data
-  const freeformPositions = useMemo(() => {
-    return sortedBeds.map(bed => ({
-      x: bed.location_x ?? 50,
-      y: bed.location_y ?? 50,
-      w: Math.max(80, (bed.length_cm || 200) * 0.5 * bedScale),
-      h: Math.max(60, (bed.width_cm || 100) * 0.5 * bedScale),
-    }));
-  }, [sortedBeds, bedScale]);
-
-  const positions = layoutMode === "auto" ? autoLayoutPositions : freeformPositions;
-
-  // Calculate total content size for freeform mode
-  const contentBounds = useMemo(() => {
-    if (positions.length === 0) return { w: containerSize.w, h: containerSize.h };
-    
-    const maxX = Math.max(...positions.map((p, i) => (p.x || 0) + (positions[i]?.w || 100)));
-    const maxY = Math.max(...positions.map((p, i) => (p.y || 0) + (positions[i]?.h || 80)));
-    
-    return {
-      w: Math.max(containerSize.w, maxX + 40),
-      h: Math.max(containerSize.h, maxY + 40),
-    };
-  }, [positions, containerSize]);
+  // Calculate bed position
+  const getBedTransform = (bed: GardenBed) => {
+    const origX = bed.location_x ?? 50;
+    const origY = bed.location_y ?? 50;
+    const origW = Math.max(60, bed.length_cm || 200);
+    const origH = Math.max(40, bed.width_cm || 100);
+    return { x: origX, y: origY, w: origW, h: origH };
+  };
 
   return (
     <section className="space-y-3 h-full flex flex-col">
       {/* Controls */}
-      <div className="flex items-center justify-between flex-shrink-0 flex-wrap gap-2">
+      <div className="flex items-center justify-between flex-shrink-0">
         <h3 className="text-xl font-semibold">Plattegrond</h3>
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Layout mode toggle */}
-          <button
-            className={`inline-flex items-center gap-1.5 border rounded-md px-2.5 py-1.5 text-sm transition-colors ${
-              layoutMode === "auto" 
-                ? "bg-primary text-primary-foreground" 
-                : "bg-secondary hover:bg-secondary/80"
-            }`}
-            onClick={toggleLayoutMode}
-            title={layoutMode === "auto" ? "Automatische indeling" : "Vrije positionering"}
-          >
-            {layoutMode === "auto" ? (
-              <>
-                <Grid3X3 className="h-4 w-4" />
-                Auto
-              </>
-            ) : (
-              <>
-                <Move className="h-4 w-4" />
-                Vrij
-              </>
-            )}
-          </button>
-
-          {/* Divider */}
-          <div className="w-px h-6 bg-border" />
-
-          {/* Scale controls */}
+        <div className="flex items-center gap-2">
+          
+          {/* Zoom controls */}
           <button
             className="inline-flex items-center gap-1 border rounded-md px-2 py-1.5 bg-secondary hover:bg-secondary/80"
-            onClick={() => setScaleClamped(bedScale - 0.15)}
-            title="Bakken kleiner"
+            onClick={() => setZoomClamped(zoom - 0.1)}
+            title="Uitzoomen"
           >
             <ZoomOut className="h-4 w-4" />
           </button>
           <input
             type="range"
-            min={minScale}
-            max={maxScale}
+            min={minZoom}
+            max={maxZoom}
             step={0.05}
-            value={bedScale}
-            onChange={(e) => setScaleClamped(parseFloat(e.target.value))}
-            className="w-20"
+            value={zoom}
+            onChange={(e) => setZoomClamped(parseFloat(e.target.value))}
+            className="w-24"
           />
           <button
             className="inline-flex items-center gap-1 border rounded-md px-2 py-1.5 bg-secondary hover:bg-secondary/80"
-            onClick={() => setScaleClamped(bedScale + 0.15)}
-            title="Bakken groter"
+            onClick={() => setZoomClamped(zoom + 0.1)}
+            title="Inzoomen"
           >
             <ZoomIn className="h-4 w-4" />
           </button>
-          <span className="text-xs text-muted-foreground min-w-[3rem] text-right">
-            {Math.round(bedScale * 100)}%
+          <button
+            className="inline-flex items-center gap-1 border rounded-md px-2.5 py-1.5 hover:bg-muted transition-colors"
+            onClick={fitToViewport}
+            title="Passend maken"
+          >
+            <Maximize2 className="h-4 w-4" />
+            Fit
+          </button>
+          <span className="text-xs text-muted-foreground ml-1 min-w-[3rem] text-right">
+            {Math.round(zoom * 100)}%
           </span>
         </div>
       </div>
 
-      {/* Canvas container */}
+      {/* Canvas viewport */}
       <div
-        ref={containerRef}
-        className="relative flex-1 min-h-[400px] rounded-xl border-2 border-amber-800/30 overflow-auto shadow-xl"
+        ref={viewportRef}
+        className="relative flex-1 min-h-[60vh] rounded-xl border-2 border-amber-800/30 overflow-auto shadow-xl"
         style={{ background: seasonalBg.base }}
       >
-        {/* Seasonal overlay */}
-        <div
-          className="absolute inset-0 pointer-events-none rounded-xl"
-          style={{ backgroundImage: seasonalBg.overlay }}
-        />
-        
-        {/* Frost effect for winter */}
-        {season === "winter" && (
-          <div
-            className="absolute inset-0 pointer-events-none rounded-xl"
-            style={{
-              boxShadow: "inset 0 0 60px 20px rgba(255,255,255,0.15)",
-            }}
-          />
-        )}
-
-        {/* Content wrapper with scroll for freeform */}
         <div
           className="relative"
-          style={{
-            minWidth: layoutMode === "freeform" ? contentBounds.w : "100%",
-            minHeight: layoutMode === "freeform" ? contentBounds.h : "100%",
-          }}
+          style={{ width: CANVAS_W * zoom, height: CANVAS_H * zoom }}
         >
-          {/* Render beds */}
-          {sortedBeds.map((bed, index) => {
-            const pos = positions[index];
-            if (!pos) return null;
+          <div
+            className="absolute left-0 top-0"
+            style={{
+              width: CANVAS_W,
+              height: CANVAS_H,
+              transform: `scale(${zoom})`,
+              transformOrigin: "0 0",
+              borderRadius: 12,
+            }}
+          >
+            {/* Seasonal overlay */}
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{ backgroundImage: seasonalBg.overlay }}
+            />
 
-            return (
-              <BedBlock
-                key={bed.id}
-                bed={bed}
-                x={pos.x}
-                y={pos.y}
-                w={pos.w}
-                h={pos.h}
-                borderWidth={6}
-                containerSize={containerSize}
-                bedScale={bedScale}
-                canDrag={layoutMode === "freeform" && !!onBedMove}
-                onMove={onBedMove}
-                onDuplicate={onBedDuplicate}
-                plantings={plantings}
-                seedsById={seedsById}
-                cropTypesById={cropTypesById}
-                activePlantingFilter={activePlantingFilter}
-                ghostPlantingFilter={ghostPlantingFilter}
-                onPlantingEdit={onPlantingEdit}
-                onPlantingDelete={onPlantingDelete}
-                hasConflict={bedHasConflict(bed.id)}
-                conflictsMap={conflictsMap}
-                onConflictClick={onBedConflictClick}
-                renderDropTargets={renderDropTargets}
+            {/* Frost/snow edge effect for winter */}
+            {season === "winter" && (
+              <div
+                className="absolute inset-0 pointer-events-none rounded-xl"
+                style={{
+                  boxShadow: "inset 0 0 60px 20px rgba(255,255,255,0.15)",
+                }}
               />
-            );
-          })}
+            )}
 
-          {/* Empty state */}
-          {sortedBeds.length === 0 && (
-            <div className="absolute inset-0 flex items-center justify-center text-white/60">
-              <div className="text-center">
-                <LayoutGrid className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                <p>Nog geen bakken</p>
-              </div>
-            </div>
-          )}
+            {/* Render beds */}
+            {beds.map((bed) => {
+              const { x, y, w, h } = getBedTransform(bed);
+
+              return (
+                <BedBlock
+                  key={bed.id}
+                  bed={bed}
+                  x={x}
+                  y={y}
+                  w={w}
+                  h={h}
+                  borderWidth={WOOD_BORDER}
+                  canvasSize={{ w: CANVAS_W, h: CANVAS_H }}
+                  zoom={zoom}
+                  
+                  onMove={onBedMove}
+                  onDuplicate={onBedDuplicate}
+                  // Planting data
+                  plantings={plantings}
+                  seedsById={seedsById}
+                  cropTypesById={cropTypesById}
+                  activePlantingFilter={activePlantingFilter}
+                  ghostPlantingFilter={ghostPlantingFilter}
+                  onPlantingEdit={onPlantingEdit}
+                  onPlantingDelete={onPlantingDelete}
+                  hasConflict={bedHasConflict(bed.id)}
+                  conflictsMap={conflictsMap}
+                  onConflictClick={onBedConflictClick}
+                  renderDropTargets={renderDropTargets}
+                />
+              );
+            })}
+          </div>
         </div>
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-4 text-xs text-muted-foreground flex-shrink-0 flex-wrap">
+      <div className="flex items-center gap-6 text-xs text-muted-foreground flex-shrink-0 flex-wrap">
         <div className="flex items-center gap-2">
           <div
-            className="w-5 h-3 rounded border-2 border-amber-700"
+            className="w-6 h-4 rounded border-2 border-amber-700"
             style={{ background: "linear-gradient(180deg, #8B6914 0%, #5c4210 100%)" }}
           />
-          <span>Bak</span>
+          <span>Moestuinbak (douglas)</span>
         </div>
         <div className="flex items-center gap-2">
           <div
-            className="w-5 h-3 rounded border-2 border-gray-400"
+            className="w-6 h-4 rounded border-2 border-gray-400"
             style={{ background: "linear-gradient(135deg, rgba(135,206,235,0.3) 0%, rgba(255,255,255,0.4) 50%, rgba(135,206,235,0.3) 100%)" }}
           />
-          <span>Kas</span>
+          <span>Kas (glas)</span>
         </div>
-        <div className="flex items-center gap-1 ml-auto">
-          <span className="capitalize font-medium text-sm">
+        <div className="flex items-center gap-2 ml-auto">
+          <span className="capitalize font-medium">
             {season === "winter" && "❄️ Winter"}
             {season === "spring" && "🌸 Lente"}
             {season === "summer" && "☀️ Zomer"}
@@ -562,11 +482,12 @@ interface BedBlockProps {
   w: number;
   h: number;
   borderWidth: number;
-  containerSize: { w: number; h: number };
-  bedScale: number;
-  canDrag: boolean;
+  canvasSize: { w: number; h: number };
+  zoom: number;
+  
   onMove?: (id: UUID, x: number, y: number) => void;
   onDuplicate?: (bed: GardenBed) => void;
+  // Planting
   plantings: Planting[];
   seedsById: Map<string, Seed>;
   cropTypesById: Map<string, CropType>;
@@ -587,9 +508,9 @@ function BedBlock({
   w,
   h,
   borderWidth,
-  containerSize,
-  bedScale,
-  canDrag,
+  canvasSize,
+  zoom,
+  
   onMove,
   onDuplicate,
   plantings,
@@ -618,6 +539,7 @@ function BedBlock({
   const segCount = Math.max(1, bed.segments);
   const vertical = innerW >= innerH;
 
+  // Filter plantings for this bed
   const bedPlantings = plantings.filter((p) => p.garden_bed_id === bed.id);
   const activePlantings = activePlantingFilter
     ? bedPlantings.filter(activePlantingFilter)
@@ -626,26 +548,29 @@ function BedBlock({
     ? bedPlantings.filter(ghostPlantingFilter)
     : [];
 
+  // Drag handlers
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    if (!canDrag || !onMove) return;
+    if (!onMove) return;
     dragging.current = true;
     (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
     start.current = { mx: e.clientX, my: e.clientY, x: pos.x, y: pos.y };
   }
 
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
-    if (!dragging.current || !canDrag || !onMove) return;
-    const dx = e.clientX - start.current.mx;
-    const dy = e.clientY - start.current.my;
-    const nx = Math.max(0, start.current.x + dx);
-    const ny = Math.max(0, start.current.y + dy);
+    if (!dragging.current || !onMove) return;
+    const dx = (e.clientX - start.current.mx) / zoom;
+    const dy = (e.clientY - start.current.my) / zoom;
+    const nx = Math.max(0, Math.min(canvasSize.w - w, start.current.x + dx));
+    const ny = Math.max(0, Math.min(canvasSize.h - h, start.current.y + dy));
     setPos({ x: nx, y: ny });
   }
 
   function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
-    if (!dragging.current || !canDrag || !onMove) return;
+    if (!dragging.current || !onMove) return;
     dragging.current = false;
     (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
+
+    // Convert back if rotated
     onMove(bed.id, pos.x, pos.y);
   }
 
@@ -663,14 +588,13 @@ function BedBlock({
 
   return (
     <div
-      className={`absolute select-none transition-all duration-200 ${canDrag ? "cursor-grab active:cursor-grabbing" : ""}`}
+      className={`absolute select-none transition-transform duration-150 ${onMove ? "cursor-grab active:cursor-grabbing" : ""}`}
       style={{
         left: pos.x,
         top: pos.y,
         width: w,
         height: h,
-        transform: isHovered ? "scale(1.02)" : "scale(1)",
-        zIndex: isHovered ? 10 : 1,
+        transform: isHovered ? "scale(1.01)" : "scale(1)",
       }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -680,8 +604,8 @@ function BedBlock({
     >
       {/* Shadow */}
       <div
-        className="absolute -bottom-3 left-1 right-1 h-4 rounded-full"
-        style={{ background: "radial-gradient(ellipse at center, rgba(0,0,0,0.35) 0%, transparent 70%)" }}
+        className="absolute -bottom-4 left-1 right-1 h-5 rounded-full"
+        style={{ background: "radial-gradient(ellipse at center, rgba(0,0,0,0.3) 0%, transparent 70%)" }}
       />
 
       {/* Frame */}
@@ -731,8 +655,8 @@ function BedBlock({
               className="absolute inset-0 pointer-events-none"
               style={{
                 backgroundImage: vertical
-                  ? `repeating-linear-gradient(90deg, transparent 0px, transparent calc(${100 / segCount}% - 1px), rgba(255,255,255,0.12) calc(${100 / segCount}% - 1px), rgba(255,255,255,0.12) calc(${100 / segCount}%))`
-                  : `repeating-linear-gradient(0deg, transparent 0px, transparent calc(${100 / segCount}% - 1px), rgba(255,255,255,0.12) calc(${100 / segCount}% - 1px), rgba(255,255,255,0.12) calc(${100 / segCount}%))`,
+                  ? `repeating-linear-gradient(90deg, transparent 0px, transparent calc(${100 / segCount}% - 1px), rgba(255,255,255,0.08) calc(${100 / segCount}% - 1px), rgba(255,255,255,0.08) calc(${100 / segCount}%))`
+                  : `repeating-linear-gradient(0deg, transparent 0px, transparent calc(${100 / segCount}% - 1px), rgba(255,255,255,0.08) calc(${100 / segCount}% - 1px), rgba(255,255,255,0.08) calc(${100 / segCount}%))`,
               }}
             />
           )}
@@ -766,8 +690,8 @@ function BedBlock({
             const color = p.color?.startsWith("#") ? p.color : "#22c55e";
             const pHasConflict = (conflictsMap?.get(p.id)?.length ?? 0) > 0;
             const iconUrl = getEffectiveIconUrl(seed, cropTypesById);
-            const textColor = getContrastTextColor(color);
 
+            const textColor = getContrastTextColor(color);
             return (
               <div
                 key={p.id}
@@ -784,7 +708,7 @@ function BedBlock({
                   />
                 )}
                 <div className="relative z-20 truncate flex-1">
-                  <span className="truncate font-medium">{seed?.name ?? "—"}</span>
+                  <span className="truncate">{seed?.name ?? "—"}</span>
                 </div>
 
                 {(onPlantingEdit || onPlantingDelete) && (
@@ -849,11 +773,12 @@ function BedBlock({
           {/* Name label */}
           <div className="absolute inset-0 flex items-start justify-between p-1 pointer-events-none">
             <span
-              className="text-[10px] font-bold px-1.5 py-0.5 rounded pointer-events-auto shadow-sm"
+              className="text-[10px] font-semibold px-2 py-0.5 rounded-md pointer-events-auto"
               style={{
-                background: "rgba(255,255,255,0.92)",
-                color: bed.is_greenhouse ? "#1a5c1a" : "#3e2723",
-                maxWidth: "80%",
+                background: "rgba(255,255,255,0.85)",
+                color: bed.is_greenhouse ? "#2d5016" : "#3e2723",
+                boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
+                maxWidth: "70%",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
@@ -866,7 +791,7 @@ function BedBlock({
             <div className="flex items-center gap-1 pointer-events-auto">
               {hasConflict && onConflictClick && (
                 <button
-                  className="text-[10px] px-1 py-0.5 rounded bg-red-600/90 text-white"
+                  className="text-[11px] px-1.5 py-0.5 rounded bg-red-600/90 text-white"
                   onClick={(e) => {
                     e.stopPropagation();
                     onConflictClick(bed.id);
@@ -877,12 +802,27 @@ function BedBlock({
                 </button>
               )}
               {bed.is_greenhouse && (
-                <span className="text-[9px] px-1 py-0.5 rounded bg-emerald-600 text-white font-medium">Kas</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-600 text-white">Kas</span>
               )}
             </div>
           </div>
         </div>
       </div>
+
+      {/* Hover actions for layout mode */}
+      {isHovered && onDuplicate && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDuplicate(bed);
+          }}
+          title="Dupliceren"
+          className="absolute -top-2 -right-2 p-1.5 rounded-full bg-white shadow-md hover:bg-gray-100 z-10"
+        >
+          <Copy className="h-3.5 w-3.5 text-gray-600" />
+        </button>
+      )}
     </div>
   );
 }
