@@ -1,4 +1,4 @@
-// src/components/GardenPlotCanvas.tsx — Drag-first UX, geen rotatie
+// src/components/GardenPlotCanvas.tsx — Smooth drag + betere numeric input (commit op blur/enter)
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GardenBed } from "../lib/types";
 import { cn } from "../lib/utils";
@@ -17,6 +17,7 @@ import {
   Pointer,
   Move3D,
 } from "lucide-react";
+import { updateBed } from "../lib/api/beds";
 
 type UUID = string;
 type PlotObjectType = "greenhouse" | "grass" | "shrub" | "gravel";
@@ -27,11 +28,15 @@ type PlotObject = {
   y: number;
   w: number;
   h: number;
-  // rot is verwijderd — objecten zijn axis-aligned
   z: number;
   label?: string;
 };
-type BedMeta = { z?: number }; // rot is verwijderd
+
+type BedMeta = {
+  z?: number;
+  w?: number; // lokale override voor breedte (cm)
+  h?: number; // lokale override voor lengte (cm)
+};
 
 const DEFAULT_BED_HEIGHT_CM = 25;
 const SELECT_HALO = 8;
@@ -58,6 +63,81 @@ function safeLoadGrid(prefix: string) {
   const g = safeLoadJSON(localStorage.getItem(STORAGE_GRID(prefix)));
   return { showGrid: g?.showGrid !== false, snapGrid: g?.snapGrid !== false };
 }
+
+/* ------------------------- NumericField (commit on blur/enter) ------------------------- */
+function NumericField({
+  label,
+  value,
+  onCommit,
+  step = 1,
+  min,
+  max,
+  disabled,
+  inputMode = "numeric",
+  className,
+}: {
+  label: string;
+  value: number;
+  onCommit: (v: number) => void;
+  step?: number;
+  min?: number;
+  max?: number;
+  disabled?: boolean;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
+  className?: string;
+}) {
+  const [buf, setBuf] = useState<string>(Number.isFinite(value) ? String(value) : "");
+  const [editing, setEditing] = useState(false);
+
+  // sync vanuit prop wanneer niet aan het editen
+  useEffect(() => {
+    if (!editing) setBuf(Number.isFinite(value) ? String(value) : "");
+  }, [value, editing]);
+
+  const commit = useCallback(() => {
+    // lege -> revert
+    if (buf.trim() === "" || buf === "-" || buf === "+") {
+      setBuf(Number.isFinite(value) ? String(value) : "");
+      setEditing(false);
+      return;
+    }
+    const n = Number(buf.replace(",", ".")); // 12,5 -> 12.5
+    if (!Number.isFinite(n)) {
+      setBuf(Number.isFinite(value) ? String(value) : "");
+      setEditing(false);
+      return;
+    }
+    let out = n;
+    if (typeof min === "number") out = Math.max(min, out);
+    if (typeof max === "number") out = Math.min(max, out);
+    // cm werken we integer; laat gerust decimalen staan voor hoogte indien gewenst
+    onCommit(Math.round(out));
+    setEditing(false);
+  }, [buf, value, min, max, onCommit]);
+
+  return (
+    <label className={cn("text-[11px] text-muted-foreground block", className)}>
+      {label}
+      <input
+        type="text"
+        inputMode={inputMode}
+        className="mt-1 w-full border rounded px-2 py-1 text-sm disabled:opacity-50"
+        disabled={disabled}
+        value={buf}
+        onChange={(e) => { setBuf(e.target.value); setEditing(true); }}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.currentTarget.blur(); }
+          if (e.key === "Escape") { setEditing(false); setBuf(Number.isFinite(value) ? String(value) : ""); (e.currentTarget as HTMLInputElement).blur(); }
+          if (e.key === "ArrowUp" && !disabled) { e.preventDefault(); onCommit(clamp((Number(buf) || value) + step, min ?? -Infinity, max ?? Infinity)); }
+          if (e.key === "ArrowDown" && !disabled) { e.preventDefault(); onCommit(clamp((Number(buf) || value) - step, min ?? -Infinity, max ?? Infinity)); }
+        }}
+      />
+    </label>
+  );
+}
+
+/* -------------------------------------------------------------------------------------- */
 
 export function GardenPlotCanvas({
   beds,
@@ -91,7 +171,6 @@ export function GardenPlotCanvas({
   const [objects, setObjects] = useState<PlotObject[]>(() => {
     const raw = localStorage.getItem(STORAGE_OBJECTS(storagePrefix));
     const arr = safeLoadJSON(raw);
-    // indien oude data rot had: negeren
     return Array.isArray(arr) ? (arr as PlotObject[]).map(o => ({ ...o, z: o.z ?? 0 })) : [];
   });
   const [bedMeta, setBedMeta] = useState<Record<UUID, BedMeta>>(() => {
@@ -149,7 +228,8 @@ export function GardenPlotCanvas({
   function sceneBounds() {
     const xs: number[] = [], ys: number[] = [];
     for (const b of beds) {
-      const hw = (b.width_cm ?? 100) / 2, hh = (b.length_cm ?? 100) / 2;
+      const { w, h } = getBedSize(b);
+      const hw = w / 2, hh = h / 2;
       const cx = b.location_x ?? 0, cy = b.location_y ?? 0;
       xs.push(cx - hw, cx + hw); ys.push(cy - hh, cy + hh);
     }
@@ -212,12 +292,21 @@ export function GardenPlotCanvas({
     return <path d={d.join(" ")} />;
   }
 
-  // ===== Hit tests (geen rotatie)
+  // ===== Helpers
+  function getBedSize(b: GardenBed) {
+    return {
+      w: bedMeta[b.id]?.w ?? (b.width_cm ?? 120),
+      h: bedMeta[b.id]?.h ?? (b.length_cm ?? 300),
+    };
+  }
+
+  // ===== Hit tests (axis-aligned)
   const hitBed = (wx: number, wy: number): GardenBed | null => {
     for (let i = beds.length - 1; i >= 0; i--) {
       const b = beds[i];
+      const { w, h } = getBedSize(b);
       const cx = b.location_x ?? 0, cy = b.location_y ?? 0;
-      const hw = (b.width_cm ?? 100) / 2, hh = (b.length_cm ?? 100) / 2;
+      const hw = w / 2, hh = h / 2;
       if (wx >= cx - hw && wx <= cx + hw && wy >= cy - hh && wy <= cy + hh) return b;
     }
     return null;
@@ -225,52 +314,46 @@ export function GardenPlotCanvas({
   const hitObj = (wx: number, wy: number): PlotObject | null => {
     for (let i = objects.length - 1; i >= 0; i--) {
       const o = objects[i];
-      const hw = o.w / 2, hh = o.h / 2;
+      const hw = o.w / 2 + 6; // iets grotere hitbox
+      const hh = o.h / 2 + 6;
       if (wx >= o.x - hw && wx <= o.x + hw && wy >= o.y - hh && wy <= o.y + hh) return o;
     }
     return null;
   };
 
-  // ===== Drag state (vloeiend preview + snap bij loslaten)
-  const dragThresholdPx = 2;
+  // ===== Drag state + live preview (RAF)
   const dragState = useRef<{
     mode: "none" | "pan" | "drag-beds" | "drag-objects" | "ruler";
-    started: boolean;
     startSx: number;
     startSy: number;
     prevPan: { x: number; y: number };
     startWorld: { x: number; y: number };
     altClone?: boolean;
     lastShift?: boolean;
-  }>({ mode: "none", started: false, startSx: 0, startSy: 0, prevPan: { x: 0, y: 0 }, startWorld: { x: 0, y: 0 } });
+  }>({ mode: "none", startSx: 0, startSy: 0, prevPan: { x: 0, y: 0 }, startWorld: { x: 0, y: 0 } });
 
-  // temp preview (geen state-writes tijdens drag)
+  // temp preview
   const tempBedMove = useRef<null | { dx: number; dy: number }>(null);
   const tempBedIds = useRef<string[]>([]);
   const tempObjMove = useRef<null | { dx: number; dy: number }>(null);
   const tempObjIds = useRef<string[]>([]);
 
-  const startDragIfNeeded = (sx: number, sy: number) => {
-    const ds = dragState.current;
-    if (ds.started) return true;
-    const dist = Math.hypot(sx - ds.startSx, sy - ds.startSy);
-    if (dist >= dragThresholdPx) {
-      ds.started = true;
-      if (ds.mode === "drag-beds") {
-        tempBedMove.current = { dx: 0, dy: 0 };
-        tempBedIds.current = selection.filter((s) => s?.kind === "bed").map((s) => (s as any).id as string);
-      }
-      if (ds.mode === "drag-objects") {
-        tempObjMove.current = { dx: 0, dy: 0 };
-        tempObjIds.current = selection.filter((s) => s?.kind === "obj").map((s) => (s as any).id as string);
-      }
-      return true;
-    }
-    return false;
+  // hover -> cursor
+  const [hovering, setHovering] = useState<"bed" | "obj" | null>(null);
+
+  // re-render throttle @ 60fps
+  const [, setDragTick] = useState(0);
+  const rafRef = useRef<number | null>(null);
+  const scheduleFrame = () => {
+    if (rafRef.current != null) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      setDragTick((t) => t + 1);
+    });
   };
+  useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
 
   function effectiveSnap(shift: boolean) {
-    // Shift keert snap tijdelijk om
     return shift ? !snapGrid : snapGrid;
   }
 
@@ -281,7 +364,7 @@ export function GardenPlotCanvas({
     const w = screenToWorld(sx, sy);
 
     if (tool === "ruler") {
-      dragState.current = { mode: "ruler", started: true, startSx: sx, startSy: sy, startWorld: w, prevPan: pan };
+      dragState.current = { mode: "ruler", startSx: sx, startSy: sy, startWorld: w, prevPan: pan };
       setRuler({ x1: w.x, y1: w.y, x2: w.x, y2: w.y });
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       return;
@@ -292,16 +375,24 @@ export function GardenPlotCanvas({
 
     if (o) {
       toggleSelect({ kind: "obj", id: o.id }, e.shiftKey);
-      dragState.current = { mode: "drag-objects", started: false, startSx: sx, startSy: sy, startWorld: w, prevPan: pan, altClone: e.altKey, lastShift: e.shiftKey };
+      dragState.current = { mode: "drag-objects", startSx: sx, startSy: sy, startWorld: w, prevPan: pan, altClone: e.altKey, lastShift: e.shiftKey };
+      tempObjMove.current = { dx: 0, dy: 0 };
+      // include huidige klik altijd in preview set
+      const selIds = selection.filter((s) => s?.kind === "obj").map((s) => (s as any).id as string);
+      tempObjIds.current = selIds.includes(o.id) ? selIds : [...selIds, o.id];
     } else if (b) {
       toggleSelect({ kind: "bed", id: b.id }, e.shiftKey);
-      dragState.current = { mode: "drag-beds", started: false, startSx: sx, startSy: sy, startWorld: w, prevPan: pan, altClone: e.altKey, lastShift: e.shiftKey };
+      dragState.current = { mode: "drag-beds", startSx: sx, startSy: sy, startWorld: w, prevPan: pan, altClone: e.altKey, lastShift: e.shiftKey };
+      tempBedMove.current = { dx: 0, dy: 0 };
+      const selIds = selection.filter((s) => s?.kind === "bed").map((s) => (s as any).id as string);
+      tempBedIds.current = selIds.includes(b.id) ? selIds : [...selIds, b.id];
     } else {
       if (!e.shiftKey) clearSelection();
-      dragState.current = { mode: "pan", started: false, startSx: sx, startSy: sy, startWorld: w, prevPan: pan };
+      dragState.current = { mode: "pan", startSx: sx, startSy: sy, startWorld: w, prevPan: pan };
     }
 
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    scheduleFrame();
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -310,12 +401,15 @@ export function GardenPlotCanvas({
     const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
     const w = screenToWorld(sx, sy);
     const ds = dragState.current;
-    if (ds.mode === "none") return;
 
-    ds.lastShift = e.shiftKey;
+    // hover cursor als we niet aan het pannen/draggen zijn
+    if (ds.mode === "none" || ds.mode === "pan") {
+      const o = hitObj(w.x, w.y);
+      const b = !o ? hitBed(w.x, w.y) : null;
+      setHovering(o ? "obj" : b ? "bed" : null);
+    }
 
     if (ds.mode === "pan") {
-      if (!startDragIfNeeded(sx, sy)) return;
       const dx = sx - ds.startSx, dy = sy - ds.startSy;
       setPan({ x: ds.prevPan.x + dx, y: ds.prevPan.y + dy });
       return;
@@ -325,17 +419,18 @@ export function GardenPlotCanvas({
       return;
     }
 
-    // Drag preview
-    if (!startDragIfNeeded(sx, sy)) return;
+    // live preview
     const dxw = w.x - ds.startWorld.x;
     const dyw = w.y - ds.startWorld.y;
 
     if (ds.mode === "drag-beds") {
       tempBedMove.current = { dx: dxw, dy: dyw };
+      scheduleFrame();
       return;
     }
     if (ds.mode === "drag-objects") {
       tempObjMove.current = { dx: dxw, dy: dyw };
+      scheduleFrame();
       return;
     }
   };
@@ -354,7 +449,6 @@ export function GardenPlotCanvas({
           .filter((b) => tempBedIds.current.includes(b.id))
           .map((b) => onBedMove(b.id, (b.location_x ?? 0) + sdx, (b.location_y ?? 0) + sdy))
       ).catch(() => {});
-      // Alt = dupliceren van bed(den)
       if (ds.altClone && onBedDuplicate) {
         beds.filter((b) => tempBedIds.current.includes(b.id)).forEach((b) => onBedDuplicate(b));
       }
@@ -385,15 +479,17 @@ export function GardenPlotCanvas({
     }
     tempObjMove.current = null;
     tempObjIds.current = [];
+    scheduleFrame();
   };
 
   const onPointerUp = async () => {
     await commitMoves();
-    dragState.current = { ...dragState.current, mode: "none", started: false };
+    dragState.current = { ...dragState.current, mode: "none" };
   };
-
-  // ook committen bij cancel/leave
-  const onPointerCancel = async () => { await commitMoves(); dragState.current = { ...dragState.current, mode: "none", started: false }; };
+  const onPointerCancel = async () => {
+    await commitMoves();
+    dragState.current = { ...dragState.current, mode: "none" };
+  };
 
   // ===== Keyboard
   useEffect(() => {
@@ -413,15 +509,39 @@ export function GardenPlotCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection]);
 
-  // ===== Inspector helpers
+  // ===== Inspector helpers (incl. server persist voor bed-afmetingen)
   const updateSelected = (patch: Partial<PlotObject> & Partial<BedMeta>) => {
+    // Patch objects
     setObjects((prev) => prev.map((o) => (isSelected("obj", o.id) ? { ...o, ...patch } : o)));
-    setBedMeta((prev) => {
-      const next = { ...prev };
-      for (const s of selection) if (s?.kind === "bed") next[s.id] = { ...(next[s.id] || {}), ...(patch as BedMeta) };
-      return next;
-    });
+
+    // Patch bed meta (z/w/h) + persist sizes
+    const selectedBedIds = selection.filter((s): s is { kind: "bed"; id: string } => !!s && s.kind === "bed").map((s) => s.id);
+
+    if (Object.prototype.hasOwnProperty.call(patch, "w") || Object.prototype.hasOwnProperty.call(patch, "h") || Object.prototype.hasOwnProperty.call(patch, "z")) {
+      setBedMeta((prev) => {
+        const next = { ...prev };
+        for (const id of selectedBedIds) {
+          next[id] = { ...(next[id] || {}), ...(patch as BedMeta) };
+        }
+        return next;
+      });
+    }
+
+    // Persist nieuwe breedte/lengte (indien meegegeven)
+    if (selectedBedIds.length && (Object.prototype.hasOwnProperty.call(patch, "w") || Object.prototype.hasOwnProperty.call(patch, "h"))) {
+      for (const id of selectedBedIds) {
+        const b = beds.find((x) => x.id === id);
+        if (!b) continue;
+        const current = getBedSize(b);
+        const newW = (patch as any).w ?? current.w;
+        const newH = (patch as any).h ?? current.h;
+        const safeW = clamp(Math.round(newW), 20, 2000);
+        const safeH = clamp(Math.round(newH), 20, 2000);
+        updateBed(id, { width_cm: safeW, length_cm: safeH }).catch(() => {});
+      }
+    }
   };
+
   const removeSelectedObjects = () => {
     setObjects((p) => p.filter((o) => !isSelected("obj", o.id)));
     setSelection((sel) => sel.filter((s) => s?.kind !== "obj"));
@@ -435,7 +555,8 @@ export function GardenPlotCanvas({
       if (s.kind === "bed") {
         const b = beds.find((x) => x.id === s.id)!;
         const add = tempBedMove.current && tempBedIds.current.includes(b.id) ? tempBedMove.current : { dx: 0, dy: 0 };
-        return { x: (b.location_x ?? 0) + add.dx, y: (b.location_y ?? 0) + add.dy, w: b.width_cm ?? 100, h: b.length_cm ?? 300 };
+        const { w, h } = getBedSize(b);
+        return { x: (b.location_x ?? 0) + add.dx, y: (b.location_y ?? 0) + add.dy, w, h };
       }
       const o = objects.find((x) => x.id === s.id)!;
       const add = tempObjMove.current && tempObjIds.current.includes(o.id) ? tempObjMove.current : { dx: 0, dy: 0 };
@@ -455,7 +576,7 @@ export function GardenPlotCanvas({
       for (const s of sels) {
         if (s.kind === "obj") {
           const o = objects.find((x) => x.id === s.id)!;
-          if (Math.abs(o.x - e.x) < 0.001 && Math.abs(o.y - e.y) < 0.001) { patchObj[o.id] = { ...o, x: nx, y: ny } as any; break; }
+          if (Math.abs(o.x - e.x) < 0.001 && Math.abs(o.y - e.y) < 0.001) { patchObj[o.id] = { ...o, x: nx, y: ny }; break; }
         } else {
           const b = beds.find((x) => x.id === s.id)!;
           const bx = (b.location_x ?? 0), by = (b.location_y ?? 0);
@@ -489,23 +610,22 @@ export function GardenPlotCanvas({
     Promise.all(Object.entries(patchBed).map(([id, v]) => onBedMove(id, v.x!, v.y!))).catch(() => {});
   };
 
-  // ===== BBox helpers (zonder rotatie)
+  // ===== BBox helpers
   function getBBoxForSel() {
     const rects: { minX: number; maxX: number; minY: number; maxY: number }[] = [];
     for (const s of selection) {
       if (!s) continue;
       if (s.kind === "bed") {
         const b = beds.find((x) => x.id === s.id); if (!b) continue;
-        const hw = (b.width_cm ?? 100) / 2, hh = (b.length_cm ?? 100) / 2;
+        const { w, h } = getBedSize(b);
         const add = tempBedMove.current && tempBedIds.current.includes(b.id) ? tempBedMove.current : { dx: 0, dy: 0 };
         const cx = (b.location_x ?? 0) + add.dx, cy = (b.location_y ?? 0) + add.dy;
-        rects.push({ minX: cx - hw, maxX: cx + hw, minY: cy - hh, maxY: cy + hh });
+        rects.push({ minX: cx - w / 2, maxX: cx + w / 2, minY: cy - h / 2, maxY: cy + h / 2 });
       } else {
         const o = objects.find((x) => x.id === s.id); if (!o) continue;
-        const hw = o.w / 2, hh = o.h / 2;
         const add = tempObjMove.current && tempObjIds.current.includes(o.id) ? tempObjMove.current : { dx: 0, dy: 0 };
         const cx = o.x + add.dx, cy = o.y + add.dy;
-        rects.push({ minX: cx - hw, maxX: cx + hw, minY: cy - hh, maxY: cy + hh });
+        rects.push({ minX: cx - o.w / 2, maxX: cx + o.w / 2, minY: cy - o.h / 2, maxY: cy + o.h / 2 });
       }
     }
     if (!rects.length) return null;
@@ -518,14 +638,6 @@ export function GardenPlotCanvas({
   }
 
   // ===== Inspector UI
-  function Num({ label, value, onChange, disabled }: { label: string; value: number; onChange: (v: number) => void; disabled?: boolean }) {
-    return (
-      <label className="text-[11px] text-muted-foreground block">
-        {label}
-        <input type="number" className="mt-1 w-full border rounded px-2 py-1 text-sm disabled:opacity-50" disabled={disabled} value={Number.isFinite(value) ? value : 0} onChange={(e) => onChange(parseFloat(e.target.value || "0"))} />
-      </label>
-    );
-  }
   function Inspector({
     selection,
     beds,
@@ -550,15 +662,17 @@ export function GardenPlotCanvas({
       if (!single) return null;
       if (single.kind === "bed") {
         const b = beds.find((x) => x.id === single.id); if (!b) return null;
+        const size = getBedSize(b);
         return {
+          id: b.id,
           title: b.name, type: b.is_greenhouse ? "Bak (Kas)" : "Bak",
-          w: b.width_cm ?? 120, h: b.length_cm ?? 300,
+          w: size.w, h: size.h,
           z: (bedMeta[b.id]?.z ?? DEFAULT_BED_HEIGHT_CM),
-          editable: { z: true, label: false, size: false },
+          editable: { z: true, label: false, size: true },
         };
       } else {
         const o = objects.find((x) => x.id === single.id); if (!o) return null;
-        return { title: o.label || o.type, type: `Object (${o.type})`, w: o.w, h: o.h, z: o.z, editable: { z: true, label: true, size: true } };
+        return { id: o.id, title: o.label || o.type, type: `Object (${o.type})`, w: o.w, h: o.h, z: o.z, editable: { z: true, label: true, size: true } };
       }
     }, [single, beds, bedMeta, objects]);
 
@@ -575,16 +689,48 @@ export function GardenPlotCanvas({
           <div className="p-3 space-y-3">
             <div>
               <div className="text-[11px] text-muted-foreground">Titel/label</div>
-              <input className="w-full border rounded px-2 py-1 text-sm" disabled={!info.editable.label} value={info.title} onChange={(e) => info.editable.label && onPatch({ label: e.target.value })} />
+              <input
+                className="w-full border rounded px-2 py-1 text-sm"
+                disabled={single.kind === "bed"}
+                value={info.title}
+                onChange={(e) => single.kind === "obj" && onPatch({ label: e.target.value })}
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-2">
-              <Num label="Breedte (cm)" value={info.w} disabled={!info.editable.size} onChange={(v) => info.editable.size && onPatch({ w: v })} />
-              <Num label="Lengte (cm)" value={info.h} disabled={!info.editable.size} onChange={(v) => info.editable.size && onPatch({ h: v })} />
+              <NumericField
+                key={(info.id ?? "") + "-w"}
+                label="Breedte (cm)"
+                value={info.w}
+                step={5}
+                min={20}
+                max={2000}
+                disabled={!info.editable.size}
+                onCommit={(v) => onPatch({ w: v })}
+              />
+              <NumericField
+                key={(info.id ?? "") + "-h"}
+                label="Lengte (cm)"
+                value={info.h}
+                step={5}
+                min={20}
+                max={2000}
+                disabled={!info.editable.size}
+                onCommit={(v) => onPatch({ h: v })}
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-2">
-              <Num label="Hoogte (cm)" value={info.z} onChange={(v) => onPatch({ z: v })} />
+              <NumericField
+                key={(info.id ?? "") + "-z"}
+                label="Hoogte (cm)"
+                value={info.z}
+                step={1}
+                min={0}
+                max={1000}
+                onCommit={(v) => onPatch({ z: v })}
+              />
+              <div />
             </div>
 
             <div className="flex items-center gap-2">
@@ -646,6 +792,9 @@ export function GardenPlotCanvas({
 
     return (
       <g transform={`translate(${o.x + dx}, ${o.y + dy})`}>
+        {/* grotere (onzichtbare) hitbox om slepen makkelijk te maken */}
+        <rect x={-o.w / 2 - 8} y={-o.h / 2 - 8} width={o.w + 16} height={o.h + 16} fill="transparent" pointerEvents="all" />
+
         {o.z > 0 && (
           <g opacity={0.35} transform={`translate(${e.dx / scale}, ${e.dy / scale})`}>
             <rect x={-o.w / 2} y={-o.h / 2} width={o.w} height={o.h} rx={6} ry={6} fill="#000" />
@@ -691,7 +840,7 @@ export function GardenPlotCanvas({
         <button className={cn("inline-flex items-center justify-center w-8 h-8 rounded-md border transition", snapGrid ? "bg-primary/10" : "bg-white hover:bg-muted")} title="Snappen aan raster (Shift draait tijdelijk om)" onClick={() => setSnapGrid((v) => !v)}>
           <Square className="w-4 h-4" />
         </button>
-        {/* Optionele vaste stap (10/20/50 cm) */}
+        {/* Vaste stap (Auto/10/20/50 cm) */}
         <div className="ml-1 inline-flex items-center gap-1">
           {[0, 10, 20, 50].map((s) => (
             <button key={s} title={s ? `Rasterstap ${s} cm` : "Auto stap"} className={cn("px-2 h-8 text-[11px] rounded border", fixedStep === (s as any) ? "bg-primary/10" : "bg-white hover:bg-muted")} onClick={() => setFixedStep(s as any)}>
@@ -756,8 +905,8 @@ export function GardenPlotCanvas({
           touchAction: "none",
           cursor:
             dragState.current.mode === "drag-beds" || dragState.current.mode === "drag-objects" || dragState.current.mode === "pan"
-              ? (dragState.current.started ? "grabbing" : "grab")
-              : "default",
+              ? "grabbing"
+              : hovering ? "grab" : "default",
         }}
       >
         <svg className="absolute inset-0" width="100%" height="100%">
@@ -775,8 +924,9 @@ export function GardenPlotCanvas({
 
             {/* Beds */}
             {beds.map((b) => {
+              const { w, h } = getBedSize(b);
               const z = bedMeta[b.id]?.z ?? DEFAULT_BED_HEIGHT_CM;
-              const w = b.width_cm ?? 120, h = b.length_cm ?? 300, segs = Math.max(1, b.segments ?? 1);
+              const segs = Math.max(1, b.segments ?? 1);
               const styles = bedStyles(!!b.is_greenhouse);
               const ext = extrudeOffset(z);
               const add = tempBedMove.current && tempBedIds.current.includes(b.id) ? tempBedMove.current : { dx: 0, dy: 0 };
@@ -784,13 +934,16 @@ export function GardenPlotCanvas({
 
               return (
                 <g key={b.id} transform={`translate(${cx}, ${cy})`}>
+                  {/* grotere hitbox */}
+                  <rect x={-w / 2 - 8} y={-h / 2 - 8} width={w + 16} height={h + 16} fill="transparent" pointerEvents="all" />
+
                   {/* pseudo 3D */}
                   <g opacity={0.45} transform={`translate(${ext.dx / scale}, ${ext.dy / scale})`}>
                     <rect x={-w / 2} y={-h / 2} width={w} height={h} rx={6 / scale} ry={6 / scale} fill="#000" />
                   </g>
                   {/* wood border */}
                   <rect x={-w / 2} y={-h / 2} width={w} height={h} rx={6 / scale} ry={6 / scale} fill="url(#wood)" style={{ fill: styles.wood }} />
-                  {/* inner soil / glass */}
+                  {/* inner soil */}
                   <rect x={-w / 2 + 4} y={-h / 2 + 4} width={w - 8} height={h - 8} rx={4 / scale} ry={4 / scale} fill="url(#soil)" style={{ fill: styles.soil }} />
                   {/* segments */}
                   <g stroke="rgba(255,255,255,0.35)" strokeWidth={0.8 / scale}>
