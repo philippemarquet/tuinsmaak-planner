@@ -1,434 +1,410 @@
-// src/components/GardenPlotCanvas.tsx — VERVANGING (drop‑in)
-// Props blijven identiek aan je huidige BedsPage-import:
-// <GardenPlotCanvas beds={beds} storagePrefix="bedsLayout" onBedMove onBedDuplicate />
-//
-// Highlights:
-// - Auto‑fit om alles netjes in beeld te brengen (knop + initial)
-// - Zoom (muiswiel / knoppen) en pannen (slepen op achtergrond)
-// - Snappen aan raster (toggle) + raster overlay (toggle)
-// - Draggen van bakken; bij loslaten wordt onBedMove(id, x, y) aangeroepen
-// - Minimap + schaalbalk
-// - Houten rand + aarde‑vlak binnenin; segment‑markeringen; naam‑label
-// - Transform (zoom/positie) en toggles worden bewaard met storagePrefix
+// src/components/GardenPlotCanvas.tsx — Luxe redesign (drop‑in replacement)
+// - behoudt exact dezelfde props als in BedsPage wordt gebruikt
+// - veel mooiere, rustige visual met auto‑fit, zoom/pan, snap, schaalbalk
+// - duidelijke stijlverschillen tussen Buiten (hout) en Kas (glas)
+// - gebruikt bed.location_x / bed.location_y als wereld‑coördinaten
+// - geen extra bestanden of libs nodig
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GardenBed, UUID } from "../lib/types";
 import { cn } from "../lib/utils";
-import { ZoomIn, ZoomOut, Maximize2, Grid3X3, Magnet, Copy, Move, Ruler } from "lucide-react";
+import { ZoomIn, ZoomOut, Scan, Target, Ruler, Copy, Move, Square } from "lucide-react";
 
-/* =============================
-   Config & helpers
-============================= */
-const CM_TO_PX = 2; // render-schaal voor cm → px in de wereld-coördinaten
-const FIT_PADDING = 40; // wereld-padding in px bij fit
-const MIN_SCALE = 0.2;
-const MAX_SCALE = 4;
-const GRID_STEP = 50; // wereld-px (voor raster)
-const SNAP_STEP = 10; // wereld-px (snappen)
-
-function useSize(ref: React.RefObject<HTMLElement>) {
-  const [size, setSize] = useState({ w: 0, h: 0 });
-  useEffect(() => {
-    if (!ref.current) return;
-    const ro = new ResizeObserver((entries) => {
-      const r = entries[0].contentRect; setSize({ w: r.width, h: r.height });
-    });
-    ro.observe(ref.current);
-    return () => ro.disconnect();
-  }, [ref]);
-  return size;
-}
-
-function clamp(n: number, a: number, b: number) { return Math.max(a, Math.min(b, n)); }
-
-function loadBool(key: string, def = false) { try { return localStorage.getItem(key) === "1" ? true : def; } catch { return def; } }
-function saveBool(key: string, v: boolean) { try { localStorage.setItem(key, v ? "1" : "0") } catch {} }
-function loadNumber(key: string, def = 0) { try { const v = Number(localStorage.getItem(key)); return Number.isFinite(v) ? v : def; } catch { return def; } }
-function saveNumber(key: string, v: number) { try { localStorage.setItem(key, String(v)) } catch {} }
-
-function woodBg() {
-  return {
-    background:
-      "repeating-linear-gradient( 45deg, #d6b58c, #d6b58c 6px, #c7a076 6px, #c7a076 12px )",
-  } as React.CSSProperties;
-}
-function soilBg() {
-  return {
-    background:
-      "radial-gradient(#3f3f3f 1px, transparent 1px) 0 0/6px 6px, #2b2b2b",
-  } as React.CSSProperties;
-}
-
-/* =============================
-   Types
-============================= */
-export type GardenPlotCanvasProps = {
+/* ================= Types & Props ================= */
+export function GardenPlotCanvas({
+  beds,
+  storagePrefix = "bedsLayout",
+  onBedMove,
+  onBedDuplicate,
+}: {
   beds: GardenBed[];
   storagePrefix?: string;
-  onBedMove?: (id: UUID, x: number, y: number) => void | Promise<void>;
+  onBedMove: (id: UUID, x: number, y: number) => void | Promise<void>;
   onBedDuplicate?: (bed: GardenBed) => void | Promise<void>;
-};
+}) {
+  /* ================= State ================= */
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [view, setView] = useState<{
+    scale: number; // pixels per wereld‑unit
+    tx: number; // screen translation x (px)
+    ty: number; // screen translation y (px)
+    iso: boolean; // visuele isometrische tilt
+    showGrid: boolean;
+    snap: number; // wereld‑snapmaat
+    showLabels: boolean;
+  }>(() => {
+    const raw = localStorage.getItem(`${storagePrefix}:view`);
+    return raw
+      ? JSON.parse(raw)
+      : { scale: 0.5, tx: 0, ty: 0, iso: false, showGrid: true, snap: 10, showLabels: true };
+  });
 
-/* =============================
-   Component
-============================= */
-export function GardenPlotCanvas({ beds, storagePrefix = "gardenPlot", onBedMove, onBedDuplicate }: GardenPlotCanvasProps) {
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const { w: wrapW, h: wrapH } = useSize(wrapRef);
+  useEffect(() => {
+    localStorage.setItem(`${storagePrefix}:view`, JSON.stringify(view));
+  }, [view, storagePrefix]);
 
-  // transform (wereld → scherm)
-  const [scale, setScale] = useState(() => loadNumber(`${storagePrefix}:scale`, 1));
-  const [tx, setTx] = useState(() => loadNumber(`${storagePrefix}:tx`, 0));
-  const [ty, setTy] = useState(() => loadNumber(`${storagePrefix}:ty`, 0));
-
-  // toggles
-  const [showGrid, setShowGrid] = useState(() => loadBool(`${storagePrefix}:grid`, true));
-  const [snap, setSnap] = useState(() => loadBool(`${storagePrefix}:snap`, true));
-
-  useEffect(() => { saveNumber(`${storagePrefix}:scale`, scale); }, [scale, storagePrefix]);
-  useEffect(() => { saveNumber(`${storagePrefix}:tx`, tx); }, [tx, storagePrefix]);
-  useEffect(() => { saveNumber(`${storagePrefix}:ty`, ty); }, [ty, storagePrefix]);
-  useEffect(() => { saveBool(`${storagePrefix}:grid`, showGrid); }, [showGrid, storagePrefix]);
-  useEffect(() => { saveBool(`${storagePrefix}:snap`, snap); }, [snap, storagePrefix]);
-
-  // lokaal tijdens draggen
-  const [dragBedId, setDragBedId] = useState<string | null>(null);
-  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
-
-  // pannen van de achtergrond
-  const [panning, setPanning] = useState(false);
-  const panRef = useRef<{ sx: number; sy: number; stx: number; sty: number } | null>(null);
-
-  // wereldrects van bedden (px)
-  const worldBeds = useMemo(() => {
-    return (beds || []).map((b) => {
-      const bw = Math.max(10, (b.width_cm ?? 100) * CM_TO_PX);
-      const bh = Math.max(10, (b.length_cm ?? 100) * CM_TO_PX);
-      const x = Math.round(b.location_x ?? 0);
-      const y = Math.round(b.location_y ?? 0);
-      return { b, x, y, w: bw, h: bh };
-    });
+  /* ================= World bounds ================= */
+  type Rect = { x: number; y: number; w: number; h: number };
+  const bedRects: Map<string, Rect> = useMemo(() => {
+    const m = new Map<string, Rect>();
+    for (const b of beds) {
+      const x = (b.location_x ?? 0);
+      const y = (b.location_y ?? 0);
+      const w = Math.max(40, Number(b.width_cm ?? 120));
+      const h = Math.max(40, Number(b.length_cm ?? 300));
+      m.set(b.id, { x, y, w, h });
+    }
+    return m;
   }, [beds]);
 
-  // wereld-bounds
   const worldBounds = useMemo(() => {
-    if (worldBeds.length === 0) return { minX: 0, minY: 0, maxX: 1000, maxY: 700 };
+    if (beds.length === 0) return { x: 0, y: 0, w: 1000, h: 700 };
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const r of worldBeds) {
+    for (const r of bedRects.values()) {
       minX = Math.min(minX, r.x);
       minY = Math.min(minY, r.y);
       maxX = Math.max(maxX, r.x + r.w);
       maxY = Math.max(maxY, r.y + r.h);
     }
-    // altijd wat padding
-    return { minX: minX - FIT_PADDING, minY: minY - FIT_PADDING, maxX: maxX + FIT_PADDING, maxY: maxY + FIT_PADDING };
-  }, [worldBeds]);
+    const pad = 100; // wereld‑marge
+    return { x: minX - pad, y: minY - pad, w: (maxX - minX) + pad * 2, h: (maxY - minY) + pad * 2 };
+  }, [bedRects, beds.length]);
 
-  const worldW = worldBounds.maxX - worldBounds.minX;
-  const worldH = worldBounds.maxY - worldBounds.minY;
-
-  // initial fit (eenmalig bij mount of wanneer er nog nooit gespeelde transform is)
-  const didInitialFit = useRef(false);
-  useEffect(() => {
-    if (didInitialFit.current) return;
-    // Herken default state: wanneer tx,ty,scale uit storage allemaal 0/1 en container heeft afmeting
-    if (wrapW > 0 && wrapH > 0 && loadNumber(`${storagePrefix}:init`, 0) !== 1) {
-      fitToScreen();
-      saveNumber(`${storagePrefix}:init`, 1);
-      didInitialFit.current = true;
+  /* ================= Fit to container ================= */
+  const fitToScreen = useCallback((animate = true) => {
+    const el = wrapRef.current; if (!el) return;
+    const box = el.getBoundingClientRect();
+    const pad = 32; // scherm‑marge
+    const scaleX = (box.width - pad) / Math.max(100, worldBounds.w);
+    const scaleY = (box.height - pad) / Math.max(100, worldBounds.h);
+    const scale = clamp(Math.min(scaleX, scaleY), 0.15, 4);
+    const tx = Math.round(pad/2 - worldBounds.x * scale + (box.width - (worldBounds.w * scale) - pad)/2);
+    const ty = Math.round(pad/2 - worldBounds.y * scale + (box.height - (worldBounds.h * scale) - pad)/2);
+    if (!animate) { setView(v => ({ ...v, scale, tx, ty })); return; }
+    // eenvoudige animatie
+    const start = performance.now();
+    const s0 = view.scale, tx0 = view.tx, ty0 = view.ty;
+    const dur = 220;
+    function step(t: number) {
+      const k = Math.min(1, (t - start) / dur);
+      const e = easeOutCubic(k);
+      setView(v => ({ ...v, scale: lerp(s0, scale, e), tx: lerp(tx0, tx, e), ty: lerp(ty0, ty, e) }));
+      if (k < 1) requestAnimationFrame(step);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wrapW, wrapH, worldW, worldH]);
+    requestAnimationFrame(step);
+  }, [worldBounds, view.scale, view.tx, view.ty]);
 
-  function fitToScreen() {
-    if (!wrapW || !wrapH) return;
-    const s = Math.min(wrapW / worldW, wrapH / worldH);
-    const targetScale = clamp(s, 0.1, 1.5);
-    const nt = (wrapW - worldW * targetScale) / 2 - worldBounds.minX * targetScale;
-    const ny = (wrapH - worldH * targetScale) / 2 - worldBounds.minY * targetScale;
-    setScale(targetScale); setTx(nt); setTy(ny);
-  }
+  useEffect(() => { fitToScreen(false); }, [fitToScreen, beds.length]);
 
-  // muiswiel zoom rond cursor
-  function handleWheel(e: React.WheelEvent) {
+  /* ================= Wheel zoom (pointer‑centered) ================= */
+  const onWheel = useCallback((e: React.WheelEvent) => {
     if (!wrapRef.current) return;
-    const rect = wrapRef.current.getBoundingClientRect();
-    const cx = e.clientX - rect.left; // scherm
-    const cy = e.clientY - rect.top;
+    e.preventDefault();
+    const delta = e.deltaY;
+    const factor = Math.exp(-delta * 0.0015);
+    const newScale = clamp(view.scale * factor, 0.15, 4);
+    const box = wrapRef.current.getBoundingClientRect();
+    const sx = e.clientX - box.left; const sy = e.clientY - box.top;
+    const wx = (sx - view.tx) / view.scale; const wy = (sy - view.ty) / view.scale;
+    const tx = sx - wx * newScale; const ty = sy - wy * newScale;
+    setView(v => ({ ...v, scale: newScale, tx, ty }));
+  }, [view.scale, view.tx, view.ty]);
 
-    const delta = -e.deltaY; // naar boven = inzoomen
-    const zoomFactor = Math.exp(delta * 0.0015); // soepel
-    const newScale = clamp(scale * zoomFactor, MIN_SCALE, MAX_SCALE);
-
-    // wereld-coörd van cursor vóór
-    const wx = (cx - tx) / scale;
-    const wy = (cy - ty) / scale;
-
-    // nieuwe translate zodat dezelfde wereld-coörd onder de cursor blijft
-    const ntx = cx - wx * newScale;
-    const nty = cy - wy * newScale;
-
-    setScale(newScale); setTx(ntx); setTy(nty);
-  }
-
-  // pannen door achtergrond te slepen
-  function onBgPointerDown(e: React.PointerEvent) {
-    // alleen linker muisknop
-    if (e.button !== 0) return;
+  /* ================= Panning (background drag) ================= */
+  const panRef = useRef<{ sx: number; sy: number; tx0: number; ty0: number } | null>(null);
+  const onBgPointerDown = (e: React.PointerEvent) => {
+    const el = (e.target as HTMLElement);
+    if (el.closest('[data-bed]')) return; // niet pannen als op bed geklikt
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    setPanning(true);
-    panRef.current = { sx: e.clientX, sy: e.clientY, stx: tx, sty: ty };
-  }
-  function onBgPointerMove(e: React.PointerEvent) {
-    if (!panning || !panRef.current) return;
+    panRef.current = { sx: e.clientX, sy: e.clientY, tx0: view.tx, ty0: view.ty };
+  };
+  const onBgPointerMove = (e: React.PointerEvent) => {
+    if (!panRef.current) return;
     const dx = e.clientX - panRef.current.sx;
     const dy = e.clientY - panRef.current.sy;
-    setTx(panRef.current.stx + dx);
-    setTy(panRef.current.sty + dy);
-  }
-  function onBgPointerUp(e: React.PointerEvent) {
-    if (!panning) return;
-    setPanning(false);
-    panRef.current = null;
+    setView(v => ({ ...v, tx: panRef.current!.tx0 + dx, ty: panRef.current!.ty0 + dy }));
+  };
+  const onBgPointerUp = (e: React.PointerEvent) => {
     try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
-  }
+    panRef.current = null;
+  };
 
-  // dragging van individuele bedden (wereld-coördinaten)
-  function worldFromClient(clientX: number, clientY: number) {
-    const rect = wrapRef.current!.getBoundingClientRect();
-    const sx = clientX - rect.left; const sy = clientY - rect.top;
-    return { wx: (sx - tx) / scale, wy: (sy - ty) / scale };
-  }
+  /* ================= Dragging beds (wereld‑coördinaten) ================= */
+  type DragState = { id: string; offX: number; offY: number } | null;
+  const [drag, setDrag] = useState<DragState>(null);
 
-  function onBedPointerDown(e: React.PointerEvent, r: { b: GardenBed; x: number; y: number; w: number; h: number }) {
-    e.stopPropagation(); // voorkom panning
-    if (e.button !== 0) return;
+  const toWorld = (sx: number, sy: number) => ({
+    x: (sx - view.tx) / view.scale,
+    y: (sy - view.ty) / view.scale,
+  });
+
+  const onBedPointerDown = (e: React.PointerEvent, id: string) => {
+    const r = bedRects.get(id); if (!r) return;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    const { wx, wy } = worldFromClient(e.clientX, e.clientY);
-    dragRef.current = { startX: wx, startY: wy, origX: r.x, origY: r.y };
-    setDragBedId(r.b.id);
-  }
-  function onBedPointerMove(e: React.PointerEvent) {
-    if (!dragRef.current || !dragBedId) return;
-    const { wx, wy } = worldFromClient(e.clientX, e.clientY);
-    const dx = wx - dragRef.current.startX;
-    const dy = wy - dragRef.current.startY;
-    const nx = dragRef.current.origX + dx;
-    const ny = dragRef.current.origY + dy;
-    // live positie updaten door state te vervangen (zonder globale mutaties)
-    // We gebruiken hier setLocalShift zodat alleen het gesleepte bed visueel verplaatst.
-    setLocalShift({ id: dragBedId, x: nx, y: ny });
-  }
-  function onBedPointerUp(_: React.PointerEvent) {
-    if (!dragRef.current || !dragBedId) return;
-    const nx = currentBedPos(dragBedId).x;
-    const ny = currentBedPos(dragBedId).y;
-    // snap
-    const sx = snap ? Math.round(nx / SNAP_STEP) * SNAP_STEP : Math.round(nx);
-    const sy = snap ? Math.round(ny / SNAP_STEP) * SNAP_STEP : Math.round(ny);
+    const box = wrapRef.current!.getBoundingClientRect();
+    const sx = e.clientX - box.left; const sy = e.clientY - box.top;
+    const w = toWorld(sx, sy);
+    setDrag({ id, offX: w.x - r.x, offY: w.y - r.y });
+  };
 
-    // persist via callback
-    if (onBedMove) onBedMove(dragBedId as UUID, sx, sy);
+  const onBedPointerMove = (e: React.PointerEvent) => {
+    if (!drag) return;
+    const box = wrapRef.current!.getBoundingClientRect();
+    const sx = e.clientX - box.left; const sy = e.clientY - box.top;
+    const w = toWorld(sx, sy);
+    const nx = w.x - drag.offX; const ny = w.y - drag.offY;
+    // live position in map (zonder commit)
+    setLivePos({ id: drag.id, x: nx, y: ny });
+  };
 
-    // reset drag
-    dragRef.current = null;
-    setDragBedId(null);
-    setLocalShift(null);
-  }
+  const onBedPointerUp = async (e: React.PointerEvent) => {
+    if (!drag) return;
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
+    const { id } = drag;
+    const lp = livePos; setDrag(null); setLivePos(null);
+    const r = bedRects.get(id); if (!r) return;
+    const nx = Math.round(applySnap(lp?.x ?? r.x, view.snap));
+    const ny = Math.round(applySnap(lp?.y ?? r.y, view.snap));
+    if (nx !== r.x || ny !== r.y) await onBedMove(id as UUID, nx, ny);
+  };
 
-  // live verschuiving voor 1 bed
-  const [localShift, setLocalShift] = useState<{ id: string; x: number; y: number } | null>(null);
-  function currentBedPos(id: string) {
-    const w = worldBeds.find((r) => r.b.id === id);
-    if (!w) return { x: 0, y: 0 };
-    if (localShift && localShift.id === id) return { x: localShift.x, y: localShift.y };
-    return { x: w.x, y: w.y };
-  }
+  const [livePos, setLivePos] = useState<{ id: string; x: number; y: number } | null>(null);
 
-  // toolbar acties
-  function zoom(step: number) {
-    const factor = step > 0 ? 1.2 : 1 / 1.2;
-    const newScale = clamp(scale * factor, MIN_SCALE, MAX_SCALE);
-    // zoom naar center van viewport
-    const cx = wrapW / 2, cy = wrapH / 2;
-    const wx = (cx - tx) / scale, wy = (cy - ty) / scale;
-    const ntx = cx - wx * newScale, nty = cy - wy * newScale;
-    setScale(newScale); setTx(ntx); setTy(nty);
-  }
+  /* ================= Controls ================= */
+  const zoomBy = (f: number) => {
+    if (!wrapRef.current) return;
+    const box = wrapRef.current.getBoundingClientRect();
+    const sx = box.width / 2, sy = box.height / 2; // center zoom
+    const newScale = clamp(view.scale * f, 0.15, 4);
+    const wx = (sx - view.tx) / view.scale; const wy = (sy - view.ty) / view.scale;
+    const tx = sx - wx * newScale; const ty = sy - wy * newScale;
+    setView(v => ({ ...v, scale: newScale, tx, ty }));
+  };
 
-  // schaalbalk (ongeveer): 100 wereld‑px = ? cm
-  const pxPerCm = CM_TO_PX; // 1 cm = 2 px in wereld
-  const screenPxPer10cm = 10 * pxPerCm * scale; // 10 cm op scherm in px
-  // Kies mooie stap (10 cm of 50 cm of 1 m)
-  const niceSteps = [10, 20, 50, 100]; // cm
-  const { scaleCm, scalePx } = useMemo(() => {
-    let cm = 10; let px = screenPxPer10cm;
-    for (const s of niceSteps) {
-      const p = s * pxPerCm * scale;
-      if (p >= 60 && p <= 180) { cm = s; px = p; break; }
-    }
-    return { scaleCm: cm, scalePx: Math.max(1, Math.round(px)) };
-  }, [scale]);
+  /* ================= Rendering helpers ================= */
+  const gridStyle: React.CSSProperties = useMemo(() => {
+    if (!view.showGrid) return { background: "transparent" };
+    const step = Math.max(10, view.snap);
+    const s = step * view.scale;
+    return {
+      backgroundImage:
+        `repeating-linear-gradient(0deg, rgba(0,0,0,0.04), rgba(0,0,0,0.04) 1px, transparent 1px, transparent ${s}px),` +
+        `repeating-linear-gradient(90deg, rgba(0,0,0,0.04), rgba(0,0,0,0.04) 1px, transparent 1px, transparent ${s}px)`,
+      backgroundSize: `${s}px ${s}px, ${s}px ${s}px`,
+    } as React.CSSProperties;
+  }, [view.showGrid, view.scale, view.snap]);
 
-  /* =============================
-     Render
-  ============================= */
+  const styleScene = {
+    transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.scale})`,
+    transformOrigin: "0 0",
+  } as React.CSSProperties;
+
+  /* ================== UI ================== */
   return (
-    <div className="relative w-full h-[70vh] rounded-xl border bg-background overflow-hidden" ref={wrapRef} onWheel={handleWheel}>
+    <div className="relative h-[70vh] w-full rounded-xl border bg-gradient-to-b from-neutral-50 to-neutral-100 overflow-hidden" ref={wrapRef} onWheel={onWheel}>
       {/* Toolbar */}
-      <div className="absolute z-20 top-3 left-3 flex items-center gap-1 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 border rounded-lg p-1 shadow-sm">
-        <button className="p-2 rounded hover:bg-muted" title="Uitzoomen" onClick={() => zoom(-1)}><ZoomOut className="w-4 h-4" /></button>
-        <button className="p-2 rounded hover:bg-muted" title="Inzoomen" onClick={() => zoom(1)}><ZoomIn className="w-4 h-4" /></button>
-        <button className="p-2 rounded hover:bg-muted" title="Passend maken" onClick={fitToScreen}><Maximize2 className="w-4 h-4" /></button>
-        <div className="w-px h-5 bg-border mx-1" />
-        <button className={cn("p-2 rounded hover:bg-muted", showGrid && "bg-muted") } title="Raster tonen/verbergen" onClick={() => setShowGrid(v => !v)}><Grid3X3 className="w-4 h-4" /></button>
-        <button className={cn("p-2 rounded hover:bg-muted", snap && "bg-muted") } title="Snappen aan raster" onClick={() => setSnap(v => !v)}><Magnet className="w-4 h-4" /></button>
+      <div className="absolute top-3 left-3 z-30 flex items-center gap-1.5 bg-white/80 backdrop-blur-md border rounded-lg p-1 shadow-sm">
+        <button className="icon-btn" title="Zoom uit" onClick={() => zoomBy(0.85)}><ZoomOut className="w-4 h-4"/></button>
+        <button className="icon-btn" title="Zoom in" onClick={() => zoomBy(1.15)}><ZoomIn className="w-4 h-4"/></button>
+        <div className="w-px h-5 bg-border mx-1"/>
+        <button className="icon-btn" title="Auto‑fit" onClick={() => fitToScreen()}><Scan className="w-4 h-4"/></button>
+        <div className="w-px h-5 bg-border mx-1"/>
+        <button className={cn("chip", view.iso && "chip-active")} onClick={() => setView(v => ({ ...v, iso: !v.iso }))} title="Isometrische weergave">ISO</button>
+        <button className={cn("chip", view.showGrid && "chip-active")} onClick={() => setView(v => ({ ...v, showGrid: !v.showGrid }))} title="Raster">Grid</button>
+        <button className={cn("chip", view.showLabels && "chip-active")} onClick={() => setView(v => ({ ...v, showLabels: !v.showLabels }))} title="Labels">Labels</button>
+        <div className="text-[10px] ml-1 px-1.5 py-0.5 rounded bg-muted text-muted-foreground">snap {view.snap}</div>
       </div>
 
-      {/* Schaalbalk */}
-      <div className="absolute z-20 bottom-3 left-3 flex items-center gap-2 px-2 py-1 rounded bg-background/80 border shadow-sm">
-        <Ruler className="w-3.5 h-3.5 text-muted-foreground" />
-        <div className="h-[6px] bg-foreground/80" style={{ width: `${scalePx}px` }} />
-        <span className="text-[10px] text-muted-foreground">{scaleCm} cm</span>
+      {/* Legend */}
+      <div className="absolute top-3 right-3 z-30 flex items-center gap-2 bg-white/80 backdrop-blur-md border rounded-lg p-2 shadow-sm">
+        <div className="flex items-center gap-1">
+          <div className="w-4 h-3 rounded-sm border shadow-inner" style={{ background: woodFill }}/>
+          <span className="text-[11px] text-muted-foreground">Buiten</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-4 h-3 rounded-sm border shadow-inner" style={{ background: glassFill }}/>
+          <span className="text-[11px] text-muted-foreground">Kas</span>
+        </div>
       </div>
 
-      {/* Minimap */}
-      <Minimap
-        className="absolute z-20 bottom-3 right-3"
-        width={160}
-        height={110}
-        world={{ x: worldBounds.minX, y: worldBounds.minY, w: worldW, h: worldH }}
-        view={{ tx, ty, scale, vw: wrapW, vh: wrapH }}
-        beds={worldBeds}
-      />
+      {/* Scale bar */}
+      <ScaleBar scale={view.scale} className="absolute bottom-3 left-3 z-30" />
 
-      {/* Achtergrond (pannen) + raster */}
+      {/* Scene */}
       <div
-        className={cn("absolute inset-0 cursor-", panning ? "grabbing" : "grab")}
+        className="absolute inset-0 cursor-[grab] active:cursor-[grabbing]"
         onPointerDown={onBgPointerDown}
         onPointerMove={onBgPointerMove}
         onPointerUp={onBgPointerUp}
       >
-        {/* Wereld layer met transform */}
-        <div
-          className="absolute top-0 left-0 will-change-transform"
-          style={{ transform: `translate(${tx}px, ${ty}px) scale(${scale})`, transformOrigin: "0 0" }}
-        >
-          {/* Raster */}
-          {showGrid && (
-            <div
-              className="pointer-events-none"
-              style={{
-                position: "absolute",
-                left: worldBounds.minX,
-                top: worldBounds.minY,
-                width: worldW,
-                height: worldH,
-                backgroundImage:
-                  `linear-gradient(to right, rgba(0,0,0,.05) 1px, transparent 1px),` +
-                  `linear-gradient(to bottom, rgba(0,0,0,.05) 1px, transparent 1px)`,
-                backgroundSize: `${GRID_STEP}px ${GRID_STEP}px`,
-              }}
-            />
-          )}
+        <div className="absolute inset-0" style={styleScene}>
+          <div className="absolute" style={{ left: worldBounds.x, top: worldBounds.y, width: worldBounds.w, height: worldBounds.h, ...gridStyle }} />
 
-          {/* Bakken */}
-          {worldBeds.map((r) => {
-            const pos = currentBedPos(r.b.id);
-            const selected = dragBedId === r.b.id;
-            const greenhouse = !!r.b.is_greenhouse;
-            const showSeg = Math.max(1, r.b.segments ?? 1);
-
+          {/* Beds */}
+          {beds.map((b) => {
+            const r = bedRects.get(b.id)!;
+            const live = livePos && livePos.id === b.id ? livePos : null;
+            const x = live ? live.x : r.x;
+            const y = live ? live.y : r.y;
+            const w = r.w; const h = r.h;
             return (
-              <div
-                key={r.b.id}
-                className={cn("absolute select-none", selected && "[filter:drop-shadow(0_6px_14px_rgba(0,0,0,.25))]")}
-                style={{ left: pos.x, top: pos.y, width: r.w, height: r.h }}
-                onPointerDown={(e) => onBedPointerDown(e, r)}
+              <BedShape
+                key={b.id}
+                id={b.id}
+                name={b.name}
+                greenhouse={!!b.is_greenhouse}
+                x={x}
+                y={y}
+                w={w}
+                h={h}
+                segments={Math.max(1, Number(b.segments ?? 1))}
+                iso={view.iso}
+                showLabel={view.showLabels}
+                onPointerDown={onBedPointerDown}
                 onPointerMove={onBedPointerMove}
                 onPointerUp={onBedPointerUp}
-              >
-                {/* Houten rand */}
-                <div className="relative w-full h-full rounded-xl" style={woodBg()}>
-                  <div className={cn("absolute inset-1 rounded-lg overflow-hidden", greenhouse && "ring-2 ring-emerald-500/60")}
-                       style={soilBg()}>
-                    {/* segment strepen (langs lengte) */}
-                    {showSeg > 1 && (
-                      <div className="absolute inset-0 pointer-events-none">
-                        {Array.from({ length: showSeg - 1 }).map((_, i) => (
-                          <div key={i} className="absolute left-0 right-0 border-t border-white/10"
-                               style={{ top: ((i + 1) * 100) / showSeg + "%" }} />
-                        ))}
-                      </div>
-                    )}
-                    {/* naam label */}
-                    <div className="absolute top-1 left-1 right-1 flex items-center justify-between text-[10px] text-white/90">
-                      <span className="px-1 py-0.5 bg-black/30 rounded">{r.b.name}</span>
-                      {greenhouse && <span className="px-1 py-0.5 bg-emerald-600/40 rounded">Kas</span>}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Acties (rechtsboven) */}
-                <div className="absolute -top-2 -right-2 flex gap-1">
-                  {onBedDuplicate && (
-                    <button
-                      className="p-1 rounded-full bg-background border shadow hover:bg-muted"
-                      title="Dupliceren"
-                      onClick={(e) => { e.stopPropagation(); onBedDuplicate(r.b); }}
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                  <div className="p-1 rounded-full bg-background border shadow text-muted-foreground cursor-move"><Move className="w-3.5 h-3.5" /></div>
-                </div>
-              </div>
+                onDuplicate={() => onBedDuplicate?.(b)}
+              />
             );
           })}
         </div>
       </div>
+
+      {/* Styles (utility classes) */}
+      <style>{`
+        .icon-btn{ @apply p-1.5 rounded-md hover:bg-muted transition-colors; }
+        .chip{ @apply px-2 py-0.5 text-[10px] rounded-md bg-muted text-muted-foreground hover:text-foreground; }
+        .chip-active{ @apply bg-primary text-primary-foreground; }
+      `}</style>
     </div>
   );
 }
 
-/* =============================
-   Minimap
-============================= */
-function Minimap({ className, width, height, world, view, beds }:{
-  className?: string;
-  width: number; height: number;
-  world: { x: number; y: number; w: number; h: number };
-  view: { tx: number; ty: number; scale: number; vw: number; vh: number };
-  beds: Array<{ b: GardenBed; x: number; y: number; w: number; h: number }>;
+/* ================= Bed visual ================= */
+const woodFill = "linear-gradient(135deg, #e2c8a3 0%, #c99a66 40%, #b7824a 100%)";
+const glassFill = "linear-gradient(180deg, rgba(160,220,255,0.45), rgba(140,210,255,0.3))";
+
+function BedShape({
+  id,
+  name,
+  greenhouse,
+  x,
+  y,
+  w,
+  h,
+  segments,
+  iso,
+  showLabel,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onDuplicate,
+}: {
+  id: string;
+  name: string;
+  greenhouse: boolean;
+  x: number; y: number; w: number; h: number;
+  segments: number;
+  iso: boolean;
+  showLabel: boolean;
+  onPointerDown: (e: React.PointerEvent, id: string) => void;
+  onPointerMove: (e: React.PointerEvent) => void;
+  onPointerUp: (e: React.PointerEvent) => void;
+  onDuplicate?: () => void;
 }) {
-  const s = Math.min(width / world.w, height / world.h);
-  const ox = -world.x * s;
-  const oy = -world.y * s;
+  const paneColor = greenhouse ? glassFill : woodFill;
+  const borderCol = greenhouse ? "#63b3ed" : "#9a6b3a";
 
-  // zichtbare viewport als wereld→screen→minimap
-  const vx1w = (0 - view.tx) / view.scale; // wereld x van linker schermrand
-  const vy1w = (0 - view.ty) / view.scale;
-  const vx2w = (view.vw - view.tx) / view.scale;
-  const vy2w = (view.vh - view.ty) / view.scale;
+  const content = (
+    <div
+      data-bed
+      className={cn(
+        "group absolute select-none",
+        iso ? "[transform:skewY(-8deg)_skewX(0deg)_translateZ(0)]" : ""
+      )}
+      style={{ left: x, top: y, width: w, height: h }}
+      onPointerDown={(e) => onPointerDown(e, id)}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+    >
+      {/* body */}
+      <div
+        className="relative w-full h-full rounded-lg shadow-[0_2px_10px_rgba(0,0,0,0.08)] overflow-hidden border"
+        style={{
+          borderColor: borderCol + "66",
+          background: greenhouse
+            ? paneColor
+            : `radial-gradient(120%_120%_at_20%_10%, rgba(255,255,255,0.25), rgba(255,255,255,0) 45%), ${paneColor}`,
+        }}
+      >
+        {/* inner rim / planks */}
+        <div className="absolute inset-1 rounded-md border" style={{ borderColor: borderCol + "66" }} />
 
-  const vLeft = vx1w * s + ox;
-  const vTop = vy1w * s + oy;
-  const vW = (vx2w - vx1w) * s;
-  const vH = (vy2w - vy1w) * s;
+        {/* segment lines (langs de lengte => verticale strepen) */}
+        {Array.from({ length: Math.max(0, segments - 1) }).map((_, i) => {
+          const px = Math.round(((i + 1) / segments) * w);
+          return (
+            <div key={i} className="absolute top-1 bottom-1 w-px" style={{ left: px, background: greenhouse ? "rgba(80,150,200,0.35)" : "rgba(80,50,20,0.25)" }} />
+          );
+        })}
 
+        {/* greenhouse panes */}
+        {greenhouse && (
+          <div className="absolute inset-0 pointer-events-none" style={{
+            backgroundImage:
+              `linear-gradient(90deg, rgba(255,255,255,0.35) 0, rgba(255,255,255,0.15) 10%, rgba(255,255,255,0.0) 30%),` +
+              `repeating-linear-gradient(90deg, rgba(99,179,237,0.2) 0 2px, transparent 2px 120px)`,
+            backgroundSize: `auto, 120px 100%`,
+          }} />
+        )}
+
+        {/* label */}
+        {showLabel && (
+          <div className="absolute left-2 top-2 right-2 flex items-center gap-2">
+            <div className="px-1.5 py-0.5 text-[11px] font-medium rounded bg-white/80 backdrop-blur-sm border shadow-sm truncate">
+              {name}
+            </div>
+            <div className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              {onDuplicate && (
+                <button className="p-1 rounded bg-white/70 hover:bg-white border" onClick={(e) => { e.stopPropagation(); onDuplicate(); }} title="Dupliceer"><Copy className="w-3.5 h-3.5"/></button>
+              )}
+              <div className="px-1.5 py-0.5 rounded text-[10px] bg-white/70 border text-muted-foreground flex items-center gap-1"><Move className="w-3 h-3"/> sleep</div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  return content;
+}
+
+/* ================= Scale bar ================= */
+function ScaleBar({ scale, className }: { scale: number; className?: string }) {
+  // toon een schaalbalk van ~100px op scherm
+  const targetPx = 120; // px op scherm
+  // wereld‑lengte die bij targetPx hoort
+  const worldLen = clamp(Math.round(targetPx / scale), 10, 500);
+  const screenLen = Math.round(worldLen * scale);
   return (
-    <div className={cn("pointer-events-none rounded-lg border bg-background/80 backdrop-blur shadow-sm p-1", className)} style={{ width, height }}>
-      <div className="relative w-full h-full overflow-hidden rounded" style={{ background: "repeating-linear-gradient( 45deg, #f5f5f5, #f5f5f5 6px, #eee 6px, #eee 12px )" }}>
-        {/* beds */}
-        {beds.map((r) => (
-          <div key={r.b.id} className={cn("absolute", r.b.is_greenhouse ? "bg-emerald-500/50" : "bg-stone-600/50")}
-               style={{ left: r.x * s + ox, top: r.y * s + oy, width: r.w * s, height: r.h * s }} />
-        ))}
-        {/* viewport */}
-        <div className="absolute ring-2 ring-primary/70 rounded-sm" style={{ left: vLeft, top: vTop, width: vW, height: vH }} />
+    <div className={cn("flex items-end gap-2 bg-white/80 backdrop-blur-md border rounded-lg p-2 shadow-sm", className)}>
+      <div className="flex items-center gap-2">
+        <Ruler className="w-4 h-4"/>
+        <div className="h-3 w-[1px] bg-foreground/60"/>
+        <div className="relative h-2.5" style={{ width: screenLen }}>
+          <div className="absolute inset-0 bg-foreground/70"/>
+          <div className="absolute inset-0" style={{ background: "repeating-linear-gradient(90deg, rgba(255,255,255,0.9) 0, rgba(255,255,255,0.9) 2px, transparent 2px, transparent 10px)" }} />
+        </div>
+        <div className="text-[11px] text-muted-foreground">≈ {worldLen} units</div>
       </div>
     </div>
   );
 }
 
-export default GardenPlotCanvas;
+/* ================= Utils ================= */
+function clamp(n: number, a: number, b: number) { return Math.max(a, Math.min(b, n)); }
+function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
+function easeOutCubic(t: number) { return 1 - Math.pow(1 - t, 3); }
+function applySnap(v: number, snap: number) {
+  return snap > 0 ? Math.round(v / snap) * snap : v;
+}
