@@ -32,6 +32,11 @@ export function BedModal({ bed, gardenId, onClose, onUpdated }: BedModalProps) {
   }
 
   async function handleSave() {
+    if (!editing && !gardenId) {
+      setError("Geen tuin geselecteerd: kan geen bak aanmaken zonder gardenId.");
+      return;
+    }
+
     try {
       setSaving(true);
       setError(null);
@@ -50,9 +55,9 @@ export function BedModal({ bed, gardenId, onClose, onUpdated }: BedModalProps) {
       if (editing && bed) {
         result = await updateBed(bed.id, patch);
       } else {
-        result = await createBed({ ...patch, garden_id: gardenId! });
+        result = await createBed({ ...patch, garden_id: gardenId });
       }
-      
+
       onUpdated(result);
       onClose();
     } catch (e: any) {

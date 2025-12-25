@@ -14,6 +14,10 @@ export async function listBeds(gardenId: UUID): Promise<GardenBed[]> {
 
 /** Nieuwe bak */
 export async function createBed(fields: Partial<GardenBed>): Promise<GardenBed> {
+  if (!fields.garden_id) {
+    throw new Error("Kan geen bak aanmaken: garden_id ontbreekt (selecteer eerst een tuin).");
+  }
+
   const { data, error } = await supabase
     .from("garden_beds")
     .insert(fields as any)
