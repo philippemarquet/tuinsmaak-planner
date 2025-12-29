@@ -569,7 +569,7 @@ export function GardenPlotCanvas({
             className="w-16 h-16 rounded-full"
             style={{
               background: `radial-gradient(circle at 30% 30%, ${hslVar("--scene-sun-1")} 0%, ${hslVar("--scene-sun-2")} 60%, ${hslVar("--scene-sun-3")} 100%)`,
-              boxShadow: `0 0 60px 18px ${hslVar("--scene-sun-glow")} / 0.35`,
+              boxShadow: `0 0 60px 18px ${hslVar("--scene-sun-glow")} / 0.35`.replace(/\s\/\s/g, "/"),
             }}
           />
         ) : (
@@ -577,7 +577,7 @@ export function GardenPlotCanvas({
             className="w-12 h-12 rounded-full"
             style={{
               background: `radial-gradient(circle at 30% 30%, ${hslVar("--scene-moon-1")} 0%, ${hslVar("--scene-moon-2")} 100%)`,
-              boxShadow: `0 0 40px 12px ${hslVar("--scene-moon-glow")} / 0.18`,
+              boxShadow: `0 0 40px 12px ${hslVar("--scene-moon-glow")} / 0.18`.replace(/\s\/\s/g, "/"),
             }}
           />
         )}
@@ -623,7 +623,7 @@ export function GardenPlotCanvas({
               className="absolute inset-0 opacity-20"
               style={{
                 backgroundImage: `radial-gradient(circle at 20% 30%, ${scene.grass} / 0.25 1px, transparent 1px), radial-gradient(circle at 60% 70%, ${scene.grass} / 0.18 1px, transparent 1px)`
-                  .replaceAll(" / ", "/"),
+                  .replace(/\s\/\s/g, "/"),
                 backgroundSize: "34px 34px",
               }}
             />
@@ -632,7 +632,7 @@ export function GardenPlotCanvas({
               className="absolute inset-0 opacity-10"
               style={{
                 backgroundImage: `linear-gradient(${hslVar("--border")} / 0.25 1px, transparent 1px), linear-gradient(90deg, ${hslVar("--border")} / 0.25 1px, transparent 1px)`
-                  .replaceAll(" / ", "/"),
+                  .replace(/\s\/\s/g, "/"),
                 backgroundSize: `${cmToPx(100)}px ${cmToPx(100)}px`,
               }}
             />
@@ -680,7 +680,7 @@ export function GardenPlotCanvas({
                     style={{
                       transform: `translateZ(${bedHeightPx}px)`,
                       background: `linear-gradient(135deg, ${scene.wood2} 0%, ${scene.wood} 100%)`,
-                      boxShadow: `0 10px 30px -16px ${hslVar("--foreground")} / 0.35`.replaceAll(" / ", "/"),
+                      boxShadow: `0 10px 30px -16px ${hslVar("--foreground")} / 0.35`.replace(/\s\/\s/g, "/"),
                     }}
                   >
                     {/* Soil */}
@@ -691,8 +691,8 @@ export function GardenPlotCanvas({
                         top: 6,
                         right: 6,
                         bottom: 6,
-                        background: `radial-gradient(circle at 30% 30%, ${scene.soil} / 0.85 0%, ${scene.soil} 100%)`.replaceAll(" / ", "/"),
-                        boxShadow: `inset 0 2px 10px ${hslVar("--foreground")} / 0.35`.replaceAll(" / ", "/"),
+                        background: `radial-gradient(circle at 30% 30%, ${scene.soil} / 0.85 0%, ${scene.soil} 100%)`.replace(/\s\/\s/g, "/"),
+                        boxShadow: `inset 0 2px 10px ${hslVar("--foreground")} / 0.35`.replace(/\s\/\s/g, "/"),
                       }}
                     />
 
@@ -703,7 +703,7 @@ export function GardenPlotCanvas({
                         style={{
                           color: hslVar("--primary-foreground"),
                           fontSize: clamp(Math.min(w, h) / 5, 10, 18),
-                          textShadow: `0 2px 10px ${hslVar("--foreground")} / 0.5`.replaceAll(" / ", "/"),
+                          textShadow: `0 2px 10px ${hslVar("--foreground")} / 0.5`.replace(/\s\/\s/g, "/"),
                           paddingInline: 8,
                         }}
                       >
@@ -715,7 +715,7 @@ export function GardenPlotCanvas({
                     <div className="absolute top-1 right-1 opacity-0 hover:opacity-100 transition-opacity">
                       <div
                         className="text-[10px] px-2 py-1 rounded-md flex items-center gap-1"
-                        style={{ background: `${hslVar("--foreground")} / 0.35`.replaceAll(" / ", "/"), color: hslVar("--primary-foreground") }}
+                        style={{ background: `${hslVar("--foreground")} / 0.35`.replace(/\s\/\s/g, "/"), color: hslVar("--primary-foreground") }}
                       >
                         <Edit3 className="h-3 w-3" />
                         Dubbelklik
@@ -740,9 +740,9 @@ export function GardenPlotCanvas({
                     className={cn("absolute inset-0 rounded-lg transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
                     style={{
                       transform: `translateZ(${cmToPx(140)}px)`,
-                      background: `linear-gradient(135deg, ${scene.glass} / 0.75 0%, ${scene.glass} / 0.45 100%)`.replaceAll(" / ", "/"),
+                      background: `linear-gradient(135deg, ${scene.glass} / 0.75 0%, ${scene.glass} / 0.45 100%)`.replace(/\s\/\s/g, "/"),
                       border: `3px solid ${hslVar("--border")}`,
-                      boxShadow: `0 16px 30px -18px ${hslVar("--foreground")} / 0.45`.replaceAll(" / ", "/"),
+                      boxShadow: `0 16px 30px -18px ${hslVar("--foreground")} / 0.45`.replace(/\s\/\s/g, "/"),
                     }}
                   />
                 )}
@@ -752,8 +752,8 @@ export function GardenPlotCanvas({
                     className={cn("absolute inset-0 rounded-md transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
                     style={{
                       transform: "translateZ(1px)",
-                      background: `linear-gradient(135deg, ${scene.stone} / 0.95 0%, ${scene.stone} / 0.75 100%)`.replaceAll(" / ", "/"),
-                      boxShadow: `inset 0 2px 8px ${hslVar("--foreground")} / 0.2`.replaceAll(" / ", "/"),
+                      background: `linear-gradient(135deg, ${scene.stone} / 0.95 0%, ${scene.stone} / 0.75 100%)`.replace(/\s\/\s/g, "/"),
+                      boxShadow: `inset 0 2px 8px ${hslVar("--foreground")} / 0.2`.replace(/\s\/\s/g, "/"),
                     }}
                   />
                 )}
@@ -763,7 +763,7 @@ export function GardenPlotCanvas({
                     className={cn("absolute inset-0 rounded-md transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
                     style={{
                       transform: "translateZ(1px)",
-                      background: `linear-gradient(135deg, ${scene.stone} / 0.85 0%, ${scene.stone} / 0.65 100%)`.replaceAll(" / ", "/"),
+                      background: `linear-gradient(135deg, ${scene.stone} / 0.85 0%, ${scene.stone} / 0.65 100%)`.replace(/\s\/\s/g, "/"),
                     }}
                   />
                 )}
@@ -784,7 +784,7 @@ export function GardenPlotCanvas({
                     style={{
                       transform: `translateZ(${cmToPx(30)}px)`,
                       background: `radial-gradient(circle at 30% 30%, ${scene.grass2} 0%, ${scene.grass} 70%, ${scene.grass} 100%)`,
-                      boxShadow: `inset -6px -6px 16px ${hslVar("--foreground")} / 0.25`.replaceAll(" / ", "/"),
+                      boxShadow: `inset -6px -6px 16px ${hslVar("--foreground")} / 0.25`.replace(/\s\/\s/g, "/"),
                     }}
                   />
                 )}
@@ -796,7 +796,7 @@ export function GardenPlotCanvas({
                       style={{
                         transform: `translateZ(${cmToPx(120)}px)`,
                         background: `radial-gradient(circle at 30% 30%, ${scene.grass2} 0%, ${scene.grass} 65%, ${scene.grass} 100%)`,
-                        boxShadow: `0 18px 36px -22px ${hslVar("--foreground")} / 0.55`.replaceAll(" / ", "/"),
+                        boxShadow: `0 18px 36px -22px ${hslVar("--foreground")} / 0.55`.replace(/\s\/\s/g, "/"),
                       }}
                     />
                   </>
@@ -808,12 +808,12 @@ export function GardenPlotCanvas({
                     style={{
                       transform: "translateZ(-2px)",
                       background: `linear-gradient(180deg, ${scene.water1} 0%, ${scene.water2} 100%)`,
-                      boxShadow: `inset 0 0 24px ${hslVar("--primary-foreground")} / 0.18`.replaceAll(" / ", "/"),
+                      boxShadow: `inset 0 0 24px ${hslVar("--primary-foreground")} / 0.18`.replace(/\s\/\s/g, "/"),
                     }}
                   >
                     <div
                       className="absolute top-2 left-2 w-1/3 h-1/3 rounded-full"
-                      style={{ background: `${hslVar("--primary-foreground")} / 0.25`.replaceAll(" / ", "/") }}
+                      style={{ background: `${hslVar("--primary-foreground")} / 0.25`.replace(/\s\/\s/g, "/") }}
                     />
                   </div>
                 )}
