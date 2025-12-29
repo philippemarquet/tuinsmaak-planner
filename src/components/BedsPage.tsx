@@ -173,6 +173,7 @@ export function BedsPage({
             }
           }}
           onBedDuplicate={duplicateBed}
+          onBedEdit={(bed) => setUpsertOpen(bed)}
         />
       )}
 
