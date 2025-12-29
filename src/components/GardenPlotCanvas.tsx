@@ -4,6 +4,7 @@ import { cn } from "../lib/utils";
 import {
   Copy,
   Edit3,
+  Grid3x3,
   Maximize,
   Moon,
   RotateCcw,
@@ -50,6 +51,7 @@ const SCALE_FACTOR = 0.5; // cm -> px
 const DEFAULT_BED_HEIGHT_CM = 25;
 const MIN_TILT = 0;
 const MAX_TILT = 80;
+const GRID_SIZE_CM = 50; // 50cm grid
 
 // --- Helpers ---
 const clamp = (n: number, min: number, max: number) => Math.min(Math.max(n, min), max);
@@ -88,6 +90,7 @@ export function GardenPlotCanvas({
   const [rotZ, setRotZ] = useState(0); // degrees
   const [tilt, setTilt] = useState(55); // degrees
   const [isDayMode, setIsDayMode] = useState(true);
+  const [gridSnap, setGridSnap] = useState(false);
 
   // Objects
   const [objects, setObjects] = useState<PlotObject[]>(() => {
@@ -258,6 +261,10 @@ export function GardenPlotCanvas({
   const selectedBed = useMemo(() => beds.find((b) => b.id === selectedId) ?? null, [beds, selectedId]);
   const selectedObject = useMemo(() => objects.find((o) => o.id === selectedId) ?? null, [objects, selectedId]);
 
+  const snapValue = useCallback((v: number) => {
+    return gridSnap ? snap(v, GRID_SIZE_CM) : snap(v, 10);
+  }, [gridSnap]);
+
   const startDragBed = useCallback(
     (e: React.PointerEvent, bed: GardenBed) => {
       e.preventDefault();
@@ -375,8 +382,8 @@ export function GardenPlotCanvas({
       const worldDx = pxToCm(localDxPx);
       const worldDy = pxToCm(localDyPx);
 
-      const nextX = snap(d.startItem.x + worldDx, 10);
-      const nextY = snap(d.startItem.y + worldDy, 10);
+      const nextX = snapValue(d.startItem.x + worldDx);
+      const nextY = snapValue(d.startItem.y + worldDy);
 
       if (d.kind === "bed") {
         pendingBedMoveRef.current = { id: d.id, x: nextX, y: nextY };
@@ -388,7 +395,7 @@ export function GardenPlotCanvas({
         setObjects((prev) => prev.map((o) => (o.id === d.id ? { ...o, x: nextX, y: nextY } : o)));
       }
     },
-    [rotZ, zoom, scheduleBedDraftUpdate]
+    [rotZ, zoom, scheduleBedDraftUpdate, snapValue]
   );
 
   const handlePointerUp = useCallback(() => {
@@ -430,9 +437,9 @@ export function GardenPlotCanvas({
       const sizes: Record<PlotObjectType, { w: number; h: number }> = {
         greenhouse: { w: 400, h: 300 },
         grass: { w: 200, h: 200 },
-        shrub: { w: 60, h: 60 },
+        shrub: { w: 80, h: 80 },
         gravel: { w: 150, h: 100 },
-        tree: { w: 80, h: 80 },
+        tree: { w: 100, h: 100 },
         path: { w: 300, h: 60 },
         pond: { w: 150, h: 100 },
       };
@@ -456,8 +463,8 @@ export function GardenPlotCanvas({
       const obj: PlotObject = {
         id: crypto.randomUUID(),
         type,
-        x: snap(cx + offset - 250, 10),
-        y: snap(cy + offset - 150, 10),
+        x: snapValue(cx + offset - 250),
+        y: snapValue(cy + offset - 150),
         w: size.w,
         h: size.h,
       };
@@ -466,7 +473,7 @@ export function GardenPlotCanvas({
       setSelectedId(obj.id);
       toast.success("Object toegevoegd");
     },
-    [beds, objects, getBedPos]
+    [beds, objects, getBedPos, snapValue]
   );
 
   const deleteSelected = useCallback(() => {
@@ -548,6 +555,8 @@ export function GardenPlotCanvas({
       water1: day ? hslVar("--scene-water-day-1") : hslVar("--scene-water-night-1"),
       water2: day ? hslVar("--scene-water-day-2") : hslVar("--scene-water-night-2"),
       glass: day ? hslVar("--scene-glass-day") : hslVar("--scene-glass-night"),
+      bark: day ? "hsl(25, 45%, 25%)" : "hsl(25, 35%, 18%)",
+      gravel: day ? "hsl(30, 8%, 55%)" : "hsl(30, 6%, 40%)",
     };
   }, [isDayMode]);
 
@@ -556,6 +565,10 @@ export function GardenPlotCanvas({
     if (!selectedObject) return;
     setObjects((prev) => prev.map((o) => (o.id === selectedObject.id ? { ...o, ...patch } : o)));
   }, [selectedObject]);
+
+  // Grid visibility based on tilt (more visible in top view)
+  const showGrid = gridSnap || tilt < 20;
+  const gridSizePx = cmToPx(GRID_SIZE_CM);
 
   return (
     <div className="relative w-full h-[700px] rounded-xl overflow-hidden shadow-2xl border border-border/50">
@@ -569,7 +582,7 @@ export function GardenPlotCanvas({
             className="w-16 h-16 rounded-full"
             style={{
               background: `radial-gradient(circle at 30% 30%, ${hslVar("--scene-sun-1")} 0%, ${hslVar("--scene-sun-2")} 60%, ${hslVar("--scene-sun-3")} 100%)`,
-              boxShadow: `0 0 60px 18px ${hslVar("--scene-sun-glow")} / 0.35`.replace(/\s\/\s/g, "/"),
+              boxShadow: `0 0 60px 18px hsl(var(--scene-sun-glow) / 0.35)`,
             }}
           />
         ) : (
@@ -577,7 +590,7 @@ export function GardenPlotCanvas({
             className="w-12 h-12 rounded-full"
             style={{
               background: `radial-gradient(circle at 30% 30%, ${hslVar("--scene-moon-1")} 0%, ${hslVar("--scene-moon-2")} 100%)`,
-              boxShadow: `0 0 40px 12px ${hslVar("--scene-moon-glow")} / 0.18`.replace(/\s\/\s/g, "/"),
+              boxShadow: `0 0 40px 12px hsl(var(--scene-moon-glow) / 0.18)`,
             }}
           />
         )}
@@ -622,18 +635,17 @@ export function GardenPlotCanvas({
             <div
               className="absolute inset-0 opacity-20"
               style={{
-                backgroundImage: `radial-gradient(circle at 20% 30%, ${scene.grass} / 0.25 1px, transparent 1px), radial-gradient(circle at 60% 70%, ${scene.grass} / 0.18 1px, transparent 1px)`
-                  .replace(/\s\/\s/g, "/"),
+                backgroundImage: `radial-gradient(circle at 20% 30%, hsl(var(--scene-grass-day) / 0.25) 1px, transparent 1px), radial-gradient(circle at 60% 70%, hsl(var(--scene-grass-day) / 0.18) 1px, transparent 1px)`,
                 backgroundSize: "34px 34px",
               }}
             />
-            {/* Grid */}
+            {/* Grid (more visible when snap enabled or in top view) */}
             <div
-              className="absolute inset-0 opacity-10"
+              className="absolute inset-0 transition-opacity duration-300"
               style={{
-                backgroundImage: `linear-gradient(${hslVar("--border")} / 0.25 1px, transparent 1px), linear-gradient(90deg, ${hslVar("--border")} / 0.25 1px, transparent 1px)`
-                  .replace(/\s\/\s/g, "/"),
-                backgroundSize: `${cmToPx(100)}px ${cmToPx(100)}px`,
+                opacity: showGrid ? 0.4 : 0.1,
+                backgroundImage: `linear-gradient(hsl(var(--foreground) / 0.3) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--foreground) / 0.3) 1px, transparent 1px)`,
+                backgroundSize: `${gridSizePx}px ${gridSizePx}px`,
               }}
             />
           </div>
@@ -649,6 +661,9 @@ export function GardenPlotCanvas({
             if (it.kind === "bed") {
               const bed = it.bed;
               const bedHeightPx = cmToPx(DEFAULT_BED_HEIGHT_CM);
+              const segments = bed.segments || 1;
+              // Segments haaks op lange zijde
+              const isHorizontal = bed.width_cm > bed.length_cm;
 
               return (
                 <div
@@ -680,42 +695,70 @@ export function GardenPlotCanvas({
                     style={{
                       transform: `translateZ(${bedHeightPx}px)`,
                       background: `linear-gradient(135deg, ${scene.wood2} 0%, ${scene.wood} 100%)`,
-                      boxShadow: `0 10px 30px -16px ${hslVar("--foreground")} / 0.35`.replace(/\s\/\s/g, "/"),
+                      boxShadow: `0 10px 30px -16px hsl(var(--foreground) / 0.35)`,
                     }}
                   >
                     {/* Soil */}
                     <div
-                      className="absolute rounded"
+                      className="absolute rounded overflow-hidden"
                       style={{
                         left: 6,
                         top: 6,
                         right: 6,
                         bottom: 6,
-                        background: `radial-gradient(circle at 30% 30%, ${scene.soil} / 0.85 0%, ${scene.soil} 100%)`.replace(/\s\/\s/g, "/"),
-                        boxShadow: `inset 0 2px 10px ${hslVar("--foreground")} / 0.35`.replace(/\s\/\s/g, "/"),
+                        background: `radial-gradient(circle at 30% 30%, ${scene.soil} 0%, ${scene.soil} 100%)`,
+                        boxShadow: `inset 0 2px 10px hsl(var(--foreground) / 0.35)`,
                       }}
-                    />
+                    >
+                      {/* Segment lines */}
+                      {segments > 1 && (
+                        <div className="absolute inset-0 flex" style={{ flexDirection: isHorizontal ? "row" : "column" }}>
+                          {Array.from({ length: segments }).map((_, i) => (
+                            <div
+                              key={i}
+                              className="flex-1 relative"
+                              style={{
+                                borderRight: isHorizontal && i < segments - 1 ? "1px dashed rgba(255,255,255,0.3)" : undefined,
+                                borderBottom: !isHorizontal && i < segments - 1 ? "1px dashed rgba(255,255,255,0.3)" : undefined,
+                              }}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
 
                     {/* Label */}
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                       <span
                         className="font-semibold text-center"
                         style={{
                           color: hslVar("--primary-foreground"),
-                          fontSize: clamp(Math.min(w, h) / 5, 10, 18),
-                          textShadow: `0 2px 10px ${hslVar("--foreground")} / 0.5`.replace(/\s\/\s/g, "/"),
+                          fontSize: clamp(Math.min(w, h) / 5, 10, 16),
+                          textShadow: `0 2px 10px hsl(var(--foreground) / 0.5)`,
                           paddingInline: 8,
                         }}
                       >
                         {bed.name}
                       </span>
+                      {segments > 1 && (
+                        <span
+                          className="text-center opacity-70"
+                          style={{
+                            color: hslVar("--primary-foreground"),
+                            fontSize: clamp(Math.min(w, h) / 8, 8, 11),
+                            textShadow: `0 1px 4px hsl(var(--foreground) / 0.4)`,
+                          }}
+                        >
+                          {segments} segmenten
+                        </span>
+                      )}
                     </div>
 
                     {/* Hint */}
                     <div className="absolute top-1 right-1 opacity-0 hover:opacity-100 transition-opacity">
                       <div
                         className="text-[10px] px-2 py-1 rounded-md flex items-center gap-1"
-                        style={{ background: `${hslVar("--foreground")} / 0.35`.replace(/\s\/\s/g, "/"), color: hslVar("--primary-foreground") }}
+                        style={{ background: `hsl(var(--foreground) / 0.35)`, color: hslVar("--primary-foreground") }}
                       >
                         <Edit3 className="h-3 w-3" />
                         Dubbelklik
@@ -735,85 +778,224 @@ export function GardenPlotCanvas({
                 style={{ left, top, width: w, height: h, transformStyle: "preserve-3d" }}
                 onPointerDown={(e) => startDragObject(e, obj)}
               >
+                {/* Greenhouse - Glass house with pitched roof */}
                 {obj.type === "greenhouse" && (
-                  <div
-                    className={cn("absolute inset-0 rounded-lg transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
-                    style={{
-                      transform: `translateZ(${cmToPx(140)}px)`,
-                      background: `linear-gradient(135deg, ${scene.glass} / 0.75 0%, ${scene.glass} / 0.45 100%)`.replace(/\s\/\s/g, "/"),
-                      border: `3px solid ${hslVar("--border")}`,
-                      boxShadow: `0 16px 30px -18px ${hslVar("--foreground")} / 0.45`.replace(/\s\/\s/g, "/"),
-                    }}
-                  />
-                )}
-
-                {obj.type === "path" && (
-                  <div
-                    className={cn("absolute inset-0 rounded-md transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
-                    style={{
-                      transform: "translateZ(1px)",
-                      background: `linear-gradient(135deg, ${scene.stone} / 0.95 0%, ${scene.stone} / 0.75 100%)`.replace(/\s\/\s/g, "/"),
-                      boxShadow: `inset 0 2px 8px ${hslVar("--foreground")} / 0.2`.replace(/\s\/\s/g, "/"),
-                    }}
-                  />
-                )}
-
-                {obj.type === "gravel" && (
-                  <div
-                    className={cn("absolute inset-0 rounded-md transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
-                    style={{
-                      transform: "translateZ(1px)",
-                      background: `linear-gradient(135deg, ${scene.stone} / 0.85 0%, ${scene.stone} / 0.65 100%)`.replace(/\s\/\s/g, "/"),
-                    }}
-                  />
-                )}
-
-                {obj.type === "grass" && (
-                  <div
-                    className={cn("absolute inset-0 rounded-lg transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
-                    style={{
-                      transform: "translateZ(1px)",
-                      background: `radial-gradient(circle at 50% 50%, ${scene.grass2} 0%, ${scene.grass} 100%)`,
-                    }}
-                  />
-                )}
-
-                {obj.type === "shrub" && (
-                  <div
-                    className={cn("absolute inset-0 rounded-full transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
-                    style={{
-                      transform: `translateZ(${cmToPx(30)}px)`,
-                      background: `radial-gradient(circle at 30% 30%, ${scene.grass2} 0%, ${scene.grass} 70%, ${scene.grass} 100%)`,
-                      boxShadow: `inset -6px -6px 16px ${hslVar("--foreground")} / 0.25`.replace(/\s\/\s/g, "/"),
-                    }}
-                  />
-                )}
-
-                {obj.type === "tree" && (
                   <>
+                    {/* Floor */}
                     <div
-                      className={cn("absolute inset-0 rounded-full transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
+                      className="absolute inset-0"
                       style={{
-                        transform: `translateZ(${cmToPx(120)}px)`,
-                        background: `radial-gradient(circle at 30% 30%, ${scene.grass2} 0%, ${scene.grass} 65%, ${scene.grass} 100%)`,
-                        boxShadow: `0 18px 36px -22px ${hslVar("--foreground")} / 0.55`.replace(/\s\/\s/g, "/"),
+                        transform: "translateZ(0px)",
+                        background: `linear-gradient(135deg, hsl(30, 10%, 45%) 0%, hsl(30, 8%, 38%) 100%)`,
+                        borderRadius: 4,
+                      }}
+                    />
+                    {/* Walls */}
+                    <div
+                      className={cn("absolute inset-0 transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
+                      style={{
+                        transform: `translateZ(${cmToPx(100)}px)`,
+                        background: `linear-gradient(135deg, ${scene.glass} 0%, hsl(var(--scene-glass-day) / 0.6) 100%)`,
+                        border: `3px solid hsl(210, 10%, 75%)`,
+                        borderRadius: 4,
+                        boxShadow: `inset 0 0 30px hsl(var(--primary-foreground) / 0.15), 0 20px 40px -20px hsl(var(--foreground) / 0.4)`,
+                      }}
+                    >
+                      {/* Glass panels */}
+                      <div className="absolute inset-2 grid grid-cols-4 grid-rows-2 gap-1 opacity-40">
+                        {Array.from({ length: 8 }).map((_, i) => (
+                          <div key={i} className="border border-white/30 rounded-sm" />
+                        ))}
+                      </div>
+                    </div>
+                    {/* Roof */}
+                    <div
+                      className="absolute"
+                      style={{
+                        left: -4,
+                        right: -4,
+                        top: "25%",
+                        bottom: "25%",
+                        transform: `translateZ(${cmToPx(140)}px) rotateX(15deg)`,
+                        background: `linear-gradient(180deg, hsl(var(--scene-glass-day) / 0.7) 0%, hsl(var(--scene-glass-day) / 0.5) 100%)`,
+                        border: `2px solid hsl(210, 10%, 70%)`,
+                        borderRadius: 2,
                       }}
                     />
                   </>
                 )}
 
+                {/* Path - Bark/wood chips */}
+                {obj.type === "path" && (
+                  <div
+                    className={cn("absolute inset-0 transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
+                    style={{
+                      transform: "translateZ(1px)",
+                      background: scene.bark,
+                      borderRadius: 4,
+                      boxShadow: `inset 0 2px 8px hsl(var(--foreground) / 0.25)`,
+                    }}
+                  >
+                    {/* Bark texture */}
+                    <div
+                      className="absolute inset-0 opacity-50"
+                      style={{
+                        backgroundImage: `
+                          radial-gradient(ellipse 4px 2px at 20% 30%, hsl(25, 50%, 35%) 0%, transparent 100%),
+                          radial-gradient(ellipse 3px 2px at 50% 60%, hsl(25, 40%, 30%) 0%, transparent 100%),
+                          radial-gradient(ellipse 5px 2px at 80% 40%, hsl(25, 55%, 38%) 0%, transparent 100%),
+                          radial-gradient(ellipse 3px 2px at 30% 80%, hsl(25, 45%, 32%) 0%, transparent 100%)
+                        `,
+                        backgroundSize: "40px 30px",
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Gravel */}
+                {obj.type === "gravel" && (
+                  <div
+                    className={cn("absolute inset-0 transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
+                    style={{
+                      transform: "translateZ(1px)",
+                      background: scene.gravel,
+                      borderRadius: 4,
+                    }}
+                  >
+                    {/* Gravel texture */}
+                    <div
+                      className="absolute inset-0 opacity-60"
+                      style={{
+                        backgroundImage: `
+                          radial-gradient(circle 2px at 15% 25%, hsl(30, 5%, 65%) 0%, transparent 100%),
+                          radial-gradient(circle 3px at 45% 35%, hsl(30, 8%, 50%) 0%, transparent 100%),
+                          radial-gradient(circle 2px at 75% 55%, hsl(30, 6%, 60%) 0%, transparent 100%),
+                          radial-gradient(circle 2px at 25% 75%, hsl(30, 4%, 58%) 0%, transparent 100%),
+                          radial-gradient(circle 3px at 65% 85%, hsl(30, 7%, 52%) 0%, transparent 100%)
+                        `,
+                        backgroundSize: "25px 25px",
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Grass patch */}
+                {obj.type === "grass" && (
+                  <div
+                    className={cn("absolute inset-0 transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
+                    style={{
+                      transform: "translateZ(2px)",
+                      background: `radial-gradient(circle at 50% 50%, ${scene.grass2} 0%, ${scene.grass} 100%)`,
+                      borderRadius: 8,
+                    }}
+                  >
+                    {/* Grass blades texture */}
+                    <div
+                      className="absolute inset-0 opacity-40"
+                      style={{
+                        backgroundImage: `
+                          linear-gradient(170deg, transparent 45%, hsl(104, 40%, 30%) 48%, transparent 52%),
+                          linear-gradient(175deg, transparent 45%, hsl(104, 35%, 35%) 48%, transparent 52%),
+                          linear-gradient(165deg, transparent 45%, hsl(104, 38%, 28%) 48%, transparent 52%)
+                        `,
+                        backgroundSize: "8px 12px, 12px 14px, 6px 10px",
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Shrub */}
+                {obj.type === "shrub" && (
+                  <>
+                    {/* Shadow on ground */}
+                    <div
+                      className="absolute"
+                      style={{
+                        left: "10%",
+                        right: "10%",
+                        top: "50%",
+                        bottom: "-10%",
+                        transform: "translateZ(0px)",
+                        background: `radial-gradient(ellipse at 50% 30%, hsl(var(--foreground) / 0.25) 0%, transparent 70%)`,
+                        borderRadius: "50%",
+                      }}
+                    />
+                    {/* Bush body */}
+                    <div
+                      className={cn("absolute transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
+                      style={{
+                        left: "5%",
+                        right: "5%",
+                        top: "5%",
+                        bottom: "5%",
+                        transform: `translateZ(${cmToPx(35)}px)`,
+                        background: `radial-gradient(circle at 35% 35%, ${scene.grass2} 0%, ${scene.grass} 60%, hsl(104, 30%, 25%) 100%)`,
+                        borderRadius: "50%",
+                        boxShadow: `inset -8px -8px 20px hsl(var(--foreground) / 0.2), inset 4px 4px 10px hsl(var(--primary-foreground) / 0.1)`,
+                      }}
+                    />
+                  </>
+                )}
+
+                {/* Tree */}
+                {obj.type === "tree" && (
+                  <>
+                    {/* Shadow on ground */}
+                    <div
+                      className="absolute"
+                      style={{
+                        left: "5%",
+                        right: "5%",
+                        top: "40%",
+                        bottom: "-20%",
+                        transform: "translateZ(0px)",
+                        background: `radial-gradient(ellipse at 50% 20%, hsl(var(--foreground) / 0.3) 0%, transparent 70%)`,
+                        borderRadius: "50%",
+                      }}
+                    />
+                    {/* Trunk */}
+                    <div
+                      className="absolute"
+                      style={{
+                        left: "40%",
+                        right: "40%",
+                        top: "40%",
+                        bottom: "40%",
+                        transform: `translateZ(${cmToPx(40)}px)`,
+                        background: `linear-gradient(90deg, hsl(25, 50%, 22%) 0%, hsl(25, 45%, 30%) 50%, hsl(25, 50%, 22%) 100%)`,
+                        borderRadius: 4,
+                      }}
+                    />
+                    {/* Foliage */}
+                    <div
+                      className={cn("absolute transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
+                      style={{
+                        left: "0%",
+                        right: "0%",
+                        top: "0%",
+                        bottom: "0%",
+                        transform: `translateZ(${cmToPx(120)}px)`,
+                        background: `radial-gradient(circle at 40% 35%, ${scene.grass2} 0%, ${scene.grass} 50%, hsl(104, 30%, 22%) 100%)`,
+                        borderRadius: "50%",
+                        boxShadow: `0 20px 40px -25px hsl(var(--foreground) / 0.5), inset -10px -10px 25px hsl(var(--foreground) / 0.15), inset 5px 5px 15px hsl(var(--primary-foreground) / 0.1)`,
+                      }}
+                    />
+                  </>
+                )}
+
+                {/* Pond */}
                 {obj.type === "pond" && (
                   <div
                     className={cn("absolute inset-0 rounded-[40%] transition-all overflow-hidden", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
                     style={{
                       transform: "translateZ(-2px)",
                       background: `linear-gradient(180deg, ${scene.water1} 0%, ${scene.water2} 100%)`,
-                      boxShadow: `inset 0 0 24px ${hslVar("--primary-foreground")} / 0.18`.replace(/\s\/\s/g, "/"),
+                      boxShadow: `inset 0 0 24px hsl(var(--primary-foreground) / 0.18)`,
                     }}
                   >
                     <div
                       className="absolute top-2 left-2 w-1/3 h-1/3 rounded-full"
-                      style={{ background: `${hslVar("--primary-foreground")} / 0.25`.replace(/\s\/\s/g, "/") }}
+                      style={{ background: `hsl(var(--primary-foreground) / 0.25)` }}
                     />
                   </div>
                 )}
@@ -858,6 +1040,17 @@ export function GardenPlotCanvas({
           </Button>
           <Button variant="ghost" size="sm" onClick={setIsoView} className="h-8 px-3 rounded-full text-xs">
             3D
+          </Button>
+          <div className="w-px h-6 bg-border" />
+          <Button
+            variant={gridSnap ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setGridSnap(!gridSnap)}
+            className="h-8 px-3 rounded-full text-xs gap-1"
+            title="Grid snap (50cm)"
+          >
+            <Grid3x3 className="h-3 w-3" />
+            Grid
           </Button>
         </div>
       </div>
@@ -938,6 +1131,7 @@ export function GardenPlotCanvas({
           <span>Sleep lege ruimte = pannen</span>
           <span>Rechtermuisknop + sleep = draaien</span>
           <span>Ctrl/⌘ + scroll = zoomen</span>
+          {gridSnap && <span className="text-scene-highlight font-medium">Grid snap actief (50cm)</span>}
         </div>
       </div>
 
