@@ -38,6 +38,52 @@ All colors MUST be HSL.
 
     --radius: 0.5rem;
 
+    /* Scene / 3D map tokens (HSL) */
+    --scene-sky-day-top: 197 71% 73%;
+    --scene-sky-day-mid: 194 53% 80%;
+    --scene-sky-day-bottom: 95 39% 70%;
+
+    --scene-sky-night-top: 240 26% 14%;
+    --scene-sky-night-mid: 231 43% 17%;
+    --scene-sky-night-bottom: 153 35% 19%;
+
+    --scene-grass-day: 104 33% 33%;
+    --scene-grass-day-2: 104 37% 38%;
+    --scene-grass-night: 111 27% 23%;
+    --scene-grass-night-2: 111 30% 27%;
+
+    --scene-soil-day: 20 25% 28%;
+    --scene-soil-night: 20 20% 18%;
+
+    --scene-wood-day: 25 60% 33%;
+    --scene-wood-day-2: 25 60% 40%;
+    --scene-wood-day-3: 25 60% 25%;
+    --scene-wood-night: 25 45% 22%;
+    --scene-wood-night-2: 25 45% 30%;
+    --scene-wood-night-3: 25 45% 18%;
+
+    --scene-stone-day: 26 12% 62%;
+    --scene-stone-night: 26 10% 44%;
+
+    --scene-water-day-1: 199 85% 62%;
+    --scene-water-day-2: 208 94% 38%;
+    --scene-water-night-1: 201 60% 34%;
+    --scene-water-night-2: 214 72% 24%;
+
+    --scene-glass-day: 198 65% 85%;
+    --scene-glass-night: 210 35% 35%;
+
+    --scene-sun-1: 48 100% 92%;
+    --scene-sun-2: 44 100% 70%;
+    --scene-sun-3: 30 100% 58%;
+    --scene-sun-glow: 44 100% 68%;
+
+    --scene-moon-1: 210 20% 92%;
+    --scene-moon-2: 210 10% 70%;
+    --scene-moon-glow: 210 25% 85%;
+
+    --scene-highlight: 48 96% 54%;
+
     --sidebar-background: 0 0% 98%;
 
     --sidebar-foreground: 240 5.3% 26.1%;
