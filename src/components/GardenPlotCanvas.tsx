@@ -1,578 +1,763 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import type { GardenBed } from "../lib/types";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { GardenBed, UUID } from "../lib/types";
 import { cn } from "../lib/utils";
 import {
-  Ruler,
-  MousePointer2,
   TreePine,
   Warehouse,
-  Box,
   Move3D,
   ZoomIn,
   ZoomOut,
   Maximize,
   LayoutGrid,
-  Eye,
-  Settings2,
-  Sprout,
   Trash2,
-  Copy
+  Copy,
+  TreeDeciduous,
+  Rows3,
+  Flower2,
 } from "lucide-react";
-import { updateBed } from "../lib/api/beds";
+import { Button } from "./ui/button";
+import { toast } from "sonner";
 
 // --- Types ---
-type UUID = string;
 type PlotObjectType = "greenhouse" | "grass" | "shrub" | "gravel" | "tree" | "path";
-type PlotObject = {
+
+interface PlotObject {
   id: string;
   type: PlotObjectType;
   x: number;
   y: number;
   w: number;
   h: number;
-  z: number; // Hoogte in cm
-  rotation?: number;
   label?: string;
-};
+}
+
+interface GardenPlotCanvasProps {
+  beds: GardenBed[];
+  onBedMove: (id: UUID, x: number, y: number) => void;
+  onBedDuplicate?: (bed: GardenBed) => void;
+  storagePrefix?: string;
+}
 
 // --- Constants ---
-const CELL_SIZE = 20; // Grid visualisatie elke 20cm
-const STORAGE_PREFIX = "garden_ultra_v1";
+const GRID_SIZE = 50; // cm per grid cell
+const SCALE_FACTOR = 0.5; // cm to pixels
 
-// --- Helper Math ---
+// --- Helpers ---
 const clamp = (n: number, min: number, max: number) => Math.min(Math.max(n, min), max);
 const snap = (n: number, step: number = 10) => Math.round(n / step) * step;
+const cmToPx = (cm: number) => cm * SCALE_FACTOR;
+const pxToCm = (px: number) => px / SCALE_FACTOR;
 
-// --- Components ---
+// --- SVG Pattern Definitions ---
+function PatternDefs() {
+  return (
+    <defs>
+      {/* Grass pattern */}
+      <pattern id="pattern-grass" width="20" height="20" patternUnits="userSpaceOnUse">
+        <rect width="20" height="20" fill="hsl(100, 40%, 55%)" />
+        <circle cx="5" cy="5" r="1.5" fill="hsl(100, 50%, 40%)" opacity="0.4" />
+        <circle cx="15" cy="12" r="1" fill="hsl(100, 50%, 40%)" opacity="0.3" />
+        <circle cx="10" cy="18" r="1.2" fill="hsl(100, 50%, 40%)" opacity="0.35" />
+      </pattern>
+      
+      {/* Soil pattern */}
+      <pattern id="pattern-soil" width="15" height="15" patternUnits="userSpaceOnUse">
+        <rect width="15" height="15" fill="hsl(25, 35%, 28%)" />
+        <circle cx="4" cy="4" r="1" fill="hsl(25, 25%, 20%)" opacity="0.5" />
+        <circle cx="11" cy="9" r="0.8" fill="hsl(25, 25%, 20%)" opacity="0.4" />
+      </pattern>
+      
+      {/* Gravel pattern */}
+      <pattern id="pattern-gravel" width="16" height="16" patternUnits="userSpaceOnUse">
+        <rect width="16" height="16" fill="hsl(0, 0%, 80%)" />
+        <circle cx="3" cy="3" r="2" fill="hsl(0, 0%, 70%)" />
+        <circle cx="10" cy="5" r="1.5" fill="hsl(0, 0%, 65%)" />
+        <circle cx="6" cy="11" r="1.8" fill="hsl(0, 0%, 68%)" />
+        <circle cx="13" cy="13" r="2" fill="hsl(0, 0%, 72%)" />
+      </pattern>
+      
+      {/* Path pattern */}
+      <pattern id="pattern-path" width="24" height="24" patternUnits="userSpaceOnUse">
+        <rect width="24" height="24" fill="hsl(35, 20%, 60%)" />
+        <rect x="1" y="1" width="10" height="10" fill="hsl(35, 25%, 55%)" rx="1" />
+        <rect x="13" y="13" width="10" height="10" fill="hsl(35, 25%, 55%)" rx="1" />
+      </pattern>
+      
+      {/* Wood gradient for beds */}
+      <linearGradient id="gradient-wood" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor="hsl(25, 50%, 45%)" />
+        <stop offset="100%" stopColor="hsl(25, 50%, 35%)" />
+      </linearGradient>
+      
+      {/* Glass gradient for greenhouse */}
+      <linearGradient id="gradient-glass" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="hsla(200, 60%, 85%, 0.7)" />
+        <stop offset="50%" stopColor="hsla(200, 60%, 90%, 0.4)" />
+        <stop offset="100%" stopColor="hsla(200, 60%, 85%, 0.7)" />
+      </linearGradient>
+      
+      {/* Drop shadow filter */}
+      <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="2" dy="4" stdDeviation="3" floodOpacity="0.2" />
+      </filter>
+    </defs>
+  );
+}
 
-/** * Een slimme "Texture Generator" die SVG patronen maakt.
- * Dit zorgt voor de "Board Game" look zonder externe plaatjes.
- */
-const WorldTextures = () => (
-  <defs>
-    {/* Ruis filter voor organische look */}
-    <filter id="noiseFilter">
-      <feTurbulence type="fractalNoise" baseFrequency="0.6" numOctaves="3" stitchTiles="stitch" />
-      <feColorMatrix type="saturate" values="0" />
-      <feComponentTransfer><feFuncA type="linear" slope="0.2" /></feComponentTransfer>
-    </filter>
-
-    {/* Gras Patroon */}
-    <pattern id="p-grass" width="100" height="100" patternUnits="userSpaceOnUse">
-      <rect width="100" height="100" fill="#86bc68" />
-      <rect width="100" height="100" filter="url(#noiseFilter)" opacity="0.4" />
-      <circle cx="20" cy="20" r="2" fill="#5c8a42" opacity="0.3" />
-      <circle cx="70" cy="60" r="3" fill="#5c8a42" opacity="0.2" />
-    </pattern>
-
-    {/* Hout (Bakken) */}
-    <linearGradient id="g-wood-side" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stopColor="#7c5335" />
-      <stop offset="100%" stopColor="#5d3a22" />
-    </linearGradient>
-    <linearGradient id="g-wood-top" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stopColor="#a67c52" />
-      <stop offset="100%" stopColor="#8f633b" />
-    </linearGradient>
-
-    {/* Aarde */}
-    <pattern id="p-soil" width="20" height="20" patternUnits="userSpaceOnUse">
-      <rect width="20" height="20" fill="#4a3728" />
-      <circle cx="5" cy="5" r="1" fill="#2e2118" opacity="0.5" />
-    </pattern>
-
-    {/* Grind */}
-    <pattern id="p-gravel" width="40" height="40" patternUnits="userSpaceOnUse">
-      <rect width="40" height="40" fill="#e5e5e5" />
-      <rect width="40" height="40" filter="url(#noiseFilter)" opacity="0.6" />
-    </pattern>
-
-    {/* Glas (Kas) */}
-    <linearGradient id="g-glass" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stopColor="rgba(220, 240, 255, 0.6)" />
-      <stop offset="50%" stopColor="rgba(200, 230, 255, 0.3)" />
-      <stop offset="100%" stopColor="rgba(220, 240, 255, 0.6)" />
-    </linearGradient>
-
-    {/* Schaduw Drop */}
-    <filter id="dropShadow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="6" />
-      <feOffset dx="4" dy="8" result="offsetblur" />
-      <feComponentTransfer>
-        <feFuncA type="linear" slope="0.3" />
-      </feComponentTransfer>
-      <feMerge>
-        <feMergeNode />
-        <feMergeNode in="SourceGraphic" />
-      </feMerge>
-    </filter>
-  </defs>
-);
-
-// --- Main Engine ---
-
+// --- Main Component ---
 export function GardenPlotCanvas({
   beds,
   onBedMove,
-}: {
-  beds: GardenBed[];
-  onBedMove: (id: UUID, x: number, y: number) => void;
-}) {
-  // --- State ---
-  const [objects, setObjects] = useState<PlotObject[]>(() => {
-    try { return JSON.parse(localStorage.getItem(STORAGE_PREFIX + ":objects") || "[]"); } catch { return []; }
-  });
+  onBedDuplicate,
+  storagePrefix = "gardenPlot",
+}: GardenPlotCanvasProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   
-  // Camera State
+  // View state
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
-  const [pitch, setPitch] = useState(0); // 0 = 2D, 60 = 3D
-  const [rotation, setRotation] = useState(0); // Rotatie van de hele tuin
-
-  // Interaction State
-  const [selection, setSelection] = useState<string | null>(null);
+  const [is3D, setIs3D] = useState(false);
+  
+  // Objects state (persisted to localStorage)
+  const [objects, setObjects] = useState<PlotObject[]>(() => {
+    try {
+      const stored = localStorage.getItem(`${storagePrefix}:objects`);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  
+  // Selection & drag state
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dragState, setDragState] = useState<{
-    active: boolean;
+    isDragging: boolean;
+    type: "pan" | "bed" | "object" | null;
     startX: number;
     startY: number;
-    itemStart?: { x: number; y: number };
-    id?: string;
-    type?: "bed" | "obj" | "pan";
-  }>({ active: false, startX: 0, startY: 0 });
+    startPan: { x: number; y: number };
+    startItemPos: { x: number; y: number };
+    itemId: string | null;
+  }>({
+    isDragging: false,
+    type: null,
+    startX: 0,
+    startY: 0,
+    startPan: { x: 0, y: 0 },
+    startItemPos: { x: 0, y: 0 },
+    itemId: null,
+  });
 
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  // --- Persist ---
+  // Persist objects
   useEffect(() => {
-    localStorage.setItem(STORAGE_PREFIX + ":objects", JSON.stringify(objects));
-  }, [objects]);
+    localStorage.setItem(`${storagePrefix}:objects`, JSON.stringify(objects));
+  }, [objects, storagePrefix]);
 
-  // --- Auto Fit on Mount ---
+  // Auto-fit on mount
   useEffect(() => {
-    // Wacht even tot de DOM er is, fit dan de tuin
-    const timeout = setTimeout(fitToScreen, 100);
-    return () => clearTimeout(timeout);
-  }, [beds.length]); // Re-fit als er beds bijkomen
+    const timer = setTimeout(fitToView, 150);
+    return () => clearTimeout(timer);
+  }, [beds.length]);
 
-  const fitToScreen = () => {
+  // Fit all items into view
+  const fitToView = useCallback(() => {
     if (!containerRef.current) return;
     
-    // Verzamel bounds van alles (beds + objects)
     const allItems = [
-      ...beds.map(b => ({ x: b.location_x ?? 0, y: b.location_y ?? 0, w: b.width_cm ?? 120, h: b.length_cm ?? 120 })),
-      ...objects.map(o => ({ x: o.x, y: o.y, w: o.w, h: o.h }))
+      ...beds.map(b => ({
+        x: b.location_x ?? 0,
+        y: b.location_y ?? 0,
+        w: b.width_cm,
+        h: b.length_cm,
+      })),
+      ...objects.map(o => ({ x: o.x, y: o.y, w: o.w, h: o.h })),
     ];
-
+    
     if (allItems.length === 0) {
       setPan({ x: containerRef.current.clientWidth / 2, y: containerRef.current.clientHeight / 2 });
+      setZoom(1);
       return;
     }
-
+    
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    allItems.forEach(i => {
-      minX = Math.min(minX, i.x - i.w/2);
-      maxX = Math.max(maxX, i.x + i.w/2);
-      minY = Math.min(minY, i.y - i.h/2);
-      maxY = Math.max(maxY, i.y + i.h/2);
+    allItems.forEach(item => {
+      const px = cmToPx(item.x);
+      const py = cmToPx(item.y);
+      const pw = cmToPx(item.w);
+      const ph = cmToPx(item.h);
+      minX = Math.min(minX, px - pw / 2);
+      maxX = Math.max(maxX, px + pw / 2);
+      minY = Math.min(minY, py - ph / 2);
+      maxY = Math.max(maxY, py + ph / 2);
     });
-
-    // Voeg wat padding toe
-    const padding = 200;
-    const contentW = maxX - minX + padding;
-    const contentH = maxY - minY + padding;
+    
+    const padding = 80;
+    const contentW = maxX - minX + padding * 2;
+    const contentH = maxY - minY + padding * 2;
     const screenW = containerRef.current.clientWidth;
     const screenH = containerRef.current.clientHeight;
-
-    const scale = Math.min(screenW / contentW, screenH / contentH);
+    
+    const scale = Math.min(screenW / contentW, screenH / contentH, 2);
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;
-
-    // Zet de view
-    setZoom(clamp(scale, 0.2, 2.5));
-    // Center pan is scherm center minus (world center * scale)
-    setPan({
-      x: (screenW / 2) - (centerX * scale),
-      y: (screenH / 2) - (centerY * scale)
-    });
-  };
-
-  // --- Coordinate Systems ---
-  const screenToWorld = (sx: number, sy: number) => {
-    // Simpele reverse transform (zonder rotatie support in drag voor nu, houd het stabiel)
-    return {
-      x: (sx - pan.x) / zoom,
-      y: (sy - pan.y) / zoom
-    };
-  };
-
-  // --- Event Handlers ---
-  const handlePointerDown = (e: React.PointerEvent, id?: string, type?: "bed" | "obj") => {
-    e.preventDefault();
-    e.stopPropagation();
     
-    if (id && type) {
-      setSelection(id);
-      const item = type === "bed" 
-        ? beds.find(b => b.id === id) 
-        : objects.find(o => o.id === id);
-      
-      const startPos = type === "bed" 
-        ? { x: (item as GardenBed)?.location_x ?? 0, y: (item as GardenBed)?.location_y ?? 0 }
-        : { x: (item as PlotObject)?.x ?? 0, y: (item as PlotObject)?.y ?? 0 };
+    setZoom(clamp(scale, 0.2, 2));
+    setPan({
+      x: screenW / 2 - centerX * scale,
+      y: screenH / 2 - centerY * scale,
+    });
+  }, [beds, objects]);
 
+  // Mouse handlers
+  const handlePointerDown = useCallback((e: React.PointerEvent, itemId?: string, itemType?: "bed" | "object") => {
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    
+    if (itemId && itemType) {
+      setSelectedId(itemId);
+      
+      let startPos = { x: 0, y: 0 };
+      if (itemType === "bed") {
+        const bed = beds.find(b => b.id === itemId);
+        if (bed) startPos = { x: bed.location_x ?? 0, y: bed.location_y ?? 0 };
+      } else {
+        const obj = objects.find(o => o.id === itemId);
+        if (obj) startPos = { x: obj.x, y: obj.y };
+      }
+      
       setDragState({
-        active: true,
+        isDragging: true,
+        type: itemType,
         startX: e.clientX,
         startY: e.clientY,
-        itemStart: startPos,
-        id,
-        type
+        startPan: pan,
+        startItemPos: startPos,
+        itemId,
       });
     } else {
-      // Pan mode
+      setSelectedId(null);
       setDragState({
-        active: true,
+        isDragging: true,
+        type: "pan",
         startX: e.clientX,
         startY: e.clientY,
-        itemStart: { x: pan.x, y: pan.y },
-        type: "pan"
+        startPan: pan,
+        startItemPos: { x: 0, y: 0 },
+        itemId: null,
       });
-      setSelection(null);
     }
-  };
+  }, [beds, objects, pan]);
 
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!dragState.active) return;
-
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!dragState.isDragging) return;
+    
     const dx = e.clientX - dragState.startX;
     const dy = e.clientY - dragState.startY;
-
-    if (dragState.type === "pan" && dragState.itemStart) {
+    
+    if (dragState.type === "pan") {
       setPan({
-        x: dragState.itemStart.x + dx,
-        y: dragState.itemStart.y + dy
+        x: dragState.startPan.x + dx,
+        y: dragState.startPan.y + dy,
       });
-    } else if (dragState.id && dragState.itemStart) {
-      // Move Item
-      const worldDx = dx / zoom;
-      const worldDy = dy / zoom;
-      const newX = snap(dragState.itemStart.x + worldDx);
-      const newY = snap(dragState.itemStart.y + worldDy);
-
+    } else if (dragState.itemId) {
+      const worldDx = pxToCm(dx / zoom);
+      const worldDy = pxToCm(dy / zoom);
+      const newX = snap(dragState.startItemPos.x + worldDx, 10);
+      const newY = snap(dragState.startItemPos.y + worldDy, 10);
+      
       if (dragState.type === "bed") {
-        // Optimistische update (lokale override zou beter zijn, maar voor nu direct call)
-        // Let op: dit kan schokkerig zijn als de parent traag is.
-        // Beter is om een lokale "preview" state te hebben, maar dit is de simpele fix.
-        onBedMove(dragState.id, newX, newY); 
-      } else {
-        setObjects(prev => prev.map(o => o.id === dragState.id ? { ...o, x: newX, y: newY } : o));
+        onBedMove(dragState.itemId, newX, newY);
+      } else if (dragState.type === "object") {
+        setObjects(prev => prev.map(o => 
+          o.id === dragState.itemId ? { ...o, x: newX, y: newY } : o
+        ));
       }
     }
-  };
+  }, [dragState, zoom, onBedMove]);
 
-  const handlePointerUp = () => {
-    setDragState({ active: false, startX: 0, startY: 0 });
-  };
+  const handlePointerUp = useCallback(() => {
+    setDragState(prev => ({ ...prev, isDragging: false, type: null }));
+  }, []);
 
-  const handleWheel = (e: React.WheelEvent) => {
-    if (e.ctrlKey) {
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
-      const s = Math.exp(-e.deltaY * 0.001);
-      setZoom(z => clamp(z * s, 0.1, 4));
+      const delta = e.deltaY > 0 ? 0.9 : 1.1;
+      setZoom(z => clamp(z * delta, 0.2, 3));
     } else {
-      setPan(p => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+      setPan(p => ({
+        x: p.x - e.deltaX * 0.5,
+        y: p.y - e.deltaY * 0.5,
+      }));
     }
-  };
+  }, []);
 
-  // --- Add Objects ---
-  const spawn = (type: PlotObjectType) => {
-    const center = screenToWorld(containerRef.current!.clientWidth / 2, containerRef.current!.clientHeight / 2);
+  // Spawn object in center of view
+  const spawnObject = useCallback((type: PlotObjectType) => {
+    if (!containerRef.current) return;
+    
+    const screenCenterX = containerRef.current.clientWidth / 2;
+    const screenCenterY = containerRef.current.clientHeight / 2;
+    const worldX = pxToCm((screenCenterX - pan.x) / zoom);
+    const worldY = pxToCm((screenCenterY - pan.y) / zoom);
+    
+    const sizes: Record<PlotObjectType, { w: number; h: number }> = {
+      greenhouse: { w: 300, h: 200 },
+      grass: { w: 150, h: 150 },
+      shrub: { w: 80, h: 80 },
+      gravel: { w: 120, h: 80 },
+      tree: { w: 100, h: 100 },
+      path: { w: 200, h: 60 },
+    };
+    
+    const size = sizes[type];
     const newObj: PlotObject = {
       id: crypto.randomUUID(),
       type,
-      x: center.x,
-      y: center.y,
-      w: type === "greenhouse" ? 300 : type === "tree" ? 150 : 100,
-      h: type === "greenhouse" ? 200 : type === "tree" ? 150 : 100,
-      z: type === "tree" ? 300 : 0
+      x: snap(worldX, 10),
+      y: snap(worldY, 10),
+      w: size.w,
+      h: size.h,
     };
-    setObjects(p => [...p, newObj]);
-    setSelection(newObj.id);
-  };
-
-  // --- Render Helpers (The Secret Sauce) ---
-  
-  // 3D Box Renderer: Tekent zijkanten als we in 3D modus zijn
-  const Box3D = ({ 
-    x, y, w, h, z, 
-    fillTop, fillSide, 
-    selected, label, 
-    onClick, type
-  }: any) => {
-    // Als pitch > 0, tekenen we de zijkant ("extrusie")
-    const is3D = pitch > 45;
-    const depth = is3D ? z : 0; // Hoeveel pixels omhoog "extruderen"
     
-    // De 'onderkant' van de bak (op de grond)
-    // De 'bovenkant' zweeft op Y - depth
+    setObjects(prev => [...prev, newObj]);
+    setSelectedId(newObj.id);
+    toast.success(`${type.charAt(0).toUpperCase() + type.slice(1)} toegevoegd`);
+  }, [pan, zoom]);
+
+  // Delete selected
+  const deleteSelected = useCallback(() => {
+    if (!selectedId) return;
+    
+    const isObject = objects.some(o => o.id === selectedId);
+    if (isObject) {
+      setObjects(prev => prev.filter(o => o.id !== selectedId));
+      setSelectedId(null);
+      toast.success("Object verwijderd");
+    }
+  }, [selectedId, objects]);
+
+  // Duplicate selected
+  const duplicateSelected = useCallback(() => {
+    if (!selectedId) return;
+    
+    const bed = beds.find(b => b.id === selectedId);
+    if (bed && onBedDuplicate) {
+      onBedDuplicate(bed);
+      return;
+    }
+    
+    const obj = objects.find(o => o.id === selectedId);
+    if (obj) {
+      const newObj = {
+        ...obj,
+        id: crypto.randomUUID(),
+        x: obj.x + 30,
+        y: obj.y + 30,
+      };
+      setObjects(prev => [...prev, newObj]);
+      setSelectedId(newObj.id);
+      toast.success("Object gedupliceerd");
+    }
+  }, [selectedId, beds, objects, onBedDuplicate]);
+
+  // Render items sorted by Y for proper overlap
+  const sortedItems = useMemo(() => {
+    const items: Array<{
+      id: string;
+      type: "bed" | PlotObjectType;
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      data: GardenBed | PlotObject;
+    }> = [
+      ...beds.map(b => ({
+        id: b.id,
+        type: "bed" as const,
+        x: b.location_x ?? 0,
+        y: b.location_y ?? 0,
+        w: b.width_cm,
+        h: b.length_cm,
+        data: b,
+      })),
+      ...objects.map(o => ({
+        id: o.id,
+        type: o.type,
+        x: o.x,
+        y: o.y,
+        w: o.w,
+        h: o.h,
+        data: o,
+      })),
+    ];
+    
+    return items.sort((a, b) => (a.y + a.h / 2) - (b.y + b.h / 2));
+  }, [beds, objects]);
+
+  // Render a single item
+  const renderItem = (item: typeof sortedItems[0]) => {
+    const isSelected = selectedId === item.id;
+    const px = cmToPx(item.x);
+    const py = cmToPx(item.y);
+    const pw = cmToPx(item.w);
+    const ph = cmToPx(item.h);
+    
+    const transform3D = is3D ? `translate(0, ${-10})` : "";
+    
+    if (item.type === "bed") {
+      const bed = item.data as GardenBed;
+      return (
+        <g
+          key={item.id}
+          transform={`translate(${px}, ${py}) ${transform3D}`}
+          className="cursor-move"
+          onPointerDown={(e) => handlePointerDown(e, item.id, "bed")}
+        >
+          {/* Shadow */}
+          {is3D && (
+            <rect
+              x={-pw / 2 + 3}
+              y={-ph / 2 + 6}
+              width={pw}
+              height={ph}
+              rx={4}
+              fill="black"
+              opacity={0.15}
+            />
+          )}
+          
+          {/* Side (3D effect) */}
+          {is3D && (
+            <path
+              d={`M ${-pw / 2} ${ph / 2} L ${pw / 2} ${ph / 2} L ${pw / 2} ${ph / 2 - 12} L ${-pw / 2} ${ph / 2 - 12} Z`}
+              fill="hsl(25, 50%, 30%)"
+            />
+          )}
+          
+          {/* Wood frame */}
+          <rect
+            x={-pw / 2}
+            y={-ph / 2}
+            width={pw}
+            height={ph}
+            rx={4}
+            fill="url(#gradient-wood)"
+            stroke={isSelected ? "hsl(50, 100%, 50%)" : "hsl(25, 40%, 25%)"}
+            strokeWidth={isSelected ? 3 : 1}
+          />
+          
+          {/* Soil */}
+          <rect
+            x={-pw / 2 + 4}
+            y={-ph / 2 + 4}
+            width={pw - 8}
+            height={ph - 8}
+            rx={2}
+            fill="url(#pattern-soil)"
+          />
+          
+          {/* Greenhouse indicator */}
+          {bed.is_greenhouse && (
+            <rect
+              x={-pw / 2}
+              y={-ph / 2}
+              width={pw}
+              height={ph}
+              rx={4}
+              fill="url(#gradient-glass)"
+              stroke="hsl(200, 50%, 70%)"
+              strokeWidth={2}
+              strokeDasharray="4 2"
+            />
+          )}
+          
+          {/* Label */}
+          <text
+            x={0}
+            y={0}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            className="fill-white font-semibold pointer-events-none select-none"
+            style={{ fontSize: Math.min(pw, ph) / 4, textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}
+          >
+            {bed.name}
+          </text>
+        </g>
+      );
+    }
+    
+    // Render plot object
+    const obj = item.data as PlotObject;
     
     return (
-      <g 
-        transform={`translate(${x}, ${y})`} 
-        onClick={onClick}
-        className={cn("transition-transform duration-75 cursor-pointer", selected ? "z-50" : "z-auto")}
-        onPointerDown={(e) => handlePointerDown(e, type === "bed" ? undefined : undefined, undefined)} // Propagate up
+      <g
+        key={item.id}
+        transform={`translate(${px}, ${py}) ${transform3D}`}
+        className="cursor-move"
+        onPointerDown={(e) => handlePointerDown(e, item.id, "object")}
       >
-        {/* Schaduw op de grond */}
-        <rect 
-          x={-w/2} y={-h/2} width={w} height={h} rx={4}
-          fill="black" opacity={0.2} 
-          filter="url(#dropShadow)"
-        />
-
-        {/* De 'Extrusie' (Zijkant) - Alleen zichtbaar in 3D */}
-        {depth > 0 && (
-          <path 
-            d={`
-              M ${-w/2} ${h/2} 
-              L ${w/2} ${h/2} 
-              L ${w/2} ${h/2 - depth} 
-              L ${-w/2} ${h/2 - depth} 
-              Z
-            `} 
-            fill={fillSide || "#5d3a22"}
+        {item.type === "greenhouse" && (
+          <>
+            {/* Frame */}
+            <rect
+              x={-pw / 2}
+              y={-ph / 2}
+              width={pw}
+              height={ph}
+              fill="white"
+              stroke={isSelected ? "hsl(50, 100%, 50%)" : "hsl(0, 0%, 70%)"}
+              strokeWidth={isSelected ? 3 : 2}
+            />
+            {/* Glass */}
+            <rect
+              x={-pw / 2 + 4}
+              y={-ph / 2 + 4}
+              width={pw - 8}
+              height={ph - 8}
+              fill="url(#gradient-glass)"
+            />
+            {/* Cross beams */}
+            <line x1={-pw / 2} y1={0} x2={pw / 2} y2={0} stroke="white" strokeWidth={2} opacity={0.5} />
+            <line x1={0} y1={-ph / 2} x2={0} y2={ph / 2} stroke="white" strokeWidth={2} opacity={0.5} />
+          </>
+        )}
+        
+        {item.type === "grass" && (
+          <rect
+            x={-pw / 2}
+            y={-ph / 2}
+            width={pw}
+            height={ph}
+            rx={8}
+            fill="url(#pattern-grass)"
+            stroke={isSelected ? "hsl(50, 100%, 50%)" : "hsl(100, 40%, 40%)"}
+            strokeWidth={isSelected ? 3 : 2}
           />
         )}
         
-        {/* De Bovenkant (Het deksel) - Verschuift omhoog in 3D */}
-        <g transform={`translate(0, ${-depth})`}>
-          <rect 
-            x={-w/2} y={-h/2} width={w} height={h} rx={4}
-            fill={fillTop} stroke="rgba(0,0,0,0.1)" strokeWidth={1}
+        {item.type === "gravel" && (
+          <rect
+            x={-pw / 2}
+            y={-ph / 2}
+            width={pw}
+            height={ph}
+            rx={4}
+            fill="url(#pattern-gravel)"
+            stroke={isSelected ? "hsl(50, 100%, 50%)" : "hsl(0, 0%, 60%)"}
+            strokeWidth={isSelected ? 3 : 1}
           />
-          
-          {/* Aarde vulling voor bakken */}
-          {type === "bed" && (
-            <rect 
-              x={-w/2 + 6} y={-h/2 + 6} width={w - 12} height={h - 12} rx={2}
-              fill="url(#p-soil)" style={{filter: "inset 0 2px 4px rgba(0,0,0,0.5)"}}
+        )}
+        
+        {item.type === "path" && (
+          <rect
+            x={-pw / 2}
+            y={-ph / 2}
+            width={pw}
+            height={ph}
+            rx={2}
+            fill="url(#pattern-path)"
+            stroke={isSelected ? "hsl(50, 100%, 50%)" : "hsl(35, 20%, 45%)"}
+            strokeWidth={isSelected ? 3 : 1}
+          />
+        )}
+        
+        {item.type === "tree" && (
+          <>
+            {is3D && (
+              <ellipse cx={3} cy={5} rx={pw / 2.5} ry={pw / 4} fill="black" opacity={0.15} />
+            )}
+            <circle
+              cx={0}
+              cy={0}
+              r={pw / 2}
+              fill="hsl(120, 35%, 30%)"
+              stroke={isSelected ? "hsl(50, 100%, 50%)" : "hsl(120, 30%, 20%)"}
+              strokeWidth={isSelected ? 3 : 1}
             />
-          )}
-
-          {/* Label */}
-          {label && (
-             <text 
-               y={0} textAnchor="middle" dominantBaseline="middle" 
-               className="font-bold text-white drop-shadow-md select-none pointer-events-none"
-               style={{ fontSize: Math.min(w, h)/5 }}
-             >
-               {label}
-             </text>
-          )}
-
-          {/* Selectie Halo */}
-          {selected && (
-            <rect 
-              x={-w/2 - 4} y={-h/2 - 4} width={w + 8} height={h + 8} 
-              fill="none" stroke="#ffff00" strokeWidth={3} strokeDasharray="6 4"
-              className="animate-pulse"
+            <circle cx={-pw / 6} cy={-pw / 6} r={pw / 3} fill="hsl(120, 40%, 38%)" />
+          </>
+        )}
+        
+        {item.type === "shrub" && (
+          <>
+            <circle
+              cx={0}
+              cy={0}
+              r={pw / 2}
+              fill="hsl(110, 45%, 45%)"
+              stroke={isSelected ? "hsl(50, 100%, 50%)" : "hsl(110, 40%, 35%)"}
+              strokeWidth={isSelected ? 3 : 1}
             />
-          )}
-        </g>
+            <circle cx={-pw / 5} cy={-pw / 5} r={pw / 3} fill="hsl(110, 50%, 55%)" />
+          </>
+        )}
       </g>
     );
   };
 
-  // Sorteren voor 3D overlap (Painter's Algorithm)
-  // Alles wat "lager" op het scherm staat (hogere Y) moet later getekend worden
-  const renderList = useMemo(() => {
-    const list = [
-      ...beds.map(b => ({ kind: "bed", id: b.id, x: b.location_x ?? 0, y: b.location_y ?? 0, w: b.width_cm ?? 120, h: b.length_cm ?? 120, z: 30, data: b })),
-      ...objects.map(o => ({ kind: "obj", id: o.id, x: o.x, y: o.y, w: o.w, h: o.h, z: o.z, data: o }))
-    ];
-    // Sorteer op Y-positie
-    return list.sort((a, b) => (a.y + a.h/2) - (b.y + b.h/2));
-  }, [beds, objects]);
-
-  // --- UI Render ---
   return (
-    <div className="flex flex-col h-screen w-full bg-stone-900 overflow-hidden relative font-sans text-stone-800">
-      
-      {/* --- CANVAS --- */}
-      <div 
+    <div className="relative w-full h-[600px] bg-muted/30 rounded-lg border overflow-hidden">
+      {/* Main canvas area */}
+      <div
         ref={containerRef}
-        className="flex-1 relative overflow-hidden cursor-grab active:cursor-grabbing bg-[#bedcb0]" // Zachte groene achtergrond
+        className="absolute inset-0 cursor-grab active:cursor-grabbing"
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
         onWheel={handleWheel}
-        onPointerDown={(e) => handlePointerDown(e)}
+        onPointerDown={(e) => {
+          if (e.target === containerRef.current || e.target === svgRef.current) {
+            handlePointerDown(e);
+          }
+        }}
       >
-        <svg className="absolute w-full h-full pointer-events-none">
-          <WorldTextures />
-        </svg>
-
-        {/* World Container - Handles Pan/Zoom/Pitch */}
-        <div 
+        <svg
+          ref={svgRef}
+          className="absolute inset-0 w-full h-full"
           style={{
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) perspective(2000px) rotateX(${pitch}deg) rotateZ(${rotation}deg)`,
-            transformOrigin: "center center", // Roteer vanuit het midden van de view
-            transition: dragState.active ? "none" : "transform 0.4s cubic-bezier(0.2, 0.9, 0.2, 1)",
-            width: 0, height: 0, // Zero size, everything overflows visible
-            position: "absolute", top: 0, left: 0
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            transformOrigin: "0 0",
           }}
-          className="preserve-3d"
         >
-          {/* Infinite Grass Plane (Visueel) */}
-          <div 
-            className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none" 
-            style={{ width: "4000px", height: "4000px", background: "url(#p-grass) repeat" }} // Gebruik pattern via CSS? Nee, SVG is beter hier.
-          >
-             {/* We gebruiken een grote SVG rect voor het gras zodat patterns werken */}
-             <svg width="4000" height="4000" viewBox="0 0 4000 4000" className="absolute -left-[2000px] -top-[2000px]">
-               <rect width="4000" height="4000" fill="url(#p-grass)" />
-               {/* Grid Lijnen */}
-               <defs>
-                 <pattern id="grid" width={100} height={100} patternUnits="userSpaceOnUse">
-                   <path d="M 100 0 L 0 0 0 100" fill="none" stroke="rgba(0,0,0,0.05)" strokeWidth="2"/>
-                 </pattern>
-               </defs>
-               <rect width="4000" height="4000" fill="url(#grid)" />
-             </svg>
-          </div>
-
-          {/* Render Items */}
-          <svg className="overflow-visible" style={{ position: "absolute" }}>
-            {renderList.map(item => {
-              const isSelected = selection === item.id;
-              
-              if (item.kind === "bed") {
-                const b = item.data as GardenBed;
-                return (
-                  <Box3D 
-                    key={item.id} 
-                    {...item} 
-                    type="bed"
-                    fillTop="url(#g-wood-top)" 
-                    fillSide="url(#g-wood-side)"
-                    label={b.name}
-                    selected={isSelected}
-                    onClick={(e: any) => handlePointerDown(e, item.id, "bed")}
-                  />
-                );
-              } else {
-                const o = item.data as PlotObject;
-                // Custom shapes based on type
-                return (
-                  <g 
-                    key={item.id} 
-                    transform={`translate(${o.x}, ${o.y})`}
-                    onPointerDown={(e) => handlePointerDown(e, item.id, "obj")}
-                    className={cn("cursor-pointer hover:brightness-110", isSelected ? "opacity-100" : "opacity-90")}
-                  >
-                    {o.type === "greenhouse" && (
-                      <g transform={`translate(0, ${pitch > 45 ? -20 : 0})`}> {/* Lift up slightly in 3D */}
-                        <rect x={-o.w/2} y={-o.h/2} width={o.w} height={o.h} fill="white" stroke="#999" strokeWidth={4} />
-                        <rect x={-o.w/2 + 4} y={-o.h/2 + 4} width={o.w - 8} height={o.h - 8} fill="url(#g-glass)" />
-                        <path d={`M${-o.w/2},0 L${o.w/2},0 M0,${-o.h/2} L0,${o.h/2}`} stroke="white" strokeWidth={2} opacity={0.5} />
-                        {/* Dak simulatie */}
-                        <path d={`M${-o.w/2},${-o.h/2} L0,${-o.h/2 - 40} L${o.w/2},${-o.h/2}`} fill="rgba(255,255,255,0.4)" stroke="white" />
-                        {isSelected && <rect x={-o.w/2-5} y={-o.h/2-5} width={o.w+10} height={o.h+10} fill="none" stroke="yellow" strokeWidth={3} strokeDasharray="5" />}
-                      </g>
-                    )}
-                    
-                    {o.type === "tree" && (
-                      <g transform={`translate(0, ${pitch > 45 ? -o.h/2 : 0})`}> 
-                        <circle r={o.w/2} fill="#2d4f1e" filter="url(#dropShadow)" />
-                        <circle r={o.w/3} fill="#406b29" cx={-10} cy={-10} />
-                        {isSelected && <circle r={o.w/2 + 5} fill="none" stroke="yellow" strokeWidth={3} strokeDasharray="5" />}
-                      </g>
-                    )}
-
-                    {o.type === "shrub" && (
-                      <g>
-                        <circle r={o.w/2} fill="#5c8a42" filter="url(#dropShadow)" />
-                        <circle r={o.w/2.5} fill="#7cb35a" cx={-5} cy={-5} />
-                        {isSelected && <circle r={o.w/2 + 5} fill="none" stroke="yellow" strokeWidth={3} strokeDasharray="5" />}
-                      </g>
-                    )}
-
-                    {o.type === "gravel" && (
-                      <rect x={-o.w/2} y={-o.h/2} width={o.w} height={o.h} fill="url(#p-gravel)" stroke="#bbb" rx={10} 
-                        style={isSelected ? {stroke: "yellow", strokeWidth: 3} : {}}
-                      />
-                    )}
-                     {o.type === "grass" && (
-                      <rect x={-o.w/2} y={-o.h/2} width={o.w} height={o.h} fill="url(#p-grass)" stroke="#6ba848" rx={10} 
-                         style={isSelected ? {stroke: "yellow", strokeWidth: 3} : {}}
-                      />
-                    )}
-                  </g>
-                );
-              }
-            })}
-          </svg>
-        </div>
+          <PatternDefs />
+          
+          {/* Background grid */}
+          <defs>
+            <pattern id="grid" width={cmToPx(GRID_SIZE)} height={cmToPx(GRID_SIZE)} patternUnits="userSpaceOnUse">
+              <path
+                d={`M ${cmToPx(GRID_SIZE)} 0 L 0 0 0 ${cmToPx(GRID_SIZE)}`}
+                fill="none"
+                stroke="hsl(var(--border))"
+                strokeWidth={0.5}
+                opacity={0.5}
+              />
+            </pattern>
+          </defs>
+          
+          {/* Large background area */}
+          <rect
+            x={-2000}
+            y={-2000}
+            width={4000}
+            height={4000}
+            fill="url(#pattern-grass)"
+          />
+          <rect
+            x={-2000}
+            y={-2000}
+            width={4000}
+            height={4000}
+            fill="url(#grid)"
+          />
+          
+          {/* Render all items */}
+          {sortedItems.map(renderItem)}
+        </svg>
       </div>
-
-      {/* --- HUD / UI --- */}
       
-      {/* Top Bar: View Controls */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-white/90 backdrop-blur-md px-4 py-2 rounded-full shadow-xl border border-stone-200/50 z-50">
-        <button onClick={() => setPitch(0)} className={cn("px-3 py-1 rounded-full text-xs font-bold transition", pitch === 0 ? "bg-stone-800 text-white" : "hover:bg-stone-200")}>
-          2D Plan
-        </button>
-        <button onClick={() => setPitch(60)} className={cn("px-3 py-1 rounded-full text-xs font-bold transition flex items-center gap-1", pitch === 60 ? "bg-blue-600 text-white" : "hover:bg-stone-200")}>
-          <Move3D size={14} /> 3D View
-        </button>
-        <div className="w-px h-4 bg-stone-300 mx-1" />
-        <button onClick={fitToScreen} title="Fit" className="p-2 hover:bg-stone-200 rounded-full"><Maximize size={16}/></button>
+      {/* Top controls */}
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-background/95 backdrop-blur-sm px-3 py-2 rounded-full shadow-lg border z-10">
+        <Button
+          variant={!is3D ? "default" : "ghost"}
+          size="sm"
+          onClick={() => setIs3D(false)}
+          className="rounded-full text-xs h-8"
+        >
+          2D
+        </Button>
+        <Button
+          variant={is3D ? "default" : "ghost"}
+          size="sm"
+          onClick={() => setIs3D(true)}
+          className="rounded-full text-xs h-8 gap-1"
+        >
+          <Move3D className="h-3 w-3" />
+          3D
+        </Button>
+        <div className="w-px h-5 bg-border" />
+        <Button variant="ghost" size="sm" onClick={() => setZoom(z => clamp(z * 1.2, 0.2, 3))} className="rounded-full h-8 w-8 p-0">
+          <ZoomIn className="h-4 w-4" />
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setZoom(z => clamp(z * 0.8, 0.2, 3))} className="rounded-full h-8 w-8 p-0">
+          <ZoomOut className="h-4 w-4" />
+        </Button>
+        <Button variant="ghost" size="sm" onClick={fitToView} className="rounded-full h-8 w-8 p-0" title="Fit in beeld">
+          <Maximize className="h-4 w-4" />
+        </Button>
       </div>
-
-      {/* Bottom Bar: Action Dock (Game Style) */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-end gap-3 z-50">
-        
-        {/* Tools */}
-        <div className="flex items-center gap-1 bg-white/95 backdrop-blur-md px-3 py-2 rounded-2xl shadow-2xl border border-stone-200">
-           <ToolButton icon={Warehouse} label="Kas" onClick={() => spawn("greenhouse")} color="text-blue-600" />
-           <ToolButton icon={Sprout} label="Struik" onClick={() => spawn("shrub")} color="text-green-600" />
-           <ToolButton icon={TreePine} label="Boom" onClick={() => spawn("tree")} color="text-green-800" />
-           <ToolButton icon={LayoutGrid} label="Grind" onClick={() => spawn("gravel")} color="text-stone-500" />
-           <ToolButton icon={Box} label="Vlak" onClick={() => spawn("grass")} color="text-lime-600" />
+      
+      {/* Bottom toolbar - Add objects */}
+      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-end gap-2 z-10">
+        <div className="flex items-center gap-1 bg-background/95 backdrop-blur-sm px-3 py-2 rounded-2xl shadow-lg border">
+          <ToolButton icon={Warehouse} label="Kas" onClick={() => spawnObject("greenhouse")} />
+          <ToolButton icon={Flower2} label="Struik" onClick={() => spawnObject("shrub")} />
+          <ToolButton icon={TreePine} label="Boom" onClick={() => spawnObject("tree")} />
+          <ToolButton icon={LayoutGrid} label="Grind" onClick={() => spawnObject("gravel")} />
+          <ToolButton icon={TreeDeciduous} label="Gras" onClick={() => spawnObject("grass")} />
+          <ToolButton icon={Rows3} label="Pad" onClick={() => spawnObject("path")} />
         </div>
-
-        {/* Edit Context Menu (Visible if selected) */}
-        {selection && (
-           <div className="flex items-center gap-1 bg-stone-800 text-white px-3 py-2 rounded-2xl shadow-2xl animate-in slide-in-from-bottom-4 fade-in">
-              <span className="text-xs font-bold px-2 border-r border-stone-600 mr-1">
-                 {selection.length > 10 ? "Object" : "Bak"}
-              </span>
-              <button onClick={() => {
-                 const obj = objects.find(o => o.id === selection);
-                 if (obj) {
-                    const clone = {...obj, id: crypto.randomUUID(), x: obj.x + 20, y: obj.y + 20};
-                    setObjects(p => [...p, clone]);
-                 }
-              }} className="p-2 hover:bg-stone-700 rounded-lg" title="Dupliceer"><Copy size={16}/></button>
-              
-              <button onClick={() => {
-                 setObjects(p => p.filter(o => o.id !== selection));
-                 setSelection(null);
-              }} className="p-2 hover:bg-red-600 rounded-lg text-red-200" title="Verwijder"><Trash2 size={16}/></button>
-           </div>
+        
+        {/* Selection actions */}
+        {selectedId && (
+          <div className="flex items-center gap-1 bg-primary text-primary-foreground px-3 py-2 rounded-2xl shadow-lg animate-in slide-in-from-bottom-2">
+            <span className="text-xs font-medium px-2 border-r border-primary-foreground/20 mr-1">
+              {beds.some(b => b.id === selectedId) ? "Bak" : "Object"}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={duplicateSelected}
+              className="h-8 w-8 p-0 hover:bg-primary-foreground/20"
+              title="Dupliceren"
+            >
+              <Copy className="h-4 w-4" />
+            </Button>
+            {!beds.some(b => b.id === selectedId) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={deleteSelected}
+                className="h-8 w-8 p-0 hover:bg-destructive/80"
+                title="Verwijderen"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         )}
       </div>
-
+      
+      {/* Instructions */}
+      <div className="absolute top-3 right-3 text-xs text-muted-foreground bg-background/80 px-2 py-1 rounded">
+        Sleep om te verplaatsen • Scroll om te zoomen
+      </div>
     </div>
   );
 }
 
-function ToolButton({ icon: Icon, label, onClick, color }: any) {
+// Tool button component
+function ToolButton({
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  icon: React.ElementType;
+  label: string;
+  onClick: () => void;
+}) {
   return (
-    <button onClick={onClick} className="flex flex-col items-center gap-1 px-3 py-1 group">
-      <div className={cn("p-2 rounded-xl bg-stone-50 border border-stone-200 group-hover:-translate-y-1 transition-transform shadow-sm group-hover:shadow-md", color)}>
-        <Icon size={24} />
+    <button
+      onClick={onClick}
+      className="flex flex-col items-center gap-1 px-2 py-1 group transition-transform hover:-translate-y-0.5"
+    >
+      <div className="p-2 rounded-xl bg-muted border border-border group-hover:bg-accent group-hover:border-accent transition-colors">
+        <Icon className="h-5 w-5 text-foreground" />
       </div>
-      <span className="text-[10px] font-bold text-stone-500 group-hover:text-stone-800">{label}</span>
+      <span className="text-[10px] font-medium text-muted-foreground group-hover:text-foreground">
+        {label}
+      </span>
     </button>
-  )
+  );
 }
