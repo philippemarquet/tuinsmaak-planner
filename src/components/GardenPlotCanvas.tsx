@@ -33,9 +33,9 @@ import { toast } from "sonner";
 const GardenWalkMode3D = lazy(() => import("./GardenWalkMode3D").then(m => ({ default: m.GardenWalkMode3D })));
 
 // --- Types ---
-type PlotObjectType = "greenhouse" | "grass" | "shrub" | "gravel" | "tree" | "path" | "woodchips" | "tiles";
+export type PlotObjectType = "greenhouse" | "grass" | "shrub" | "gravel" | "tree" | "path" | "woodchips" | "tiles";
 
-type PlotObject = {
+export type PlotObject = {
   id: string;
   type: PlotObjectType;
   x: number;
@@ -68,6 +68,12 @@ interface GardenPlotCanvasProps {
   readOnly?: boolean;
   /** Plantings to overlay on beds */
   plantings?: PlantingOverlay[];
+  /** Plot objects (kas, pad, boom, etc.) from database */
+  plotObjects?: PlotObject[];
+  /** Callbacks for plot object CRUD operations */
+  onObjectCreate?: (type: PlotObjectType, x: number, y: number, w: number, h: number, zIndex: number) => Promise<PlotObject | void>;
+  onObjectUpdate?: (id: string, patch: Partial<PlotObject>) => Promise<void>;
+  onObjectDelete?: (id: string) => Promise<void>;
 }
 
 // --- Constants ---
@@ -155,6 +161,10 @@ export function GardenPlotCanvas({
   storagePrefix = "gardenPlot",
   readOnly = false,
   plantings: plantingsOverlay = [],
+  plotObjects: externalObjects,
+  onObjectCreate,
+  onObjectUpdate,
+  onObjectDelete,
 }: GardenPlotCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -171,8 +181,14 @@ export function GardenPlotCanvas({
   const [walkPos, setWalkPos] = useState({ x: 0, y: 0 }); // position in cm
   const [walkDir, setWalkDir] = useState(0); // direction in degrees (0 = looking "up"/north)
 
-  // Objects - now using shared storage with migration
-  const [objects, setObjects] = useState<PlotObject[]>(() => migrateObjectsStorage());
+  // Objects - prefer external (Supabase), fallback to localStorage for migration
+  const [localObjects, setLocalObjects] = useState<PlotObject[]>(() => migrateObjectsStorage());
+  
+  // Use external objects if provided, otherwise fallback to local (for backwards compat during migration)
+  const objects = externalObjects ?? localObjects;
+  const setObjects = externalObjects ? (() => {}) as any : setLocalObjects; // Disable local setter when using external
+
+  // Draft positions for beds while dragging (smooth preview, no DB calls)
 
   // Draft positions for beds while dragging (smooth preview, no DB calls)
   const [bedDraft, setBedDraft] = useState<Record<string, { x: number; y: number }>>({});
@@ -211,10 +227,12 @@ export function GardenPlotCanvas({
     });
   }, []);
 
-  // Persist objects to shared storage
+  // Persist objects to shared storage (only when using local state, not external)
   useEffect(() => {
-    localStorage.setItem(SHARED_OBJECTS_KEY, JSON.stringify(objects));
-  }, [objects]);
+    if (!externalObjects) {
+      localStorage.setItem(SHARED_OBJECTS_KEY, JSON.stringify(localObjects));
+    }
+  }, [localObjects, externalObjects]);
 
   // Cleanup rAF
   useEffect(() => {
@@ -464,13 +482,22 @@ export function GardenPlotCanvas({
       }
 
       if (d.kind === "object") {
-        setObjects((prev) => prev.map((o) => (o.id === d.id ? { ...o, x: nextX, y: nextY } : o)));
+        // Update local state for visual feedback during drag
+        if (externalObjects) {
+          // We need a local draft for external objects too during drag
+          pendingObjectMoveRef.current = { id: d.id, x: nextX, y: nextY };
+        } else {
+          setLocalObjects((prev) => prev.map((o) => (o.id === d.id ? { ...o, x: nextX, y: nextY } : o)));
+        }
       }
     },
     [rotZ, zoom, scheduleBedDraftUpdate, snapValue]
   );
 
-  const handlePointerUp = useCallback(() => {
+  // Track object drag state for commit on pointer up
+  const pendingObjectMoveRef = useRef<{ id: string; x: number; y: number } | null>(null);
+
+  const handlePointerUp = useCallback(async () => {
     const d = dragRef.current;
     dragRef.current = null;
 
@@ -481,7 +508,20 @@ export function GardenPlotCanvas({
         onBedMove(d.id as UUID, Math.round(finalPos.x), Math.round(finalPos.y));
       }
     }
-  }, [bedDraft, onBedMove]);
+
+    // Commit object move to database if using external callbacks
+    if (d?.kind === "object" && d.id && d.moved && onObjectUpdate) {
+      const objPos = pendingObjectMoveRef.current;
+      if (objPos && objPos.id === d.id) {
+        try {
+          await onObjectUpdate(d.id, { x: Math.round(objPos.x), y: Math.round(objPos.y) });
+        } catch (e: any) {
+          toast.error("Kon positie niet opslaan: " + (e.message ?? String(e)));
+        }
+      }
+      pendingObjectMoveRef.current = null;
+    }
+  }, [bedDraft, onBedMove, onObjectUpdate]);
 
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
@@ -503,7 +543,7 @@ export function GardenPlotCanvas({
   const handleContextMenu = useCallback((e: React.MouseEvent) => e.preventDefault(), []);
 
   const spawnObject = useCallback(
-    (type: PlotObjectType) => {
+    async (type: PlotObjectType) => {
       hasInteractedRef.current = true;
 
       const sizes: Record<PlotObjectType, { w: number; h: number }> = {
@@ -535,34 +575,60 @@ export function GardenPlotCanvas({
 
       // New objects get the highest zIndex so they appear on top
       const maxZ = objects.reduce((max, o) => Math.max(max, o.zIndex ?? 0), 0);
+      const x = snapValue(cx + offset - 250);
+      const y = snapValue(cy + offset - 150);
+      const zIndex = maxZ + 1;
 
-      const obj: PlotObject = {
-        id: crypto.randomUUID(),
-        type,
-        x: snapValue(cx + offset - 250),
-        y: snapValue(cy + offset - 150),
-        w: size.w,
-        h: size.h,
-        zIndex: maxZ + 1,
-      };
-
-      setObjects((p) => [...p, obj]);
-      setSelectedId(obj.id);
-      toast.success("Object toegevoegd");
+      // Use external callback if provided (Supabase), otherwise local state
+      if (onObjectCreate) {
+        try {
+          const created = await onObjectCreate(type, x, y, size.w, size.h, zIndex);
+          if (created) {
+            setSelectedId(created.id);
+          }
+          toast.success("Object toegevoegd");
+        } catch (e: any) {
+          toast.error("Kon object niet opslaan: " + (e.message ?? String(e)));
+        }
+      } else {
+        const obj: PlotObject = {
+          id: crypto.randomUUID(),
+          type,
+          x,
+          y,
+          w: size.w,
+          h: size.h,
+          zIndex,
+        };
+        setLocalObjects((p) => [...p, obj]);
+        setSelectedId(obj.id);
+        toast.success("Object toegevoegd");
+      }
     },
-    [beds, objects, getBedPos, snapValue]
+    [beds, objects, getBedPos, snapValue, onObjectCreate]
   );
 
-  const deleteSelected = useCallback(() => {
+  const deleteSelected = useCallback(async () => {
     if (!selectedId) return;
     const isObject = objects.some((o) => o.id === selectedId);
     if (!isObject) return;
-    setObjects((p) => p.filter((o) => o.id !== selectedId));
-    setSelectedId(null);
-    toast.success("Object verwijderd");
-  }, [objects, selectedId]);
+    
+    if (onObjectDelete) {
+      try {
+        await onObjectDelete(selectedId);
+        setSelectedId(null);
+        toast.success("Object verwijderd");
+      } catch (e: any) {
+        toast.error("Kon object niet verwijderen: " + (e.message ?? String(e)));
+      }
+    } else {
+      setLocalObjects((p) => p.filter((o) => o.id !== selectedId));
+      setSelectedId(null);
+      toast.success("Object verwijderd");
+    }
+  }, [objects, selectedId, onObjectDelete]);
 
-  const duplicateSelected = useCallback(() => {
+  const duplicateSelected = useCallback(async () => {
     if (!selectedId) return;
 
     const bed = beds.find((b) => b.id === selectedId);
@@ -571,16 +637,38 @@ export function GardenPlotCanvas({
     const obj = objects.find((o) => o.id === selectedId);
     if (!obj) return;
 
-    const clone: PlotObject = {
-      ...obj,
-      id: crypto.randomUUID(),
-      x: obj.x + 50,
-      y: obj.y + 50,
-    };
-    setObjects((p) => [...p, clone]);
-    setSelectedId(clone.id);
-    toast.success("Object gedupliceerd");
-  }, [beds, objects, onBedDuplicate, selectedId]);
+    const maxZ = objects.reduce((max, o) => Math.max(max, o.zIndex ?? 0), 0);
+    
+    if (onObjectCreate) {
+      try {
+        const created = await onObjectCreate(
+          obj.type as PlotObjectType,
+          obj.x + 50,
+          obj.y + 50,
+          obj.w,
+          obj.h,
+          maxZ + 1
+        );
+        if (created) {
+          setSelectedId(created.id);
+        }
+        toast.success("Object gedupliceerd");
+      } catch (e: any) {
+        toast.error("Kon object niet dupliceren: " + (e.message ?? String(e)));
+      }
+    } else {
+      const clone: PlotObject = {
+        ...obj,
+        id: crypto.randomUUID(),
+        x: obj.x + 50,
+        y: obj.y + 50,
+        zIndex: maxZ + 1,
+      };
+      setLocalObjects((p) => [...p, clone]);
+      setSelectedId(clone.id);
+      toast.success("Object gedupliceerd");
+    }
+  }, [beds, objects, onBedDuplicate, selectedId, onObjectCreate]);
 
   const resetView = useCallback(() => {
     hasInteractedRef.current = false;
@@ -670,10 +758,19 @@ export function GardenPlotCanvas({
   }, [isDayMode]);
 
   // Object inspector helpers
-  const updateSelectedObject = useCallback((patch: Partial<PlotObject>) => {
+  const updateSelectedObject = useCallback(async (patch: Partial<PlotObject>) => {
     if (!selectedObject) return;
-    setObjects((prev) => prev.map((o) => (o.id === selectedObject.id ? { ...o, ...patch } : o)));
-  }, [selectedObject]);
+    
+    if (onObjectUpdate) {
+      try {
+        await onObjectUpdate(selectedObject.id, patch);
+      } catch (e: any) {
+        toast.error("Kon object niet bijwerken: " + (e.message ?? String(e)));
+      }
+    } else {
+      setLocalObjects((prev) => prev.map((o) => (o.id === selectedObject.id ? { ...o, ...patch } : o)));
+    }
+  }, [selectedObject, onObjectUpdate]);
 
   // Grid visibility based on tilt (more visible in top view)
   const showGrid = gridSnap || tilt < 20;

@@ -265,6 +265,56 @@ export type Database = {
           },
         ]
       }
+      garden_plot_objects: {
+        Row: {
+          created_at: string
+          garden_id: string
+          h: number
+          id: string
+          label: string | null
+          type: string
+          updated_at: string
+          w: number
+          x: number
+          y: number
+          z_index: number
+        }
+        Insert: {
+          created_at?: string
+          garden_id: string
+          h?: number
+          id?: string
+          label?: string | null
+          type: string
+          updated_at?: string
+          w?: number
+          x?: number
+          y?: number
+          z_index?: number
+        }
+        Update: {
+          created_at?: string
+          garden_id?: string
+          h?: number
+          id?: string
+          label?: string | null
+          type?: string
+          updated_at?: string
+          w?: number
+          x?: number
+          y?: number
+          z_index?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "garden_plot_objects_garden_id_fkey"
+            columns: ["garden_id"]
+            isOneToOne: false
+            referencedRelation: "gardens"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       garden_tasks: {
         Row: {
           completed_at: string | null

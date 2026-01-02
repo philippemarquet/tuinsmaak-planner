@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import type { Garden, GardenBed, UUID } from "../lib/types";
 import { deleteBed, updateBed, createBed } from "../lib/api/beds";
+import { listPlotObjects, createPlotObject, updatePlotObject, deletePlotObject, type PlotObject } from "../lib/api/plotObjects";
 import { BedModal } from "./BedModal";
 import { Trash2, Map as MapIcon, PlusCircle, Copy, GripVertical, ChevronDown } from "lucide-react";
 import { DndContext, DragEndEvent, useDraggable, useDroppable } from "@dnd-kit/core";
@@ -19,6 +20,16 @@ export function BedsPage({
   const [beds, setBeds] = useState<GardenBed[]>(initialBeds);
   const [upsertOpen, setUpsertOpen] = useState<null | Partial<GardenBed>>(null);
   const [layoutMode, setLayoutMode] = useState(false);
+  const [plotObjects, setPlotObjects] = useState<PlotObject[]>([]);
+
+  // Load plot objects when entering layout mode
+  useEffect(() => {
+    if (layoutMode && garden?.id) {
+      listPlotObjects(garden.id)
+        .then(setPlotObjects)
+        .catch((e) => console.error("Failed to load plot objects:", e));
+    }
+  }, [layoutMode, garden?.id]);
 
   // Sync met centrale data
   useEffect(() => {
@@ -163,6 +174,16 @@ export function BedsPage({
         <GardenPlotCanvas
           beds={beds}
           storagePrefix="bedsLayout"
+          plotObjects={plotObjects.map((o) => ({
+            id: o.id,
+            type: o.type as any,
+            x: o.x,
+            y: o.y,
+            w: o.w,
+            h: o.h,
+            label: o.label ?? undefined,
+            zIndex: o.z_index,
+          }))}
           onBedMove={async (id, x, y) => {
             try {
               const updated = await updateBed(id, { location_x: Math.round(x), location_y: Math.round(y) });
@@ -174,6 +195,44 @@ export function BedsPage({
           }}
           onBedDuplicate={duplicateBed}
           onBedEdit={(bed) => setUpsertOpen(bed)}
+          onObjectCreate={async (type, x, y, w, h, zIndex) => {
+            const created = await createPlotObject({
+              garden_id: garden.id,
+              type,
+              x: Math.round(x),
+              y: Math.round(y),
+              w,
+              h,
+              z_index: zIndex,
+            });
+            setPlotObjects((prev) => [...prev, created]);
+            return {
+              id: created.id,
+              type: created.type as any,
+              x: created.x,
+              y: created.y,
+              w: created.w,
+              h: created.h,
+              label: created.label ?? undefined,
+              zIndex: created.z_index,
+            };
+          }}
+          onObjectUpdate={async (id, patch) => {
+            const dbPatch: any = {};
+            if (patch.x !== undefined) dbPatch.x = Math.round(patch.x);
+            if (patch.y !== undefined) dbPatch.y = Math.round(patch.y);
+            if (patch.w !== undefined) dbPatch.w = patch.w;
+            if (patch.h !== undefined) dbPatch.h = patch.h;
+            if (patch.label !== undefined) dbPatch.label = patch.label;
+            if (patch.zIndex !== undefined) dbPatch.z_index = patch.zIndex;
+            
+            const updated = await updatePlotObject(id, dbPatch);
+            setPlotObjects((prev) => prev.map((o) => (o.id === id ? updated : o)));
+          }}
+          onObjectDelete={async (id) => {
+            await deletePlotObject(id);
+            setPlotObjects((prev) => prev.filter((o) => o.id !== id));
+          }}
         />
       )}
 
