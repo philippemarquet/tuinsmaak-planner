@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import type { GardenBed, UUID } from "../lib/types";
 import { cn } from "../lib/utils";
 import {
@@ -28,6 +28,9 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Slider } from "./ui/slider";
 import { toast } from "sonner";
+
+// Lazy load the 3D walk mode component
+const GardenWalkMode3D = lazy(() => import("./GardenWalkMode3D").then(m => ({ default: m.GardenWalkMode3D })));
 
 // --- Types ---
 type PlotObjectType = "greenhouse" | "grass" | "shrub" | "gravel" | "tree" | "path" | "pond";
@@ -101,7 +104,6 @@ export function GardenPlotCanvas({
   const [walkMode, setWalkMode] = useState(false);
   const [walkPos, setWalkPos] = useState({ x: 0, y: 0 }); // position in cm
   const [walkDir, setWalkDir] = useState(0); // direction in degrees (0 = looking "up"/north)
-  const keysPressed = useRef<Set<string>>(new Set());
 
   // Objects
   const [objects, setObjects] = useState<PlotObject[]>(() => {
@@ -556,82 +558,7 @@ export function GardenPlotCanvas({
     fitToView({ force: true });
   }, [fitToView]);
 
-  // Walk mode keyboard controls
-  useEffect(() => {
-    if (!walkMode) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const key = e.key.toLowerCase();
-      if (["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright", "q", "e"].includes(key)) {
-        e.preventDefault();
-        keysPressed.current.add(key);
-      }
-      if (key === "escape") {
-        exitWalkMode();
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      keysPressed.current.delete(e.key.toLowerCase());
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-      keysPressed.current.clear();
-    };
-  }, [walkMode, exitWalkMode]);
-
-  // Walk mode movement loop - use refs to avoid stale closures
-  const walkDirRef = useRef(walkDir);
-  useEffect(() => { walkDirRef.current = walkDir; }, [walkDir]);
-
-  useEffect(() => {
-    if (!walkMode) return;
-
-    const WALK_SPEED = 8; // cm per frame
-    const TURN_SPEED = 2; // degrees per frame
-
-    let animFrame: number;
-    const loop = () => {
-      const keys = keysPressed.current;
-      let dx = 0, dy = 0, dr = 0;
-
-      // Forward/backward relative to direction
-      if (keys.has("w") || keys.has("arrowup")) dy = -WALK_SPEED;
-      if (keys.has("s") || keys.has("arrowdown")) dy = WALK_SPEED;
-      // Strafe left/right
-      if (keys.has("a")) dx = -WALK_SPEED;
-      if (keys.has("d")) dx = WALK_SPEED;
-      // Turn
-      if (keys.has("arrowleft") || keys.has("q")) dr = -TURN_SPEED;
-      if (keys.has("arrowright") || keys.has("e")) dr = TURN_SPEED;
-
-      // Only update direction when turning
-      if (dr !== 0) {
-        setWalkDir((d) => d + dr);
-      }
-
-      // Only update position when actually moving (not just rotating)
-      if (dx !== 0 || dy !== 0) {
-        const currentDir = walkDirRef.current + dr; // Include any concurrent rotation
-        const rad = (currentDir * Math.PI) / 180;
-        const cos = Math.cos(rad);
-        const sin = Math.sin(rad);
-        const moveX = dx * cos - dy * sin;
-        const moveY = dx * sin + dy * cos;
-        setWalkPos((pos) => ({ x: pos.x + moveX, y: pos.y + moveY }));
-      }
-
-      animFrame = requestAnimationFrame(loop);
-    };
-
-    animFrame = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(animFrame);
-  }, [walkMode]);
+  // Note: Walk mode keyboard controls are now handled in GardenWalkMode3D component
 
   // Sorted render list
   const renderList = useMemo(() => {
@@ -681,37 +608,34 @@ export function GardenPlotCanvas({
   const showGrid = gridSnap || tilt < 20;
   const gridSizePx = cmToPx(GRID_SIZE_CM);
 
-  // Walk mode transform calculations
-  const walkTransform = useMemo(() => {
-    if (!walkMode) return null;
+  // Note: walkTransform is no longer needed - 3D rendering is handled by GardenWalkMode3D
 
-    // Eye height ~170cm.
-    const eyeHeightPx = cmToPx(170);
-
-    // Instead of centering the camera on "where you stand" (which makes turning look like
-    // you're rotating above the same bed), we center on a point *ahead* of you.
-    const LOOK_AHEAD_CM = 260;
-    const rad = (walkDir * Math.PI) / 180;
-    const lookAheadX = Math.sin(rad) * LOOK_AHEAD_CM;
-    const lookAheadY = -Math.cos(rad) * LOOK_AHEAD_CM;
-
-    const lookXPx = cmToPx(walkPos.x + lookAheadX);
-    const lookYPx = cmToPx(walkPos.y + lookAheadY);
-
-    return {
-      eyeHeightPx,
-      lookXPx,
-      lookYPx,
-      lookDir: walkDir,
-    };
-  }, [walkMode, walkPos, walkDir]);
+  // Render 3D walk mode if active
+  if (walkMode) {
+    return (
+      <div className="relative w-full h-[700px] rounded-xl overflow-hidden shadow-2xl border border-border/50">
+        <Suspense fallback={
+          <div className="absolute inset-0 flex items-center justify-center bg-background">
+            <div className="text-muted-foreground">3D omgeving laden...</div>
+          </div>
+        }>
+          <GardenWalkMode3D
+            beds={beds}
+            objects={objects}
+            isDayMode={isDayMode}
+            initialPosition={walkPos}
+            initialDirection={walkDir}
+            onExit={exitWalkMode}
+          />
+        </Suspense>
+      </div>
+    );
+  }
 
   return (
     <div className="relative w-full h-[700px] rounded-xl overflow-hidden shadow-2xl border border-border/50" tabIndex={0}>
       {/* Sky */}
       <div className="absolute inset-0 transition-all duration-700" style={{ background: scene.sky }} />
-
-      {/* Sun / Moon */}
       <div className={cn("absolute top-8 transition-all duration-700 z-10", isDayMode ? "right-12" : "right-20")}>
         {isDayMode ? (
           <div
@@ -737,14 +661,14 @@ export function GardenPlotCanvas({
         ref={containerRef}
         className={cn("absolute inset-0 overflow-hidden", dragRef.current?.kind === "pan" && "cursor-grabbing")}
         style={{
-          perspective: walkMode ? "600px" : "1200px",
-          perspectiveOrigin: walkMode ? "50% 70%" : "50% 40%",
+          perspective: "1200px",
+          perspectiveOrigin: "50% 40%",
         }}
-        onPointerDown={walkMode ? undefined : handlePointerDownCanvas}
-        onPointerMove={walkMode ? undefined : handlePointerMove}
-        onPointerUp={walkMode ? undefined : handlePointerUp}
-        onPointerLeave={walkMode ? undefined : handlePointerUp}
-        onWheel={walkMode ? undefined : handleWheel}
+        onPointerDown={handlePointerDownCanvas}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
+        onWheel={handleWheel}
         onContextMenu={handleContextMenu}
       >
         {/* World */}
@@ -754,10 +678,8 @@ export function GardenPlotCanvas({
             width: 0,
             height: 0,
             transformStyle: "preserve-3d",
-            transform: walkMode && walkTransform
-              ? `translate(-50%, -50%) rotateX(65deg) rotateZ(${-walkTransform.lookDir}deg) translateZ(${-walkTransform.eyeHeightPx}px) translate(${-walkTransform.lookXPx}px, ${-walkTransform.lookYPx}px)`
-              : `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) rotateX(${tilt}deg) rotateZ(${rotZ}deg) scale(${zoom})`,
-            transition: walkMode || dragRef.current ? "none" : "transform 200ms cubic-bezier(0.2, 0.9, 0.2, 1)",
+            transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) rotateX(${tilt}deg) rotateZ(${rotZ}deg) scale(${zoom})`,
+            transition: dragRef.current ? "none" : "transform 200ms cubic-bezier(0.2, 0.9, 0.2, 1)",
           }}
         >
           {/* Ground */}
