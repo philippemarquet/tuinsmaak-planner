@@ -130,8 +130,9 @@ function Bed3D({ bed, isDayMode }: { bed: GardenBed; isDayMode: boolean }) {
   const width = bed.width_cm * CM_TO_M;
   const length = bed.length_cm * CM_TO_M;
   const height = 0.25; // 25cm bed height
-  const x = bed.location_x * CM_TO_M + width / 2;
-  const z = bed.location_y * CM_TO_M + length / 2;
+  // In 2D canvas, location_x/y is the CENTER of the bed, so we use it directly
+  const x = (bed.location_x ?? 0) * CM_TO_M;
+  const z = (bed.location_y ?? 0) * CM_TO_M;
 
   const woodColor = isDayMode ? "#8B5A2B" : "#5c3d1e";
   const soilColor = isDayMode ? "#3d2817" : "#2a1c10";
@@ -171,8 +172,9 @@ function Greenhouse3D({
   const width = w * CM_TO_M;
   const length = h * CM_TO_M;
   const height = 2.5;
-  const posX = x * CM_TO_M + width / 2;
-  const posZ = z * CM_TO_M + length / 2;
+  // x,z are already center coordinates from the parent, same as beds
+  const posX = x * CM_TO_M;
+  const posZ = z * CM_TO_M;
 
   return (
     <group position={[posX, 0, posZ]}>
@@ -252,8 +254,9 @@ function Pond3D({
 }) {
   const width = w * CM_TO_M;
   const length = h * CM_TO_M;
-  const posX = x * CM_TO_M + width / 2;
-  const posZ = z * CM_TO_M + length / 2;
+  // x,z are already center coordinates
+  const posX = x * CM_TO_M;
+  const posZ = z * CM_TO_M;
 
   return (
     <mesh position={[posX, 0.02, posZ]} rotation={[-Math.PI / 2, 0, 0]}>
