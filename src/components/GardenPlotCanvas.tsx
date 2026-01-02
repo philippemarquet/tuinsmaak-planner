@@ -803,18 +803,6 @@ export function GardenPlotCanvas({
                       >
                         {bed.name}
                       </span>
-                      {segments > 1 && (
-                        <span
-                          className="text-center opacity-70"
-                          style={{
-                            color: hslVar("--primary-foreground"),
-                            fontSize: clamp(Math.min(w, h) / 8, 8, 11),
-                            textShadow: `0 1px 4px hsl(var(--foreground) / 0.4)`,
-                          }}
-                        >
-                          {segments} segmenten
-                        </span>
-                      )}
                     </div>
 
                     {/* Hint */}
