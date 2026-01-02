@@ -300,13 +300,41 @@ function Bed3D({
           plants.push({ x: px, z: pz, height: plantHeight, scale });
         }
         
+        // Sign position - at the edge of the planting area
+        const signOffsetX = isHorizontal ? -cropWidth / 2 + 0.08 : 0;
+        const signOffsetZ = isHorizontal ? -cropLength / 2 + 0.08 : -cropLength / 2 + 0.08;
+        
         return (
           <group key={planting.id} position={[offsetX, height / 2 + 0.02, offsetZ]}>
-            {/* Colored ground patch */}
-            <mesh position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+            {/* PROMINENT colored ground - fully opaque, covering the soil */}
+            <mesh position={[0, 0.005, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
               <planeGeometry args={[cropWidth, cropLength]} />
-              <meshStandardMaterial color={planting.color} transparent opacity={0.5} />
+              <meshStandardMaterial color={planting.color} />
             </mesh>
+            
+            {/* Wooden garden sign/label */}
+            <group position={[signOffsetX, 0, signOffsetZ]}>
+              {/* Wooden stake */}
+              <mesh position={[0, 0.12, 0]} castShadow>
+                <boxGeometry args={[0.02, 0.24, 0.01]} />
+                <meshStandardMaterial color={isDayMode ? "#8B5A2B" : "#5c3d1e"} />
+              </mesh>
+              {/* Sign board */}
+              <mesh position={[0, 0.22, 0.015]} castShadow>
+                <boxGeometry args={[0.12, 0.08, 0.015]} />
+                <meshStandardMaterial color={isDayMode ? "#d4a574" : "#8b6b4a"} />
+              </mesh>
+              {/* Colored indicator on sign */}
+              <mesh position={[0, 0.22, 0.024]}>
+                <planeGeometry args={[0.09, 0.05]} />
+                <meshStandardMaterial color={planting.color} />
+              </mesh>
+              {/* Small icon representation (colored dot) */}
+              <mesh position={[0, 0.22, 0.025]}>
+                <circleGeometry args={[0.018, 16]} />
+                <meshStandardMaterial color={isDayMode ? "#ffffff" : "#dddddd"} />
+              </mesh>
+            </group>
             
             {/* 3D plant representations based on profile */}
             {plants.map((plant, idx) => {
