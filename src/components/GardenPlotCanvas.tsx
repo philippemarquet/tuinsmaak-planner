@@ -1475,22 +1475,18 @@ export function GardenPlotCanvas({
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-muted-foreground">Breedte (cm)</label>
-              <Input
-                type="number"
-                value={selectedObject.w}
-                onChange={(e) => updateSelectedObject({ w: Math.max(10, toNumber(e.target.value)) })}
-              />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground">Lengte (cm)</label>
-              <Input
-                type="number"
-                value={selectedObject.h}
-                onChange={(e) => updateSelectedObject({ h: Math.max(10, toNumber(e.target.value)) })}
-              />
-            </div>
+            <DimensionInput
+              label="Breedte (cm)"
+              value={selectedObject.w}
+              onChange={(v) => updateSelectedObject({ w: v })}
+              min={10}
+            />
+            <DimensionInput
+              label="Lengte (cm)"
+              value={selectedObject.h}
+              onChange={(v) => updateSelectedObject({ h: v })}
+              min={10}
+            />
           </div>
 
           <div className="mt-3 text-xs text-muted-foreground">
@@ -1553,5 +1549,74 @@ function ObjectButton({
       </div>
       <span className="text-[10px] font-semibold text-muted-foreground group-hover:text-foreground transition-colors">{label}</span>
     </button>
+  );
+}
+
+// Dimension input with string state for easy overwriting
+function DimensionInput({
+  label,
+  value,
+  onChange,
+  min = 0,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  min?: number;
+}) {
+  const [inputValue, setInputValue] = useState(String(value));
+  const [error, setError] = useState(false);
+
+  // Sync when external value changes (e.g., different object selected)
+  useEffect(() => {
+    setInputValue(String(value));
+    setError(false);
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Allow any input while typing
+    setInputValue(e.target.value);
+    setError(false);
+  };
+
+  const handleBlur = () => {
+    const trimmed = inputValue.trim();
+    if (trimmed === "") {
+      setError(true);
+      return;
+    }
+    const num = Number(trimmed);
+    if (!Number.isFinite(num) || num < min) {
+      setError(true);
+      setInputValue(String(value)); // Reset to previous valid value
+      return;
+    }
+    setError(false);
+    onChange(num);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      (e.target as HTMLInputElement).blur();
+    }
+  };
+
+  return (
+    <div>
+      <label className="text-xs text-muted-foreground">{label}</label>
+      <Input
+        type="text"
+        inputMode="numeric"
+        value={inputValue}
+        onChange={handleChange}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        onFocus={(e) => e.target.select()}
+        className={cn(error && "border-destructive focus-visible:ring-destructive")}
+      />
+      {error && (
+        <span className="text-[10px] text-destructive">Min. {min} cm</span>
+      )}
+    </div>
   );
 }
