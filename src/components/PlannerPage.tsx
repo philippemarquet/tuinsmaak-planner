@@ -65,9 +65,9 @@ function getEffectiveIconUrl(seed: Seed | undefined, cropTypesById: Map<string, 
 function IconTilingOverlay({
   iconUrl,
   segmentsUsed = 1,
-  densityPerSegment = 10,
-  maxIcons = 100,
-  minIcons = 6,
+  densityPerSegment = 3, // Reduced from 10 to 3-4 per segment
+  maxIcons = 20, // Reduced from 100
+  minIcons = 2, // Reduced from 6
   opacity = 0.9,
 }: {
   iconUrl: string;
@@ -110,7 +110,8 @@ function IconTilingOverlay({
     const xStep = w / cols;
     const yStep = h / rows;
     const base = Math.min(xStep, yStep);
-    const iconSize = Math.max(12, Math.min(48, base * 0.7 * scale));
+    // Larger icons: increased from 0.7 to 0.85 scale and higher min/max
+    const iconSize = Math.max(24, Math.min(64, base * 0.85 * scale));
 
     const out: Array<{ x: number; y: number; size: number }> = [];
     for (let r = 0; r < rows; r++) {
