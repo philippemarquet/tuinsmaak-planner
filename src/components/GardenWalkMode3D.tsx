@@ -281,8 +281,8 @@ function Shrub3D({
   );
 }
 
-// Pond object
-function Pond3D({
+// Woodchips object (bark mulch)
+function Woodchips3D({
   x,
   z,
   w,
@@ -301,13 +301,36 @@ function Pond3D({
   const posZ = z * CM_TO_M;
 
   return (
-    <mesh position={[posX, 0.02, posZ]} rotation={[-Math.PI / 2, 0, 0]}>
-      <circleGeometry args={[Math.max(width, length) / 2, 32]} />
-      <meshStandardMaterial
-        color={isDayMode ? "#4a90d9" : "#2a5080"}
-        transparent
-        opacity={0.8}
-      />
+    <mesh position={[posX, 0.02, posZ]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+      <planeGeometry args={[width, length]} />
+      <meshStandardMaterial color={isDayMode ? "#5c3d2e" : "#3d2a1f"} roughness={1} />
+    </mesh>
+  );
+}
+
+// Tiles object (stone tiles)
+function Tiles3D({
+  x,
+  z,
+  w,
+  h,
+  isDayMode,
+}: {
+  x: number;
+  z: number;
+  w: number;
+  h: number;
+  isDayMode: boolean;
+}) {
+  const width = w * CM_TO_M;
+  const length = h * CM_TO_M;
+  const posX = x * CM_TO_M;
+  const posZ = z * CM_TO_M;
+
+  return (
+    <mesh position={[posX, 0.025, posZ]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+      <planeGeometry args={[width, length]} />
+      <meshStandardMaterial color={isDayMode ? "#8a8a8a" : "#5a5a5a"} roughness={0.8} />
     </mesh>
   );
 }
@@ -462,9 +485,20 @@ function SceneContent({
                 isDayMode={isDayMode}
               />
             );
-          case "pond":
+          case "woodchips":
             return (
-              <Pond3D
+              <Woodchips3D
+                key={obj.id}
+                x={obj.x}
+                z={obj.y}
+                w={obj.w}
+                h={obj.h}
+                isDayMode={isDayMode}
+              />
+            );
+          case "tiles":
+            return (
+              <Tiles3D
                 key={obj.id}
                 x={obj.x}
                 z={obj.y}
