@@ -468,6 +468,32 @@ export function PlannerPage({
   const outdoorBeds = useMemo(() => beds.filter((b) => !b.is_greenhouse).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)), [beds]);
   const greenhouseBeds = useMemo(() => beds.filter((b) => b.is_greenhouse).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)), [beds]);
 
+  /* ===== plantings overlay for map view (only active plantings) ===== */
+  const plantingsForMap = useMemo(() => {
+    const today = new Date();
+    return (plantings || [])
+      .filter((p) => {
+        // Only show plantings that are currently active (ground date to harvest end)
+        const start = parseISO(p.planned_date);
+        const end = parseISO(p.planned_harvest_end);
+        if (!start || !end) return false;
+        return start <= today && end >= today;
+      })
+      .map((p) => {
+        const seed = seedsById[p.seed_id ?? ""];
+        const iconUrl = getEffectiveIconUrl(seed, cropTypesById);
+        return {
+          id: p.id,
+          bedId: p.garden_bed_id ?? "",
+          startSegment: p.start_segment ?? 0,
+          segmentsUsed: p.segments_used ?? 1,
+          color: p.color?.startsWith("#") ? p.color : seed?.default_color?.startsWith("#") ? seed.default_color : "#22c55e",
+          iconUrl,
+          label: seed?.name,
+        };
+      });
+  }, [plantings, seedsById, cropTypesById]);
+
   /* ===== conflicts ===== */
   const conflictsMap = useMemo(() => buildConflictsMap(plantings || [], seeds || []), [plantings, seeds]);
   const conflictCount = useMemo(() => countUniqueConflicts(conflictsMap), [conflictsMap]);
@@ -1462,6 +1488,8 @@ export function PlannerPage({
                 <GardenPlotCanvas
                   beds={beds}
                   storagePrefix="plannerMap"
+                  readOnly={true}
+                  plantings={plantingsForMap}
                   onBedMove={async (id, x, y) => {
                     try {
                       await updateBed(id, { location_x: Math.round(x), location_y: Math.round(y) });
