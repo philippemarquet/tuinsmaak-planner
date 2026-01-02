@@ -39,6 +39,93 @@ interface PlantingOverlay3D {
   color: string;
   iconUrl?: string | null;
   label?: string;
+  cropType?: string;
+}
+
+// Plant profile types for different crop categories
+type PlantProfile = "root" | "leafy" | "climbing" | "bush" | "fruit" | "grain" | "default";
+
+// Determine plant profile based on crop name/type
+function getPlantProfile(label?: string, cropType?: string): PlantProfile {
+  const name = (label || "").toLowerCase();
+  const type = (cropType || "").toLowerCase();
+  
+  // Root vegetables - low, leafy tops
+  if (/wortel|biet|radijs|knol|ui|prei|knoflook|aardappel|pastinaak|rammenas/.test(name)) return "root";
+  
+  // Leafy greens - medium height, bushy
+  if (/sla|spinazie|boerenkool|snijbiet|andijvie|rucola|veldsla|kool(?!rabi)|raapstelen/.test(name) || type.includes("blad")) return "leafy";
+  
+  // Climbing/tall plants - stakes with height
+  if (/tomaat|boon|erwt|komkommer|augurk|pompoen|courgette|meloen/.test(name) || type.includes("vrucht")) return "climbing";
+  
+  // Bush plants - medium round shape
+  if (/paprika|peper|aubergine|aardbei/.test(name)) return "bush";
+  
+  // Fruit/large - tall with fruits
+  if (/mais|zonnebloem/.test(name) || type.includes("graan")) return "grain";
+  
+  return "default";
+}
+
+// Get plant characteristics based on profile
+function getPlantCharacteristics(profile: PlantProfile) {
+  switch (profile) {
+    case "root":
+      return { 
+        minHeight: 0.08, 
+        maxHeight: 0.18, 
+        topShape: "leaves" as const, 
+        stemRadius: 0.008,
+        topScale: 1.2,
+        color: "#2d8a2d"
+      };
+    case "leafy":
+      return { 
+        minHeight: 0.12, 
+        maxHeight: 0.25, 
+        topShape: "sphere" as const, 
+        stemRadius: 0.006,
+        topScale: 1.5,
+        color: "#3cb371"
+      };
+    case "climbing":
+      return { 
+        minHeight: 0.35, 
+        maxHeight: 0.65, 
+        topShape: "cone" as const, 
+        stemRadius: 0.015,
+        topScale: 0.8,
+        color: "#228B22"
+      };
+    case "bush":
+      return { 
+        minHeight: 0.20, 
+        maxHeight: 0.35, 
+        topShape: "sphere" as const, 
+        stemRadius: 0.012,
+        topScale: 1.3,
+        color: "#2e8b57"
+      };
+    case "grain":
+      return { 
+        minHeight: 0.5, 
+        maxHeight: 0.8, 
+        topShape: "cylinder" as const, 
+        stemRadius: 0.008,
+        topScale: 0.4,
+        color: "#6b8e23"
+      };
+    default:
+      return { 
+        minHeight: 0.15, 
+        maxHeight: 0.35, 
+        topShape: "sphere" as const, 
+        stemRadius: 0.01,
+        topScale: 1.0,
+        color: "#228B22"
+      };
+  }
 }
 
 interface GardenWalkMode3DProps {
@@ -173,12 +260,10 @@ function Bed3D({
         <meshStandardMaterial color={soilColor} />
       </mesh>
       
-      {/* Plantings as 3D crops */}
+      {/* Plantings as 3D crops with type-specific rendering */}
       {bedPlantings.map((planting) => {
         const startSeg = planting.startSegment;
         const usedSegs = Math.max(1, planting.segmentsUsed);
-        const segWidth = isHorizontal ? width / segments : width;
-        const segLength = isHorizontal ? length : length / segments;
         
         // Calculate position within bed
         const offsetX = isHorizontal 
@@ -191,14 +276,28 @@ function Bed3D({
         const cropWidth = isHorizontal ? usedSegs * (width / segments) - 0.02 : width - 0.06;
         const cropLength = isHorizontal ? length - 0.06 : usedSegs * (length / segments) - 0.02;
         
-        // Create multiple small plants
-        const plantCount = Math.min(12, usedSegs * 3);
+        // Get plant profile based on crop type
+        const profile = getPlantProfile(planting.label, planting.cropType);
+        const chars = getPlantCharacteristics(profile);
+        
+        // Create plants with stable random positions (seeded by planting id)
+        const plantCount = Math.min(15, usedSegs * 4);
         const plants = [];
+        
+        // Use planting id as seed for consistent random positions
+        const seedNum = planting.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+        const seededRandom = (i: number) => {
+          const x = Math.sin(seedNum * 9999 + i * 7919) * 10000;
+          return x - Math.floor(x);
+        };
+        
         for (let i = 0; i < plantCount; i++) {
-          const px = (Math.random() - 0.5) * cropWidth * 0.8;
-          const pz = (Math.random() - 0.5) * cropLength * 0.8;
-          const plantHeight = 0.15 + Math.random() * 0.25;
-          plants.push({ x: px, z: pz, height: plantHeight });
+          const px = (seededRandom(i * 2) - 0.5) * cropWidth * 0.85;
+          const pz = (seededRandom(i * 2 + 1) - 0.5) * cropLength * 0.85;
+          const heightVar = seededRandom(i * 3);
+          const plantHeight = chars.minHeight + heightVar * (chars.maxHeight - chars.minHeight);
+          const scale = 0.8 + seededRandom(i * 4) * 0.4;
+          plants.push({ x: px, z: pz, height: plantHeight, scale });
         }
         
         return (
@@ -206,24 +305,68 @@ function Bed3D({
             {/* Colored ground patch */}
             <mesh position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]}>
               <planeGeometry args={[cropWidth, cropLength]} />
-              <meshStandardMaterial color={planting.color} transparent opacity={0.6} />
+              <meshStandardMaterial color={planting.color} transparent opacity={0.5} />
             </mesh>
             
-            {/* 3D plant representations */}
-            {plants.map((plant, idx) => (
-              <group key={idx} position={[plant.x, plant.height / 2, plant.z]}>
-                {/* Stem */}
-                <mesh>
-                  <cylinderGeometry args={[0.01, 0.015, plant.height, 6]} />
-                  <meshStandardMaterial color={isDayMode ? "#228B22" : "#145a14"} />
-                </mesh>
-                {/* Leaves/top */}
-                <mesh position={[0, plant.height / 2 + 0.03, 0]}>
-                  <sphereGeometry args={[0.05 + Math.random() * 0.03, 8, 8]} />
-                  <meshStandardMaterial color={planting.color} />
-                </mesh>
-              </group>
-            ))}
+            {/* 3D plant representations based on profile */}
+            {plants.map((plant, idx) => {
+              const stemColor = isDayMode ? chars.color : `hsl(120, 40%, ${parseInt(chars.color.slice(1), 16) % 20 + 10}%)`;
+              const topColor = planting.color;
+              const topRadius = 0.04 * chars.topScale * plant.scale;
+              
+              return (
+                <group key={idx} position={[plant.x, 0, plant.z]}>
+                  {/* Stem */}
+                  <mesh position={[0, plant.height / 2, 0]} castShadow>
+                    <cylinderGeometry args={[chars.stemRadius * plant.scale, chars.stemRadius * 1.3 * plant.scale, plant.height, 6]} />
+                    <meshStandardMaterial color={stemColor} />
+                  </mesh>
+                  
+                  {/* Top shape based on profile */}
+                  {chars.topShape === "sphere" && (
+                    <mesh position={[0, plant.height + topRadius * 0.5, 0]} castShadow>
+                      <sphereGeometry args={[topRadius, 8, 8]} />
+                      <meshStandardMaterial color={topColor} />
+                    </mesh>
+                  )}
+                  
+                  {chars.topShape === "cone" && (
+                    <mesh position={[0, plant.height + topRadius, 0]} castShadow>
+                      <coneGeometry args={[topRadius * 0.8, topRadius * 3, 8]} />
+                      <meshStandardMaterial color={topColor} />
+                    </mesh>
+                  )}
+                  
+                  {chars.topShape === "cylinder" && (
+                    <mesh position={[0, plant.height + topRadius, 0]} castShadow>
+                      <cylinderGeometry args={[topRadius * 0.3, topRadius * 0.5, topRadius * 2, 6]} />
+                      <meshStandardMaterial color={isDayMode ? "#daa520" : "#8b6914"} />
+                    </mesh>
+                  )}
+                  
+                  {chars.topShape === "leaves" && (
+                    <>
+                      {/* Multiple small leaves for root vegetables */}
+                      {[0, 1, 2].map((li) => (
+                        <mesh 
+                          key={li} 
+                          position={[
+                            Math.cos(li * 2.1) * topRadius * 0.3, 
+                            plant.height + topRadius * 0.3, 
+                            Math.sin(li * 2.1) * topRadius * 0.3
+                          ]} 
+                          rotation={[0.3, li * 2.1, 0.2]}
+                          castShadow
+                        >
+                          <boxGeometry args={[topRadius * 0.15, topRadius * 1.2, topRadius * 0.05]} />
+                          <meshStandardMaterial color={topColor} />
+                        </mesh>
+                      ))}
+                    </>
+                  )}
+                </group>
+              );
+            })}
           </group>
         );
       })}

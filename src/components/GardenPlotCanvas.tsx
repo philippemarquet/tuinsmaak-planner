@@ -53,6 +53,7 @@ interface PlantingOverlay {
   color: string;
   iconUrl?: string | null;
   label?: string;
+  cropType?: string;
 }
 
 interface GardenPlotCanvasProps {
@@ -97,6 +98,54 @@ function toNumber(v: string) {
 }
 
 // --- Main ---
+// Shared storage key for objects across all canvas instances
+const SHARED_OBJECTS_KEY = "gardenPlotObjects";
+
+// Migration: merge old localStorage keys into shared key (run once)
+function migrateObjectsStorage(): PlotObject[] {
+  const legacyKeys = ["bedsLayout:objects", "plannerMap:objects", "gardenPlot:objects"];
+  const migrated = localStorage.getItem("gardenPlotObjectsMigrated");
+  
+  if (migrated) {
+    // Already migrated, just return current
+    try {
+      const stored = localStorage.getItem(SHARED_OBJECTS_KEY);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  }
+  
+  // Merge all legacy keys
+  const merged = new Map<string, PlotObject>();
+  for (const key of legacyKeys) {
+    try {
+      const data = localStorage.getItem(key);
+      if (data) {
+        const arr: PlotObject[] = JSON.parse(data);
+        for (const obj of arr) {
+          // Use type+position as dedup key
+          const dedupKey = `${obj.type}-${Math.round(obj.x)}-${Math.round(obj.y)}`;
+          if (!merged.has(dedupKey)) {
+            merged.set(dedupKey, obj);
+          }
+        }
+      }
+    } catch {}
+  }
+  
+  const result = Array.from(merged.values());
+  localStorage.setItem(SHARED_OBJECTS_KEY, JSON.stringify(result));
+  localStorage.setItem("gardenPlotObjectsMigrated", "1");
+  
+  // Cleanup old keys
+  for (const key of legacyKeys) {
+    localStorage.removeItem(key);
+  }
+  
+  return result;
+}
+
 export function GardenPlotCanvas({
   beds,
   onBedMove,
@@ -121,15 +170,8 @@ export function GardenPlotCanvas({
   const [walkPos, setWalkPos] = useState({ x: 0, y: 0 }); // position in cm
   const [walkDir, setWalkDir] = useState(0); // direction in degrees (0 = looking "up"/north)
 
-  // Objects
-  const [objects, setObjects] = useState<PlotObject[]>(() => {
-    try {
-      const stored = localStorage.getItem(`${storagePrefix}:objects`);
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
+  // Objects - now using shared storage with migration
+  const [objects, setObjects] = useState<PlotObject[]>(() => migrateObjectsStorage());
 
   // Draft positions for beds while dragging (smooth preview, no DB calls)
   const [bedDraft, setBedDraft] = useState<Record<string, { x: number; y: number }>>({});
@@ -168,10 +210,10 @@ export function GardenPlotCanvas({
     });
   }, []);
 
-  // Persist objects
+  // Persist objects to shared storage
   useEffect(() => {
-    localStorage.setItem(`${storagePrefix}:objects`, JSON.stringify(objects));
-  }, [objects, storagePrefix]);
+    localStorage.setItem(SHARED_OBJECTS_KEY, JSON.stringify(objects));
+  }, [objects]);
 
   // Cleanup rAF
   useEffect(() => {

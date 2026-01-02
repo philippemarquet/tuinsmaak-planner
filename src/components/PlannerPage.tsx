@@ -29,7 +29,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
-import { Edit3, Trash2, ChevronDown, Info, AlertTriangle, X, CalendarIcon, Search, Leaf } from "lucide-react";
+import { Edit3, Trash2, ChevronDown, Info, AlertTriangle, X, CalendarIcon, Search, Leaf, ChevronLeft, ChevronRight } from "lucide-react";
 
 // ★ Nieuw: de oogstagenda als aparte component
 import HarvestAgendaView from "./HarvestAgendaView";
@@ -379,6 +379,16 @@ export function PlannerPage({
     return d; // maandag
   });
 
+  // Map view week filter
+  const [mapWeek, setMapWeek] = useState<Date>(() => {
+    const saved = localStorage.getItem("plannerMapWeekISO");
+    if (saved) return new Date(saved);
+    const n = new Date();
+    const d = new Date(n);
+    d.setDate(n.getDate() - ((n.getDay() || 7) - 1));
+    return d; // maandag van huidige week
+  });
+
   // toast
   const [toast, setToast] = useState<{ msg: string, tone: "info" | "ok" | "err" } | null>(null);
   const notify = (msg: string, tone: "info" | "ok" | "err" = "info") => {
@@ -448,6 +458,9 @@ export function PlannerPage({
     localStorage.setItem("plannerWeekISO", toISO(currentWeek));
   }, [currentWeek]);
   useEffect(() => {
+    localStorage.setItem("plannerMapWeekISO", toISO(mapWeek));
+  }, [mapWeek]);
+  useEffect(() => {
     localStorage.setItem("plannerMonths", JSON.stringify(selectedMonths));
   }, [selectedMonths]);
   useEffect(() => {
@@ -468,16 +481,18 @@ export function PlannerPage({
   const outdoorBeds = useMemo(() => beds.filter((b) => !b.is_greenhouse).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)), [beds]);
   const greenhouseBeds = useMemo(() => beds.filter((b) => b.is_greenhouse).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)), [beds]);
 
-  /* ===== plantings overlay for map view (only active plantings) ===== */
+  /* ===== plantings overlay for map view (filtered by selected week) ===== */
   const plantingsForMap = useMemo(() => {
-    const today = new Date();
+    const weekStart = new Date(mapWeek);
+    const weekEnd = addDays(weekStart, 6);
     return (plantings || [])
       .filter((p) => {
-        // Only show plantings that are currently active (ground date to harvest end)
+        // Show plantings active during selected week (ground date to harvest end)
         const start = parseISO(p.planned_date);
         const end = parseISO(p.planned_harvest_end);
         if (!start || !end) return false;
-        return start <= today && end >= today;
+        // Overlap check: planting is active if start <= weekEnd && end >= weekStart
+        return start <= weekEnd && end >= weekStart;
       })
       .map((p) => {
         const seed = seedsById[p.seed_id ?? ""];
@@ -490,9 +505,10 @@ export function PlannerPage({
           color: p.color?.startsWith("#") ? p.color : seed?.default_color?.startsWith("#") ? seed.default_color : "#22c55e",
           iconUrl,
           label: seed?.name,
+          cropType: seed?.crop_type_id ? cropTypesById.get(seed.crop_type_id)?.name : undefined,
         };
       });
-  }, [plantings, seedsById, cropTypesById]);
+  }, [plantings, seedsById, cropTypesById, mapWeek]);
 
   /* ===== conflicts ===== */
   const conflictsMap = useMemo(() => buildConflictsMap(plantings || [], seeds || []), [plantings, seeds]);
@@ -1484,21 +1500,69 @@ export function PlannerPage({
           <div className="flex-1 overflow-auto">
             {view === "list" && listViewContent}
             {view === "map" && (
-              <div className="p-6 h-full">
-                <GardenPlotCanvas
-                  beds={beds}
-                  storagePrefix="plannerMap"
-                  readOnly={true}
-                  plantings={plantingsForMap}
-                  onBedMove={async (id, x, y) => {
-                    try {
-                      await updateBed(id, { location_x: Math.round(x), location_y: Math.round(y) });
-                      await reload();
-                    } catch (e: any) {
-                      console.error("Kon positie niet opslaan:", e);
-                    }
-                  }}
-                />
+              <div className="p-6 h-full flex flex-col gap-4">
+                {/* Week selector for map */}
+                <div className="flex items-center justify-between bg-card rounded-lg border px-4 py-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-muted-foreground">Toon plantingen voor:</span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setMapWeek(addWeeks(mapWeek, -1))}
+                        className="p-1.5 rounded hover:bg-muted transition-colors"
+                        title="Vorige week"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+                      <span className="min-w-[180px] text-center font-medium">
+                        Week {weekOf(mapWeek)} • {format(mapWeek, "d MMM", { locale: nl })} - {format(addDays(mapWeek, 6), "d MMM yyyy", { locale: nl })}
+                      </span>
+                      <button
+                        onClick={() => setMapWeek(addWeeks(mapWeek, 1))}
+                        className="p-1.5 rounded hover:bg-muted transition-colors"
+                        title="Volgende week"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        const n = new Date();
+                        const d = new Date(n);
+                        d.setDate(n.getDate() - ((n.getDay() || 7) - 1));
+                        setMapWeek(d);
+                      }}
+                      className={cn(
+                        "px-3 py-1 text-sm rounded-md transition-colors",
+                        toISO(mapWeek) === toISO((() => { const n = new Date(); const d = new Date(n); d.setDate(n.getDate() - ((n.getDay() || 7) - 1)); return d; })())
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted hover:bg-muted/80"
+                      )}
+                    >
+                      Deze week
+                    </button>
+                    <span className="text-xs text-muted-foreground">
+                      {plantingsForMap.length} planting{plantingsForMap.length !== 1 ? "en" : ""}
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="flex-1 min-h-0">
+                  <GardenPlotCanvas
+                    beds={beds}
+                    readOnly={true}
+                    plantings={plantingsForMap}
+                    onBedMove={async (id, x, y) => {
+                      try {
+                        await updateBed(id, { location_x: Math.round(x), location_y: Math.round(y) });
+                        await reload();
+                      } catch (e: any) {
+                        console.error("Kon positie niet opslaan:", e);
+                      }
+                    }}
+                  />
+                </div>
               </div>
             )}
             {view === "timeline" && (
