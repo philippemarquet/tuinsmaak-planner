@@ -332,13 +332,12 @@ function Bed3D({
               {/* Crop name text using Text component */}
               <Text
                 position={[0, 0.32, 0.032]}
-                fontSize={0.035}
+                fontSize={0.032}
                 color={isDayMode ? "#3d2817" : "#e8d8c8"}
                 anchorX="center"
                 anchorY="middle"
                 maxWidth={0.24}
                 textAlign="center"
-                font="/fonts/Inter-Bold.woff"
               >
                 {planting.label || 'Gewas'}
               </Text>
