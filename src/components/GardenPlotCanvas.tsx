@@ -88,9 +88,9 @@ export function GardenPlotCanvas({
   const [pan, setPan] = useState({ x: 0, y: 0 }); // px (screen space)
   const [zoom, setZoom] = useState(1);
   const [rotZ, setRotZ] = useState(0); // degrees
-  const [tilt, setTilt] = useState(55); // degrees
+  const [tilt, setTilt] = useState(0); // degrees - start in top view
   const [isDayMode, setIsDayMode] = useState(true);
-  const [gridSnap, setGridSnap] = useState(false);
+  const [gridSnap, setGridSnap] = useState(true); // grid snap on by default
 
   // Objects
   const [objects, setObjects] = useState<PlotObject[]>(() => {
@@ -778,206 +778,584 @@ export function GardenPlotCanvas({
                 style={{ left, top, width: w, height: h, transformStyle: "preserve-3d" }}
                 onPointerDown={(e) => startDragObject(e, obj)}
               >
-                {/* Greenhouse - Glass house with pitched roof */}
+                {/* Greenhouse - Realistic glass house with proper pitched roof */}
                 {obj.type === "greenhouse" && (
                   <>
-                    {/* Floor */}
+                    {/* Shadow on ground */}
+                    <div
+                      className="absolute"
+                      style={{
+                        left: "-5%",
+                        right: "-5%",
+                        top: "60%",
+                        bottom: "-15%",
+                        transform: "translateZ(0px)",
+                        background: `radial-gradient(ellipse at 50% 30%, hsl(var(--foreground) / 0.25) 0%, transparent 70%)`,
+                      }}
+                    />
+                    {/* Floor / Foundation */}
                     <div
                       className="absolute inset-0"
                       style={{
                         transform: "translateZ(0px)",
-                        background: `linear-gradient(135deg, hsl(30, 10%, 45%) 0%, hsl(30, 8%, 38%) 100%)`,
-                        borderRadius: 4,
+                        background: `linear-gradient(135deg, hsl(0, 0%, 55%) 0%, hsl(0, 0%, 45%) 100%)`,
+                        borderRadius: 2,
+                        boxShadow: `inset 0 0 8px hsl(var(--foreground) / 0.2)`,
                       }}
                     />
-                    {/* Walls */}
-                    <div
-                      className={cn("absolute inset-0 transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
-                      style={{
-                        transform: `translateZ(${cmToPx(100)}px)`,
-                        background: `linear-gradient(135deg, ${scene.glass} 0%, hsl(var(--scene-glass-day) / 0.6) 100%)`,
-                        border: `3px solid hsl(210, 10%, 75%)`,
-                        borderRadius: 4,
-                        boxShadow: `inset 0 0 30px hsl(var(--primary-foreground) / 0.15), 0 20px 40px -20px hsl(var(--foreground) / 0.4)`,
-                      }}
-                    >
-                      {/* Glass panels */}
-                      <div className="absolute inset-2 grid grid-cols-4 grid-rows-2 gap-1 opacity-40">
-                        {Array.from({ length: 8 }).map((_, i) => (
-                          <div key={i} className="border border-white/30 rounded-sm" />
-                        ))}
-                      </div>
-                    </div>
-                    {/* Roof */}
+                    {/* Left wall */}
                     <div
                       className="absolute"
                       style={{
-                        left: -4,
-                        right: -4,
-                        top: "25%",
-                        bottom: "25%",
-                        transform: `translateZ(${cmToPx(140)}px) rotateX(15deg)`,
-                        background: `linear-gradient(180deg, hsl(var(--scene-glass-day) / 0.7) 0%, hsl(var(--scene-glass-day) / 0.5) 100%)`,
-                        border: `2px solid hsl(210, 10%, 70%)`,
+                        left: 0,
+                        width: cmToPx(8),
+                        top: 0,
+                        bottom: 0,
+                        transform: `translateZ(${cmToPx(80)}px)`,
+                        background: `linear-gradient(90deg, hsl(200, 30%, 85%) 0%, hsl(200, 20%, 92%) 50%, hsl(200, 30%, 88%) 100%)`,
+                        borderLeft: `2px solid hsl(0, 0%, 70%)`,
+                        borderRight: `1px solid hsl(200, 20%, 80%)`,
+                      }}
+                    />
+                    {/* Right wall */}
+                    <div
+                      className="absolute"
+                      style={{
+                        right: 0,
+                        width: cmToPx(8),
+                        top: 0,
+                        bottom: 0,
+                        transform: `translateZ(${cmToPx(80)}px)`,
+                        background: `linear-gradient(90deg, hsl(200, 20%, 92%) 0%, hsl(200, 30%, 85%) 100%)`,
+                        borderLeft: `1px solid hsl(200, 20%, 80%)`,
+                        borderRight: `2px solid hsl(0, 0%, 70%)`,
+                      }}
+                    />
+                    {/* Front wall */}
+                    <div
+                      className="absolute"
+                      style={{
+                        top: 0,
+                        height: cmToPx(8),
+                        left: 0,
+                        right: 0,
+                        transform: `translateZ(${cmToPx(80)}px)`,
+                        background: `linear-gradient(180deg, hsl(200, 30%, 85%) 0%, hsl(200, 20%, 92%) 100%)`,
+                        borderTop: `2px solid hsl(0, 0%, 70%)`,
+                      }}
+                    />
+                    {/* Back wall */}
+                    <div
+                      className="absolute"
+                      style={{
+                        bottom: 0,
+                        height: cmToPx(8),
+                        left: 0,
+                        right: 0,
+                        transform: `translateZ(${cmToPx(80)}px)`,
+                        background: `linear-gradient(180deg, hsl(200, 20%, 92%) 0%, hsl(200, 30%, 85%) 100%)`,
+                        borderBottom: `2px solid hsl(0, 0%, 70%)`,
+                      }}
+                    />
+                    {/* Main glass walls */}
+                    <div
+                      className={cn("absolute transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
+                      style={{
+                        left: cmToPx(8),
+                        right: cmToPx(8),
+                        top: cmToPx(8),
+                        bottom: cmToPx(8),
+                        transform: `translateZ(${cmToPx(80)}px)`,
+                        background: `linear-gradient(135deg, hsl(200, 60%, 85% / 0.7) 0%, hsl(200, 80%, 92% / 0.5) 50%, hsl(200, 60%, 88% / 0.6) 100%)`,
+                        border: `1px solid hsl(200, 20%, 75%)`,
+                        boxShadow: `inset 0 0 40px hsl(200, 80%, 95% / 0.4), 0 15px 30px -15px hsl(var(--foreground) / 0.3)`,
+                      }}
+                    >
+                      {/* Glass panel grid */}
+                      <div className="absolute inset-0 grid grid-cols-6 grid-rows-3">
+                        {Array.from({ length: 18 }).map((_, i) => (
+                          <div
+                            key={i}
+                            className="border-r border-b"
+                            style={{ borderColor: `hsl(200, 20%, 70% / 0.5)` }}
+                          />
+                        ))}
+                      </div>
+                      {/* Reflection */}
+                      <div
+                        className="absolute top-0 left-0 w-1/3 h-1/2"
+                        style={{
+                          background: `linear-gradient(135deg, hsl(0, 0%, 100% / 0.35) 0%, transparent 60%)`,
+                        }}
+                      />
+                    </div>
+                    {/* Roof ridge (center beam) */}
+                    <div
+                      className="absolute"
+                      style={{
+                        left: "48%",
+                        right: "48%",
+                        top: 0,
+                        bottom: 0,
+                        transform: `translateZ(${cmToPx(130)}px)`,
+                        background: `linear-gradient(90deg, hsl(0, 0%, 60%) 0%, hsl(0, 0%, 80%) 50%, hsl(0, 0%, 60%) 100%)`,
                         borderRadius: 2,
                       }}
                     />
+                    {/* Left roof panel */}
+                    <div
+                      className="absolute"
+                      style={{
+                        left: -2,
+                        right: "50%",
+                        top: -2,
+                        bottom: -2,
+                        transform: `translateZ(${cmToPx(105)}px) rotateY(-18deg)`,
+                        transformOrigin: "right center",
+                        background: `linear-gradient(90deg, hsl(200, 50%, 80% / 0.6) 0%, hsl(200, 70%, 90% / 0.4) 100%)`,
+                        border: `1px solid hsl(0, 0%, 75%)`,
+                        borderRadius: "2px 0 0 2px",
+                        boxShadow: `inset 0 0 15px hsl(200, 80%, 95% / 0.3)`,
+                      }}
+                    >
+                      <div className="absolute inset-0 grid grid-cols-4 grid-rows-1">
+                        {Array.from({ length: 4 }).map((_, i) => (
+                          <div key={i} className="border-r" style={{ borderColor: `hsl(200, 20%, 70% / 0.4)` }} />
+                        ))}
+                      </div>
+                    </div>
+                    {/* Right roof panel */}
+                    <div
+                      className="absolute"
+                      style={{
+                        left: "50%",
+                        right: -2,
+                        top: -2,
+                        bottom: -2,
+                        transform: `translateZ(${cmToPx(105)}px) rotateY(18deg)`,
+                        transformOrigin: "left center",
+                        background: `linear-gradient(90deg, hsl(200, 70%, 90% / 0.4) 0%, hsl(200, 50%, 80% / 0.6) 100%)`,
+                        border: `1px solid hsl(0, 0%, 75%)`,
+                        borderRadius: "0 2px 2px 0",
+                        boxShadow: `inset 0 0 15px hsl(200, 80%, 95% / 0.3)`,
+                      }}
+                    >
+                      <div className="absolute inset-0 grid grid-cols-4 grid-rows-1">
+                        {Array.from({ length: 4 }).map((_, i) => (
+                          <div key={i} className="border-r" style={{ borderColor: `hsl(200, 20%, 70% / 0.4)` }} />
+                        ))}
+                      </div>
+                    </div>
                   </>
                 )}
 
-                {/* Path - Bark/wood chips */}
+                {/* Path - Realistic bark/wood chips with depth */}
                 {obj.type === "path" && (
-                  <div
-                    className={cn("absolute inset-0 transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
-                    style={{
-                      transform: "translateZ(1px)",
-                      background: scene.bark,
-                      borderRadius: 4,
-                      boxShadow: `inset 0 2px 8px hsl(var(--foreground) / 0.25)`,
-                    }}
-                  >
-                    {/* Bark texture */}
+                  <>
+                    {/* Sunken edge shadow */}
                     <div
-                      className="absolute inset-0 opacity-50"
+                      className="absolute"
                       style={{
-                        backgroundImage: `
-                          radial-gradient(ellipse 4px 2px at 20% 30%, hsl(25, 50%, 35%) 0%, transparent 100%),
-                          radial-gradient(ellipse 3px 2px at 50% 60%, hsl(25, 40%, 30%) 0%, transparent 100%),
-                          radial-gradient(ellipse 5px 2px at 80% 40%, hsl(25, 55%, 38%) 0%, transparent 100%),
-                          radial-gradient(ellipse 3px 2px at 30% 80%, hsl(25, 45%, 32%) 0%, transparent 100%)
-                        `,
-                        backgroundSize: "40px 30px",
+                        left: -2,
+                        right: -2,
+                        top: -2,
+                        bottom: -2,
+                        transform: "translateZ(-1px)",
+                        background: `hsl(var(--foreground) / 0.15)`,
+                        borderRadius: 6,
                       }}
                     />
-                  </div>
+                    <div
+                      className={cn("absolute inset-0 transition-all overflow-hidden", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
+                      style={{
+                        transform: "translateZ(1px)",
+                        background: `linear-gradient(135deg, hsl(25, 45%, 28%) 0%, hsl(25, 40%, 24%) 50%, hsl(25, 35%, 20%) 100%)`,
+                        borderRadius: 4,
+                        boxShadow: `inset 0 3px 10px hsl(var(--foreground) / 0.35), inset 0 -2px 6px hsl(25, 50%, 35% / 0.3)`,
+                      }}
+                    >
+                      {/* Large bark chips layer */}
+                      <div
+                        className="absolute inset-0"
+                        style={{
+                          backgroundImage: `
+                            radial-gradient(ellipse 8px 4px at 15% 20%, hsl(25, 55%, 38%) 0%, transparent 100%),
+                            radial-gradient(ellipse 10px 5px at 45% 35%, hsl(25, 50%, 35%) 0%, transparent 100%),
+                            radial-gradient(ellipse 7px 4px at 75% 25%, hsl(25, 48%, 32%) 0%, transparent 100%),
+                            radial-gradient(ellipse 9px 5px at 25% 55%, hsl(25, 52%, 36%) 0%, transparent 100%),
+                            radial-gradient(ellipse 8px 4px at 60% 65%, hsl(25, 45%, 30%) 0%, transparent 100%),
+                            radial-gradient(ellipse 11px 5px at 85% 75%, hsl(25, 50%, 33%) 0%, transparent 100%),
+                            radial-gradient(ellipse 7px 4px at 35% 85%, hsl(25, 55%, 37%) 0%, transparent 100%),
+                            radial-gradient(ellipse 9px 4px at 70% 90%, hsl(25, 48%, 31%) 0%, transparent 100%)
+                          `,
+                          backgroundSize: "60px 50px",
+                        }}
+                      />
+                      {/* Small chips layer */}
+                      <div
+                        className="absolute inset-0 opacity-70"
+                        style={{
+                          backgroundImage: `
+                            radial-gradient(ellipse 3px 2px at 10% 15%, hsl(25, 60%, 40%) 0%, transparent 100%),
+                            radial-gradient(ellipse 4px 2px at 30% 25%, hsl(25, 45%, 28%) 0%, transparent 100%),
+                            radial-gradient(ellipse 3px 2px at 55% 18%, hsl(25, 52%, 35%) 0%, transparent 100%),
+                            radial-gradient(ellipse 4px 2px at 80% 30%, hsl(25, 48%, 32%) 0%, transparent 100%),
+                            radial-gradient(ellipse 3px 2px at 20% 45%, hsl(25, 55%, 38%) 0%, transparent 100%),
+                            radial-gradient(ellipse 4px 2px at 50% 55%, hsl(25, 42%, 26%) 0%, transparent 100%),
+                            radial-gradient(ellipse 3px 2px at 70% 48%, hsl(25, 50%, 34%) 0%, transparent 100%),
+                            radial-gradient(ellipse 4px 2px at 90% 60%, hsl(25, 58%, 36%) 0%, transparent 100%),
+                            radial-gradient(ellipse 3px 2px at 15% 75%, hsl(25, 45%, 30%) 0%, transparent 100%),
+                            radial-gradient(ellipse 4px 2px at 40% 80%, hsl(25, 52%, 33%) 0%, transparent 100%),
+                            radial-gradient(ellipse 3px 2px at 65% 72%, hsl(25, 48%, 29%) 0%, transparent 100%),
+                            radial-gradient(ellipse 4px 2px at 85% 85%, hsl(25, 55%, 35%) 0%, transparent 100%)
+                          `,
+                          backgroundSize: "35px 30px",
+                        }}
+                      />
+                    </div>
+                  </>
                 )}
 
-                {/* Gravel */}
+                {/* Gravel - Realistic stone/pebble texture */}
                 {obj.type === "gravel" && (
+                  <>
+                    {/* Sunken edge */}
+                    <div
+                      className="absolute"
+                      style={{
+                        left: -1,
+                        right: -1,
+                        top: -1,
+                        bottom: -1,
+                        transform: "translateZ(-1px)",
+                        background: `hsl(var(--foreground) / 0.12)`,
+                        borderRadius: 5,
+                      }}
+                    />
+                    <div
+                      className={cn("absolute inset-0 transition-all overflow-hidden", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
+                      style={{
+                        transform: "translateZ(1px)",
+                        background: `linear-gradient(145deg, hsl(30, 8%, 58%) 0%, hsl(30, 6%, 52%) 50%, hsl(30, 5%, 48%) 100%)`,
+                        borderRadius: 4,
+                        boxShadow: `inset 0 2px 6px hsl(var(--foreground) / 0.2)`,
+                      }}
+                    >
+                      {/* Large pebbles */}
+                      <div
+                        className="absolute inset-0"
+                        style={{
+                          backgroundImage: `
+                            radial-gradient(ellipse 6px 5px at 12% 18%, hsl(30, 5%, 68%) 0%, hsl(30, 4%, 55%) 60%, transparent 100%),
+                            radial-gradient(ellipse 7px 6px at 38% 25%, hsl(25, 6%, 62%) 0%, hsl(25, 5%, 50%) 60%, transparent 100%),
+                            radial-gradient(ellipse 5px 5px at 65% 15%, hsl(35, 7%, 65%) 0%, hsl(35, 5%, 52%) 60%, transparent 100%),
+                            radial-gradient(ellipse 8px 6px at 85% 28%, hsl(28, 5%, 60%) 0%, hsl(28, 4%, 48%) 60%, transparent 100%),
+                            radial-gradient(ellipse 6px 5px at 22% 45%, hsl(32, 6%, 64%) 0%, hsl(32, 5%, 52%) 60%, transparent 100%),
+                            radial-gradient(ellipse 7px 5px at 52% 42%, hsl(26, 5%, 58%) 0%, hsl(26, 4%, 46%) 60%, transparent 100%),
+                            radial-gradient(ellipse 5px 5px at 78% 50%, hsl(30, 7%, 66%) 0%, hsl(30, 5%, 54%) 60%, transparent 100%),
+                            radial-gradient(ellipse 6px 6px at 15% 72%, hsl(28, 6%, 61%) 0%, hsl(28, 5%, 49%) 60%, transparent 100%),
+                            radial-gradient(ellipse 7px 5px at 42% 68%, hsl(33, 5%, 63%) 0%, hsl(33, 4%, 51%) 60%, transparent 100%),
+                            radial-gradient(ellipse 6px 5px at 68% 75%, hsl(27, 6%, 59%) 0%, hsl(27, 5%, 47%) 60%, transparent 100%),
+                            radial-gradient(ellipse 5px 5px at 88% 70%, hsl(31, 5%, 65%) 0%, hsl(31, 4%, 53%) 60%, transparent 100%),
+                            radial-gradient(ellipse 7px 6px at 30% 88%, hsl(29, 6%, 62%) 0%, hsl(29, 5%, 50%) 60%, transparent 100%),
+                            radial-gradient(ellipse 6px 5px at 58% 92%, hsl(34, 5%, 60%) 0%, hsl(34, 4%, 48%) 60%, transparent 100%),
+                            radial-gradient(ellipse 5px 5px at 82% 88%, hsl(26, 7%, 67%) 0%, hsl(26, 5%, 55%) 60%, transparent 100%)
+                          `,
+                          backgroundSize: "50px 45px",
+                        }}
+                      />
+                      {/* Small pebbles layer */}
+                      <div
+                        className="absolute inset-0 opacity-80"
+                        style={{
+                          backgroundImage: `
+                            radial-gradient(circle 2px at 8% 12%, hsl(28, 4%, 70%) 0%, transparent 100%),
+                            radial-gradient(circle 3px at 25% 8%, hsl(32, 5%, 55%) 0%, transparent 100%),
+                            radial-gradient(circle 2px at 48% 15%, hsl(30, 4%, 62%) 0%, transparent 100%),
+                            radial-gradient(circle 3px at 72% 10%, hsl(27, 5%, 58%) 0%, transparent 100%),
+                            radial-gradient(circle 2px at 92% 18%, hsl(33, 4%, 65%) 0%, transparent 100%),
+                            radial-gradient(circle 2px at 18% 35%, hsl(29, 5%, 60%) 0%, transparent 100%),
+                            radial-gradient(circle 3px at 58% 32%, hsl(31, 4%, 56%) 0%, transparent 100%),
+                            radial-gradient(circle 2px at 82% 38%, hsl(28, 5%, 63%) 0%, transparent 100%),
+                            radial-gradient(circle 3px at 5% 55%, hsl(34, 4%, 59%) 0%, transparent 100%),
+                            radial-gradient(circle 2px at 35% 52%, hsl(26, 5%, 66%) 0%, transparent 100%),
+                            radial-gradient(circle 3px at 62% 58%, hsl(30, 4%, 54%) 0%, transparent 100%),
+                            radial-gradient(circle 2px at 88% 55%, hsl(32, 5%, 61%) 0%, transparent 100%),
+                            radial-gradient(circle 2px at 12% 78%, hsl(28, 4%, 68%) 0%, transparent 100%),
+                            radial-gradient(circle 3px at 45% 75%, hsl(33, 5%, 57%) 0%, transparent 100%),
+                            radial-gradient(circle 2px at 75% 82%, hsl(29, 4%, 64%) 0%, transparent 100%),
+                            radial-gradient(circle 3px at 95% 78%, hsl(31, 5%, 52%) 0%, transparent 100%)
+                          `,
+                          backgroundSize: "30px 28px",
+                        }}
+                      />
+                      {/* Highlight spots */}
+                      <div
+                        className="absolute inset-0 opacity-30"
+                        style={{
+                          backgroundImage: `
+                            radial-gradient(circle 1px at 20% 22%, hsl(0, 0%, 90%) 0%, transparent 100%),
+                            radial-gradient(circle 1px at 55% 35%, hsl(0, 0%, 88%) 0%, transparent 100%),
+                            radial-gradient(circle 1px at 78% 48%, hsl(0, 0%, 92%) 0%, transparent 100%),
+                            radial-gradient(circle 1px at 32% 65%, hsl(0, 0%, 85%) 0%, transparent 100%),
+                            radial-gradient(circle 1px at 68% 78%, hsl(0, 0%, 90%) 0%, transparent 100%)
+                          `,
+                          backgroundSize: "40px 38px",
+                        }}
+                      />
+                    </div>
+                  </>
+                )}
+
+                {/* Grass patch - Lush realistic grass with varied blades */}
+                {obj.type === "grass" && (
                   <div
-                    className={cn("absolute inset-0 transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
+                    className={cn("absolute inset-0 transition-all overflow-hidden", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
                     style={{
-                      transform: "translateZ(1px)",
-                      background: scene.gravel,
-                      borderRadius: 4,
+                      transform: "translateZ(2px)",
+                      background: `radial-gradient(ellipse at 40% 40%, hsl(104, 50%, 42%) 0%, hsl(104, 45%, 35%) 40%, hsl(104, 40%, 28%) 100%)`,
+                      borderRadius: 6,
+                      boxShadow: `inset 0 0 20px hsl(104, 35%, 20% / 0.3)`,
                     }}
                   >
-                    {/* Gravel texture */}
+                    {/* Base grass texture */}
+                    <div
+                      className="absolute inset-0"
+                      style={{
+                        backgroundImage: `
+                          linear-gradient(172deg, transparent 46%, hsl(104, 50%, 38%) 48%, hsl(104, 50%, 38%) 50%, transparent 52%),
+                          linear-gradient(168deg, transparent 46%, hsl(104, 45%, 32%) 48%, hsl(104, 45%, 32%) 50%, transparent 52%),
+                          linear-gradient(176deg, transparent 46%, hsl(104, 55%, 42%) 48%, hsl(104, 55%, 42%) 50%, transparent 52%),
+                          linear-gradient(170deg, transparent 46%, hsl(104, 48%, 35%) 48%, hsl(104, 48%, 35%) 50%, transparent 52%)
+                        `,
+                        backgroundSize: "6px 14px, 8px 16px, 5px 12px, 7px 15px",
+                        backgroundPosition: "0 0, 3px 2px, 1px 4px, 4px 1px",
+                      }}
+                    />
+                    {/* Lighter grass highlights */}
                     <div
                       className="absolute inset-0 opacity-60"
                       style={{
                         backgroundImage: `
-                          radial-gradient(circle 2px at 15% 25%, hsl(30, 5%, 65%) 0%, transparent 100%),
-                          radial-gradient(circle 3px at 45% 35%, hsl(30, 8%, 50%) 0%, transparent 100%),
-                          radial-gradient(circle 2px at 75% 55%, hsl(30, 6%, 60%) 0%, transparent 100%),
-                          radial-gradient(circle 2px at 25% 75%, hsl(30, 4%, 58%) 0%, transparent 100%),
-                          radial-gradient(circle 3px at 65% 85%, hsl(30, 7%, 52%) 0%, transparent 100%)
+                          linear-gradient(174deg, transparent 47%, hsl(104, 58%, 48%) 49%, hsl(104, 58%, 48%) 51%, transparent 53%),
+                          linear-gradient(166deg, transparent 47%, hsl(104, 52%, 45%) 49%, hsl(104, 52%, 45%) 51%, transparent 53%),
+                          linear-gradient(178deg, transparent 47%, hsl(104, 60%, 52%) 49%, hsl(104, 60%, 52%) 51%, transparent 53%)
                         `,
-                        backgroundSize: "25px 25px",
+                        backgroundSize: "9px 18px, 11px 20px, 7px 16px",
+                        backgroundPosition: "2px 0, 5px 3px, 0 5px",
                       }}
                     />
-                  </div>
-                )}
-
-                {/* Grass patch */}
-                {obj.type === "grass" && (
-                  <div
-                    className={cn("absolute inset-0 transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
-                    style={{
-                      transform: "translateZ(2px)",
-                      background: `radial-gradient(circle at 50% 50%, ${scene.grass2} 0%, ${scene.grass} 100%)`,
-                      borderRadius: 8,
-                    }}
-                  >
-                    {/* Grass blades texture */}
+                    {/* Dark grass shadows */}
                     <div
                       className="absolute inset-0 opacity-40"
                       style={{
                         backgroundImage: `
-                          linear-gradient(170deg, transparent 45%, hsl(104, 40%, 30%) 48%, transparent 52%),
-                          linear-gradient(175deg, transparent 45%, hsl(104, 35%, 35%) 48%, transparent 52%),
-                          linear-gradient(165deg, transparent 45%, hsl(104, 38%, 28%) 48%, transparent 52%)
+                          linear-gradient(171deg, transparent 46%, hsl(104, 35%, 22%) 48%, hsl(104, 35%, 22%) 50%, transparent 52%),
+                          linear-gradient(169deg, transparent 46%, hsl(104, 30%, 18%) 48%, hsl(104, 30%, 18%) 50%, transparent 52%)
                         `,
-                        backgroundSize: "8px 12px, 12px 14px, 6px 10px",
+                        backgroundSize: "10px 22px, 13px 24px",
+                        backgroundPosition: "1px 1px, 6px 4px",
+                      }}
+                    />
+                    {/* Subtle light reflection */}
+                    <div
+                      className="absolute top-0 left-0 w-2/3 h-1/2"
+                      style={{
+                        background: `linear-gradient(145deg, hsl(104, 55%, 50% / 0.2) 0%, transparent 50%)`,
                       }}
                     />
                   </div>
                 )}
 
-                {/* Shrub */}
+                {/* Shrub - Realistic bush with multiple foliage clusters */}
                 {obj.type === "shrub" && (
                   <>
                     {/* Shadow on ground */}
                     <div
                       className="absolute"
                       style={{
-                        left: "10%",
-                        right: "10%",
-                        top: "50%",
-                        bottom: "-10%",
+                        left: "5%",
+                        right: "5%",
+                        top: "45%",
+                        bottom: "-15%",
                         transform: "translateZ(0px)",
-                        background: `radial-gradient(ellipse at 50% 30%, hsl(var(--foreground) / 0.25) 0%, transparent 70%)`,
-                        borderRadius: "50%",
+                        background: `radial-gradient(ellipse at 50% 30%, hsl(var(--foreground) / 0.3) 0%, transparent 65%)`,
                       }}
                     />
-                    {/* Bush body */}
+                    {/* Base woody stems (visible at bottom) */}
+                    <div
+                      className="absolute"
+                      style={{
+                        left: "30%",
+                        right: "50%",
+                        top: "70%",
+                        bottom: "20%",
+                        transform: `translateZ(${cmToPx(3)}px)`,
+                        background: `linear-gradient(90deg, hsl(25, 35%, 25%) 0%, hsl(25, 40%, 32%) 100%)`,
+                        borderRadius: 2,
+                      }}
+                    />
+                    <div
+                      className="absolute"
+                      style={{
+                        left: "55%",
+                        right: "25%",
+                        top: "65%",
+                        bottom: "25%",
+                        transform: `translateZ(${cmToPx(3)}px)`,
+                        background: `linear-gradient(90deg, hsl(25, 40%, 32%) 0%, hsl(25, 35%, 25%) 100%)`,
+                        borderRadius: 2,
+                      }}
+                    />
+                    {/* Back foliage cluster */}
+                    <div
+                      className="absolute"
+                      style={{
+                        left: "15%",
+                        right: "25%",
+                        top: "10%",
+                        bottom: "25%",
+                        transform: `translateZ(${cmToPx(25)}px)`,
+                        background: `radial-gradient(circle at 40% 40%, hsl(104, 40%, 35%) 0%, hsl(104, 35%, 28%) 60%, hsl(104, 30%, 22%) 100%)`,
+                        borderRadius: "50%",
+                        boxShadow: `inset -5px -5px 15px hsl(var(--foreground) / 0.2)`,
+                      }}
+                    />
+                    {/* Left foliage cluster */}
+                    <div
+                      className="absolute"
+                      style={{
+                        left: "5%",
+                        right: "45%",
+                        top: "20%",
+                        bottom: "15%",
+                        transform: `translateZ(${cmToPx(38)}px)`,
+                        background: `radial-gradient(circle at 35% 40%, hsl(104, 48%, 42%) 0%, hsl(104, 42%, 32%) 50%, hsl(104, 35%, 25%) 100%)`,
+                        borderRadius: "50%",
+                        boxShadow: `inset 3px 3px 10px hsl(104, 55%, 50% / 0.25), inset -4px -4px 12px hsl(var(--foreground) / 0.15)`,
+                      }}
+                    />
+                    {/* Right foliage cluster */}
+                    <div
+                      className="absolute"
+                      style={{
+                        left: "40%",
+                        right: "8%",
+                        top: "15%",
+                        bottom: "20%",
+                        transform: `translateZ(${cmToPx(42)}px)`,
+                        background: `radial-gradient(circle at 55% 35%, hsl(104, 50%, 45%) 0%, hsl(104, 45%, 35%) 50%, hsl(104, 38%, 28%) 100%)`,
+                        borderRadius: "50%",
+                        boxShadow: `inset 4px 4px 12px hsl(104, 58%, 52% / 0.3), inset -5px -5px 15px hsl(var(--foreground) / 0.18)`,
+                      }}
+                    />
+                    {/* Top highlight cluster */}
                     <div
                       className={cn("absolute transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
                       style={{
-                        left: "5%",
-                        right: "5%",
+                        left: "25%",
+                        right: "25%",
                         top: "5%",
-                        bottom: "5%",
-                        transform: `translateZ(${cmToPx(35)}px)`,
-                        background: `radial-gradient(circle at 35% 35%, ${scene.grass2} 0%, ${scene.grass} 60%, hsl(104, 30%, 25%) 100%)`,
+                        bottom: "35%",
+                        transform: `translateZ(${cmToPx(52)}px)`,
+                        background: `radial-gradient(circle at 40% 35%, hsl(104, 55%, 50%) 0%, hsl(104, 48%, 40%) 40%, hsl(104, 40%, 30%) 100%)`,
                         borderRadius: "50%",
-                        boxShadow: `inset -8px -8px 20px hsl(var(--foreground) / 0.2), inset 4px 4px 10px hsl(var(--primary-foreground) / 0.1)`,
+                        boxShadow: `0 15px 30px -20px hsl(var(--foreground) / 0.4), inset 3px 3px 8px hsl(104, 60%, 55% / 0.3)`,
                       }}
                     />
                   </>
                 )}
 
-                {/* Tree */}
+                {/* Tree - Realistic with layered foliage */}
                 {obj.type === "tree" && (
                   <>
                     {/* Shadow on ground */}
                     <div
                       className="absolute"
                       style={{
-                        left: "5%",
-                        right: "5%",
-                        top: "40%",
-                        bottom: "-20%",
+                        left: "-10%",
+                        right: "-10%",
+                        top: "30%",
+                        bottom: "-30%",
                         transform: "translateZ(0px)",
-                        background: `radial-gradient(ellipse at 50% 20%, hsl(var(--foreground) / 0.3) 0%, transparent 70%)`,
-                        borderRadius: "50%",
+                        background: `radial-gradient(ellipse at 50% 20%, hsl(var(--foreground) / 0.35) 0%, transparent 65%)`,
                       }}
                     />
-                    {/* Trunk */}
+                    {/* Trunk base (wider) */}
                     <div
                       className="absolute"
                       style={{
-                        left: "40%",
-                        right: "40%",
-                        top: "40%",
-                        bottom: "40%",
-                        transform: `translateZ(${cmToPx(40)}px)`,
-                        background: `linear-gradient(90deg, hsl(25, 50%, 22%) 0%, hsl(25, 45%, 30%) 50%, hsl(25, 50%, 22%) 100%)`,
-                        borderRadius: 4,
+                        left: "35%",
+                        right: "35%",
+                        top: "60%",
+                        bottom: "35%",
+                        transform: `translateZ(${cmToPx(2)}px)`,
+                        background: `linear-gradient(90deg, hsl(25, 40%, 18%) 0%, hsl(25, 45%, 28%) 30%, hsl(25, 50%, 32%) 50%, hsl(25, 45%, 28%) 70%, hsl(25, 40%, 18%) 100%)`,
+                        borderRadius: "4px 4px 8px 8px",
+                        boxShadow: `inset 2px 0 4px hsl(25, 30%, 12%), inset -2px 0 4px hsl(25, 30%, 12%)`,
+                      }}
+                    >
+                      {/* Bark texture */}
+                      <div
+                        className="absolute inset-0 opacity-40"
+                        style={{
+                          backgroundImage: `repeating-linear-gradient(180deg, transparent 0px, transparent 3px, hsl(25, 30%, 15%) 3px, hsl(25, 30%, 15%) 4px)`,
+                        }}
+                      />
+                    </div>
+                    {/* Trunk main */}
+                    <div
+                      className="absolute"
+                      style={{
+                        left: "38%",
+                        right: "38%",
+                        top: "35%",
+                        bottom: "45%",
+                        transform: `translateZ(${cmToPx(50)}px)`,
+                        background: `linear-gradient(90deg, hsl(25, 40%, 18%) 0%, hsl(25, 50%, 30%) 50%, hsl(25, 40%, 18%) 100%)`,
+                        borderRadius: 3,
                       }}
                     />
-                    {/* Foliage */}
+                    {/* Lower foliage layer */}
+                    <div
+                      className="absolute"
+                      style={{
+                        left: "5%",
+                        right: "5%",
+                        top: "15%",
+                        bottom: "15%",
+                        transform: `translateZ(${cmToPx(90)}px)`,
+                        background: `radial-gradient(circle at 45% 45%, hsl(104, 45%, 38%) 0%, hsl(104, 40%, 30%) 60%, hsl(104, 35%, 22%) 100%)`,
+                        borderRadius: "50%",
+                        boxShadow: `inset -8px -8px 20px hsl(var(--foreground) / 0.25)`,
+                      }}
+                    />
+                    {/* Middle foliage layer */}
+                    <div
+                      className="absolute"
+                      style={{
+                        left: "12%",
+                        right: "12%",
+                        top: "8%",
+                        bottom: "22%",
+                        transform: `translateZ(${cmToPx(120)}px)`,
+                        background: `radial-gradient(circle at 40% 40%, hsl(104, 50%, 45%) 0%, hsl(104, 45%, 35%) 50%, hsl(104, 35%, 25%) 100%)`,
+                        borderRadius: "50%",
+                        boxShadow: `inset 5px 5px 15px hsl(104, 60%, 55% / 0.3), inset -6px -6px 15px hsl(var(--foreground) / 0.2)`,
+                      }}
+                    />
+                    {/* Top foliage layer (crown) */}
                     <div
                       className={cn("absolute transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
                       style={{
-                        left: "0%",
-                        right: "0%",
-                        top: "0%",
-                        bottom: "0%",
-                        transform: `translateZ(${cmToPx(120)}px)`,
-                        background: `radial-gradient(circle at 40% 35%, ${scene.grass2} 0%, ${scene.grass} 50%, hsl(104, 30%, 22%) 100%)`,
+                        left: "20%",
+                        right: "20%",
+                        top: "2%",
+                        bottom: "35%",
+                        transform: `translateZ(${cmToPx(150)}px)`,
+                        background: `radial-gradient(circle at 35% 35%, hsl(104, 55%, 52%) 0%, hsl(104, 50%, 42%) 40%, hsl(104, 40%, 30%) 100%)`,
                         borderRadius: "50%",
-                        boxShadow: `0 20px 40px -25px hsl(var(--foreground) / 0.5), inset -10px -10px 25px hsl(var(--foreground) / 0.15), inset 5px 5px 15px hsl(var(--primary-foreground) / 0.1)`,
+                        boxShadow: `0 25px 50px -30px hsl(var(--foreground) / 0.5), inset 4px 4px 12px hsl(104, 60%, 60% / 0.3)`,
                       }}
                     />
                   </>
@@ -1015,9 +1393,6 @@ export function GardenPlotCanvas({
             <ZoomOut className="h-4 w-4" />
           </Button>
           <div className="w-px h-6 bg-border mx-1" />
-          <Button variant="ghost" size="sm" onClick={resetView} className="h-9 w-9 p-0 rounded-full" title="Reset">
-            <RotateCcw className="h-4 w-4" />
-          </Button>
           <Button variant="ghost" size="sm" onClick={() => fitToView({ force: true })} className="h-9 w-9 p-0 rounded-full" title="Fit">
             <Maximize className="h-4 w-4" />
           </Button>
