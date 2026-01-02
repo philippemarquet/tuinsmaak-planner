@@ -21,6 +21,7 @@ import { listCropTypes } from "./lib/api/cropTypes";
 import { listWishlist, type WishlistItem } from "./lib/api/wishlist";
 import { getMyProfile } from "./lib/api/profile";
 import { listGardenTasks } from "./lib/api/gardenTasks";
+import { supabase } from "./lib/supabaseClient";
 import type { GardenBed, Seed, Planting, Task, CropType, Profile, GardenTask } from "./lib/types";
 
 type TabKey = "dashboard" | "beds" | "inventory" | "planner" | "wishlist" | "audit" | "settings";
@@ -59,19 +60,24 @@ export default function App() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [gardenTasks, setGardenTasks] = useState<GardenTask[]>([]);
 
-  // Laad alle data bij opstarten
+  // Laad alle data bij opstarten (pas als de sessie er is)
   useEffect(() => {
-    Promise.all([
-      listBeds(GARDEN_ID),
-      listSeeds(GARDEN_ID),
-      listPlantings(GARDEN_ID),
-      listTasks(GARDEN_ID),
-      listCropTypes(),
-      listWishlist(GARDEN_ID),
-      getMyProfile(),
-      listGardenTasks(GARDEN_ID),
-    ])
-      .then(([b, s, p, t, ct, w, prof, gt]) => {
+    let alive = true;
+
+    const loadAll = async () => {
+      try {
+        const [b, s, p, t, ct, w, prof, gt] = await Promise.all([
+          listBeds(GARDEN_ID),
+          listSeeds(GARDEN_ID),
+          listPlantings(GARDEN_ID),
+          listTasks(GARDEN_ID),
+          listCropTypes(),
+          listWishlist(GARDEN_ID),
+          getMyProfile(),
+          listGardenTasks(GARDEN_ID),
+        ]);
+
+        if (!alive) return;
         setBeds(b);
         setSeeds(s);
         setPlantings(p);
@@ -80,8 +86,25 @@ export default function App() {
         setWishlistItems(w);
         setProfile(prof);
         setGardenTasks(gt);
-      })
-      .catch((err) => console.error('App data load error:', err));
+      } catch (err) {
+        if (alive) console.error("App data load error:", err);
+      }
+    };
+
+    // Hydrate session from storage; fetch only when authenticated
+    supabase.auth.getSession().then(({ data }) => {
+      if (!alive) return;
+      if (data.session) loadAll();
+    });
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
+      if (sess) loadAll();
+    });
+
+    return () => {
+      alive = false;
+      sub.subscription.unsubscribe();
+    };
   }, []);
 
   // Centrale reload functie
