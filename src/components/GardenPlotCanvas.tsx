@@ -43,6 +43,7 @@ type PlotObject = {
   w: number;
   h: number;
   label?: string;
+  zIndex?: number; // higher = on top; beds always render on top of all objects
 };
 
 interface PlantingOverlay {
@@ -532,6 +533,9 @@ export function GardenPlotCanvas({
       const offset = objects.filter((o) => o.type === type).length * 60;
       const size = sizes[type];
 
+      // New objects get the highest zIndex so they appear on top
+      const maxZ = objects.reduce((max, o) => Math.max(max, o.zIndex ?? 0), 0);
+
       const obj: PlotObject = {
         id: crypto.randomUUID(),
         type,
@@ -539,6 +543,7 @@ export function GardenPlotCanvas({
         y: snapValue(cy + offset - 150),
         w: size.w,
         h: size.h,
+        zIndex: maxZ + 1,
       };
 
       setObjects((p) => [...p, obj]);
@@ -622,20 +627,27 @@ export function GardenPlotCanvas({
   // Sorted render list
   const renderList = useMemo(() => {
     const list: Array<
-      | { kind: "bed"; id: string; bed: GardenBed; x: number; y: number; w: number; h: number }
-      | { kind: "obj"; id: string; obj: PlotObject; x: number; y: number; w: number; h: number }
+      | { kind: "bed"; id: string; bed: GardenBed; x: number; y: number; w: number; h: number; zIndex: number }
+      | { kind: "obj"; id: string; obj: PlotObject; x: number; y: number; w: number; h: number; zIndex: number }
     > = [];
 
+    // Objects get their zIndex (default 0 for old objects without zIndex)
+    for (const o of objects) {
+      list.push({ kind: "obj", id: o.id, obj: o, x: o.x, y: o.y, w: o.w, h: o.h, zIndex: o.zIndex ?? 0 });
+    }
+
+    // Beds always on top: give them a very high zIndex
+    const maxObjZ = objects.reduce((max, o) => Math.max(max, o.zIndex ?? 0), 0);
     for (const b of beds) {
       const pos = getBedPos(b);
-      list.push({ kind: "bed", id: b.id, bed: b, x: pos.x, y: pos.y, w: b.width_cm, h: b.length_cm });
+      list.push({ kind: "bed", id: b.id, bed: b, x: pos.x, y: pos.y, w: b.width_cm, h: b.length_cm, zIndex: maxObjZ + 1000 });
     }
 
-    for (const o of objects) {
-      list.push({ kind: "obj", id: o.id, obj: o, x: o.x, y: o.y, w: o.w, h: o.h });
-    }
-
-    return list.sort((a, b) => a.y + a.h / 2 - (b.y + b.h / 2));
+    // Sort by zIndex first, then by Y position for depth within the same layer
+    return list.sort((a, b) => {
+      if (a.zIndex !== b.zIndex) return a.zIndex - b.zIndex;
+      return (a.y + a.h / 2) - (b.y + b.h / 2);
+    });
   }, [beds, objects, getBedPos]);
 
   const scene = useMemo(() => {
