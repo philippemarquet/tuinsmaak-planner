@@ -745,7 +745,7 @@ export function GardenPlotCanvas({
             height: 0,
             transformStyle: "preserve-3d",
             transform: walkMode && walkTransform
-              ? `translate(-50%, -50%) translateZ(${-walkTransform.eyeHeightPx}px) rotateX(75deg) rotateZ(${-walkTransform.lookDir}deg) translate(${-walkTransform.walkXPx}px, ${-walkTransform.walkYPx}px)`
+              ? `translate(-50%, -50%) rotateX(75deg) rotateZ(${-walkTransform.lookDir}deg) translateZ(${-walkTransform.eyeHeightPx}px) translate(${-walkTransform.walkXPx}px, ${-walkTransform.walkYPx}px)`
               : `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) rotateX(${tilt}deg) rotateZ(${rotZ}deg) scale(${zoom})`,
             transition: walkMode || dragRef.current ? "none" : "transform 200ms cubic-bezier(0.2, 0.9, 0.2, 1)",
           }}
