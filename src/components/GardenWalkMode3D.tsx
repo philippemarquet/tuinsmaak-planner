@@ -272,9 +272,24 @@ function PlantingArea3D({
     return `${label}: ${dateStr}`;
   };
   
-  // Calculate icon positions (tiled like top view)
-  const iconCount = Math.min(6, usedSegs * 2);
-  const iconSize = 0.08; // Size of each icon in meters
+  // Calculate grid of icon positions for even distribution
+  const iconSpacing = 0.12; // Spacing between icons in meters
+  const cols = Math.max(1, Math.floor(cropWidth / iconSpacing));
+  const rows = Math.max(1, Math.floor(cropLength / iconSpacing));
+  
+  // Generate grid positions centered on the crop area
+  const iconPositions: { x: number; z: number }[] = [];
+  const startX = -(cols - 1) * iconSpacing / 2;
+  const startZ = -(rows - 1) * iconSpacing / 2;
+  
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      iconPositions.push({
+        x: startX + col * iconSpacing,
+        z: startZ + row * iconSpacing,
+      });
+    }
+  }
   
   return (
     <group position={[offsetX, height / 2 + 0.02, offsetZ]}>
@@ -290,56 +305,65 @@ function PlantingArea3D({
         <meshStandardMaterial color={planting.color} />
       </mesh>
       
-      {/* Icons displayed on the colored surface */}
-      {planting.iconUrl && (
+      {/* Icons laid flat on the colored surface in a grid pattern */}
+      {planting.iconUrl && iconPositions.map((pos, idx) => (
         <Html
-          position={[0, 0.02, 0]}
+          key={idx}
+          position={[pos.x, 0.01, pos.z]}
           center
-          distanceFactor={1.5}
+          transform
+          rotation={[-Math.PI / 2, 0, 0]}
+          distanceFactor={0.8}
           style={{ pointerEvents: 'none' }}
         >
-          <div 
-            className="flex flex-wrap items-center justify-center gap-1"
+          <img
+            src={planting.iconUrl!}
+            alt=""
             style={{ 
-              width: `${cropWidth * 100}px`,
-              height: `${cropLength * 100}px`,
+              width: '48px',
+              height: '48px',
+              objectFit: 'contain',
+              filter: isDayMode ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' : 'brightness(0.8) drop-shadow(0 2px 4px rgba(0,0,0,0.5))',
             }}
-          >
-            {Array.from({ length: iconCount }).map((_, idx) => (
-              <img
-                key={idx}
-                src={planting.iconUrl!}
-                alt=""
-                className="w-6 h-6 object-contain drop-shadow-md"
-                style={{ 
-                  filter: isDayMode ? 'none' : 'brightness(0.8)',
-                }}
-                draggable={false}
-              />
-            ))}
-          </div>
+            draggable={false}
+          />
         </Html>
-      )}
+      ))}
       
-      {/* Hover tooltip */}
+      {/* Hover tooltip - much larger and more readable */}
       {hovered && (
         <Html
-          position={[0, 0.15, 0]}
+          position={[0, 0.3, 0]}
           center
-          distanceFactor={1}
+          distanceFactor={0.6}
           style={{ pointerEvents: 'none' }}
         >
           <div 
-            className="px-3 py-2 rounded-lg shadow-lg text-sm whitespace-nowrap"
+            className="px-6 py-4 rounded-xl shadow-2xl whitespace-nowrap"
             style={{
-              backgroundColor: isDayMode ? 'rgba(255,255,255,0.95)' : 'rgba(30,30,30,0.95)',
-              color: isDayMode ? '#1a1a1a' : '#f0f0f0',
-              border: `2px solid ${planting.color}`,
+              backgroundColor: isDayMode ? 'rgba(255,255,255,0.98)' : 'rgba(20,20,20,0.98)',
+              color: isDayMode ? '#1a1a1a' : '#f5f5f5',
+              border: `4px solid ${planting.color}`,
+              minWidth: '180px',
+              textAlign: 'center',
             }}
           >
-            <div className="font-semibold">{planting.label || 'Gewas'}</div>
+            <div 
+              className="font-bold"
+              style={{ fontSize: '22px', marginBottom: '6px' }}
+            >
+              {planting.label || 'Gewas'}
+            </div>
             {formatNextAction() && (
-              <div className="text-xs opacity-80 mt-0.5">{formatNextAction()}</div>
+              <div 
+                style={{ 
+                  fontSize: '16px', 
+                  opacity: 0.85,
+                  fontWeight: 500,
+                }}
+              >
+                {formatNextAction()}
+              </div>
             )}
           </div>
         </Html>
