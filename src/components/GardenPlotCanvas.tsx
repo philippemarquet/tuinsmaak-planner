@@ -684,14 +684,24 @@ export function GardenPlotCanvas({
   // Walk mode transform calculations
   const walkTransform = useMemo(() => {
     if (!walkMode) return null;
-    // Eye height ~170cm, looking forward with slight downward angle
+
+    // Eye height ~170cm.
     const eyeHeightPx = cmToPx(170);
-    const walkXPx = cmToPx(walkPos.x);
-    const walkYPx = cmToPx(walkPos.y);
+
+    // Instead of centering the camera on "where you stand" (which makes turning look like
+    // you're rotating above the same bed), we center on a point *ahead* of you.
+    const LOOK_AHEAD_CM = 260;
+    const rad = (walkDir * Math.PI) / 180;
+    const lookAheadX = Math.sin(rad) * LOOK_AHEAD_CM;
+    const lookAheadY = -Math.cos(rad) * LOOK_AHEAD_CM;
+
+    const lookXPx = cmToPx(walkPos.x + lookAheadX);
+    const lookYPx = cmToPx(walkPos.y + lookAheadY);
+
     return {
       eyeHeightPx,
-      walkXPx,
-      walkYPx,
+      lookXPx,
+      lookYPx,
       lookDir: walkDir,
     };
   }, [walkMode, walkPos, walkDir]);
@@ -745,7 +755,7 @@ export function GardenPlotCanvas({
             height: 0,
             transformStyle: "preserve-3d",
             transform: walkMode && walkTransform
-              ? `translate(-50%, -50%) rotateX(75deg) rotateZ(${-walkTransform.lookDir}deg) translateZ(${-walkTransform.eyeHeightPx}px) translate(${-walkTransform.walkXPx}px, ${-walkTransform.walkYPx}px)`
+              ? `translate(-50%, -50%) rotateX(65deg) rotateZ(${-walkTransform.lookDir}deg) translateZ(${-walkTransform.eyeHeightPx}px) translate(${-walkTransform.lookXPx}px, ${-walkTransform.lookYPx}px)`
               : `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) rotateX(${tilt}deg) rotateZ(${rotZ}deg) scale(${zoom})`,
             transition: walkMode || dragRef.current ? "none" : "transform 200ms cubic-bezier(0.2, 0.9, 0.2, 1)",
           }}
