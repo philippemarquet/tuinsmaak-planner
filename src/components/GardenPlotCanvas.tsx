@@ -986,26 +986,26 @@ export function GardenPlotCanvas({
                                 }}
                                 title={planting.label}
                               >
-                                {/* Icon tiling */}
+                                {/* Icon tiling - fewer but larger icons (3-4 per segment) */}
                                 {planting.iconUrl && (
-                                  <div className="absolute inset-0 pointer-events-none flex flex-wrap items-center justify-center gap-1 p-1 opacity-80">
-                                    {Array.from({ length: Math.min(6, usedSegs * 2) }).map((_, idx) => (
+                                  <div className="absolute inset-0 pointer-events-none flex flex-wrap items-center justify-center gap-2 p-2 opacity-85">
+                                    {Array.from({ length: Math.min(4, Math.max(1, usedSegs)) * 3 }).map((_, idx) => (
                                       <img
                                         key={idx}
                                         src={planting.iconUrl!}
                                         alt=""
-                                        className="w-4 h-4 object-contain drop-shadow-sm"
+                                        className="w-8 h-8 object-contain drop-shadow-md"
                                         draggable={false}
                                       />
                                     ))}
                                   </div>
                                 )}
-                                {/* Label */}
+                                {/* Label - larger hover tooltip */}
                                 {planting.label && (
-                                  <div className="absolute inset-0 flex items-center justify-center">
+                                  <div className="absolute inset-0 flex items-center justify-center group">
                                     <span
-                                      className="text-[9px] font-medium px-1 py-0.5 rounded bg-black/30 text-white truncate max-w-full"
-                                      style={{ textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}
+                                      className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-black/50 text-white truncate max-w-full shadow-lg transition-all duration-200 group-hover:text-base group-hover:px-4 group-hover:py-2 group-hover:bg-black/80 group-hover:scale-125 group-hover:z-50"
+                                      style={{ textShadow: "0 1px 3px rgba(0,0,0,0.7)" }}
                                     >
                                       {planting.label}
                                     </span>
@@ -1772,8 +1772,8 @@ export function GardenPlotCanvas({
 
       {/* Bottom dock - hidden in walk mode and in readOnly mode */}
       {!walkMode && !readOnly && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-end gap-3 z-20">
-          <div className="flex items-center gap-2 bg-background/90 backdrop-blur-md px-4 py-3 rounded-2xl shadow-xl border border-border/50">
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-end gap-3 z-20" onPointerDown={(e) => e.stopPropagation()}>
+          <div className="flex items-center gap-2 bg-background/90 backdrop-blur-md px-4 py-3 rounded-2xl shadow-xl border border-border/50" onPointerDown={(e) => e.stopPropagation()}>
             <span className="text-xs font-semibold text-muted-foreground mr-2 uppercase tracking-wider">Toevoegen</span>
             <ObjectButton icon={Warehouse} label="Kas" onClick={() => spawnObject("greenhouse")} />
             <ObjectButton icon={TreePine} label="Boom" onClick={() => spawnObject("tree")} />
@@ -1918,8 +1918,18 @@ function ObjectButton({
   label: string;
   onClick: () => void;
 }) {
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent canvas from capturing click
+    e.preventDefault();
+    onClick();
+  };
+  
   return (
-    <button onClick={onClick} className="group flex flex-col items-center gap-1 px-2 py-1 transition-transform duration-200 hover:-translate-y-1">
+    <button 
+      type="button"
+      onClick={handleClick} 
+      className="group flex flex-col items-center gap-1 px-2 py-1 transition-transform duration-200 hover:-translate-y-1"
+    >
       <div className="p-2.5 rounded-xl bg-muted/50 border border-border/50 transition-all duration-200 group-hover:bg-accent group-hover:border-accent group-hover:shadow-lg">
         <Icon className="h-5 w-5 text-foreground" />
       </div>
