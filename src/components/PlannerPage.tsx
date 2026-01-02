@@ -379,15 +379,7 @@ export function PlannerPage({
     return d; // maandag
   });
 
-  // Map view week filter
-  const [mapWeek, setMapWeek] = useState<Date>(() => {
-    const saved = localStorage.getItem("plannerMapWeekISO");
-    if (saved) return new Date(saved);
-    const n = new Date();
-    const d = new Date(n);
-    d.setDate(n.getDate() - ((n.getDay() || 7) - 1));
-    return d; // maandag van huidige week
-  });
+  // Map view uses the same currentWeek as the timeline
 
   // toast
   const [toast, setToast] = useState<{ msg: string, tone: "info" | "ok" | "err" } | null>(null);
@@ -458,9 +450,6 @@ export function PlannerPage({
     localStorage.setItem("plannerWeekISO", toISO(currentWeek));
   }, [currentWeek]);
   useEffect(() => {
-    localStorage.setItem("plannerMapWeekISO", toISO(mapWeek));
-  }, [mapWeek]);
-  useEffect(() => {
     localStorage.setItem("plannerMonths", JSON.stringify(selectedMonths));
   }, [selectedMonths]);
   useEffect(() => {
@@ -482,8 +471,9 @@ export function PlannerPage({
   const greenhouseBeds = useMemo(() => beds.filter((b) => b.is_greenhouse).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)), [beds]);
 
   /* ===== plantings overlay for map view (filtered by selected week) ===== */
+  /* ===== plantings overlay for map view (uses currentWeek from timeline) ===== */
   const plantingsForMap = useMemo(() => {
-    const weekStart = new Date(mapWeek);
+    const weekStart = new Date(currentWeek);
     const weekEnd = addDays(weekStart, 6);
     return (plantings || [])
       .filter((p) => {
@@ -508,7 +498,7 @@ export function PlannerPage({
           cropType: seed?.crop_type_id ? cropTypesById.get(seed.crop_type_id)?.name : undefined,
         };
       });
-  }, [plantings, seedsById, cropTypesById, mapWeek]);
+  }, [plantings, seedsById, cropTypesById, currentWeek]);
 
   /* ===== conflicts ===== */
   const conflictsMap = useMemo(() => buildConflictsMap(plantings || [], seeds || []), [plantings, seeds]);
@@ -1501,51 +1491,17 @@ export function PlannerPage({
             {view === "list" && listViewContent}
             {view === "map" && (
               <div className="p-6 h-full flex flex-col gap-4">
-                {/* Week selector for map */}
+                {/* Info showing current week from timeline filter */}
                 <div className="flex items-center justify-between bg-card rounded-lg border px-4 py-2">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-muted-foreground">Toon plantingen voor:</span>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => setMapWeek(addWeeks(mapWeek, -1))}
-                        className="p-1.5 rounded hover:bg-muted transition-colors"
-                        title="Vorige week"
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </button>
-                      <span className="min-w-[180px] text-center font-medium">
-                        Week {weekOf(mapWeek)} • {format(mapWeek, "d MMM", { locale: nl })} - {format(addDays(mapWeek, 6), "d MMM yyyy", { locale: nl })}
-                      </span>
-                      <button
-                        onClick={() => setMapWeek(addWeeks(mapWeek, 1))}
-                        className="p-1.5 rounded hover:bg-muted transition-colors"
-                        title="Volgende week"
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        const n = new Date();
-                        const d = new Date(n);
-                        d.setDate(n.getDate() - ((n.getDay() || 7) - 1));
-                        setMapWeek(d);
-                      }}
-                      className={cn(
-                        "px-3 py-1 text-sm rounded-md transition-colors",
-                        toISO(mapWeek) === toISO((() => { const n = new Date(); const d = new Date(n); d.setDate(n.getDate() - ((n.getDay() || 7) - 1)); return d; })())
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted hover:bg-muted/80"
-                      )}
-                    >
-                      Deze week
-                    </button>
-                    <span className="text-xs text-muted-foreground">
-                      {plantingsForMap.length} planting{plantingsForMap.length !== 1 ? "en" : ""}
+                    <span className="text-sm font-medium text-muted-foreground">Plantingen voor:</span>
+                    <span className="font-medium">
+                      Week {weekOf(currentWeek)} • {format(currentWeek, "d MMM", { locale: nl })} - {format(addDays(currentWeek, 6), "d MMM yyyy", { locale: nl })}
                     </span>
                   </div>
+                  <span className="text-xs text-muted-foreground">
+                    {plantingsForMap.length} planting{plantingsForMap.length !== 1 ? "en" : ""}
+                  </span>
                 </div>
                 
                 <div className="flex-1 min-h-0">

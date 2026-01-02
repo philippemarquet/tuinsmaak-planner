@@ -772,6 +772,7 @@ function SceneContent({
 export function GardenWalkMode3D({
   beds,
   objects,
+  plantings = [],
   isDayMode,
   initialPosition,
   initialDirection,
@@ -804,6 +805,7 @@ export function GardenWalkMode3D({
             <SceneContent
               beds={beds}
               objects={objects}
+              plantings={plantings}
               isDayMode={isDayMode}
               initialPosition={initialPosition}
               initialDirection={initialDirection}
