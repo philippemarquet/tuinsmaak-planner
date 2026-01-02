@@ -33,7 +33,7 @@ import { toast } from "sonner";
 const GardenWalkMode3D = lazy(() => import("./GardenWalkMode3D").then(m => ({ default: m.GardenWalkMode3D })));
 
 // --- Types ---
-type PlotObjectType = "greenhouse" | "grass" | "shrub" | "gravel" | "tree" | "path" | "pond";
+type PlotObjectType = "greenhouse" | "grass" | "shrub" | "gravel" | "tree" | "path" | "woodchips" | "tiles";
 
 type PlotObject = {
   id: string;
@@ -454,7 +454,8 @@ export function GardenPlotCanvas({
         gravel: { w: 150, h: 100 },
         tree: { w: 100, h: 100 },
         path: { w: 300, h: 60 },
-        pond: { w: 150, h: 100 },
+        woodchips: { w: 150, h: 100 },
+        tiles: { w: 200, h: 150 },
       };
 
       const center = beds.length
@@ -1412,19 +1413,44 @@ export function GardenPlotCanvas({
                   </>
                 )}
 
-                {/* Pond */}
-                {obj.type === "pond" && (
+                {/* Woodchips */}
+                {obj.type === "woodchips" && (
                   <div
-                    className={cn("absolute inset-0 rounded-[40%] transition-all overflow-hidden", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
+                    className={cn("absolute inset-0 rounded-lg transition-all overflow-hidden", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
                     style={{
-                      transform: "translateZ(-2px)",
-                      background: `linear-gradient(180deg, ${scene.water1} 0%, ${scene.water2} 100%)`,
-                      boxShadow: `inset 0 0 24px hsl(var(--primary-foreground) / 0.18)`,
+                      transform: "translateZ(1px)",
+                      background: `linear-gradient(135deg, hsl(25, 50%, 30%) 0%, hsl(20, 45%, 25%) 50%, hsl(25, 40%, 22%) 100%)`,
+                      boxShadow: `inset 0 2px 8px hsl(var(--foreground) / 0.3)`,
                     }}
                   >
+                    {/* Woodchip texture pattern */}
                     <div
-                      className="absolute top-2 left-2 w-1/3 h-1/3 rounded-full"
-                      style={{ background: `hsl(var(--primary-foreground) / 0.25)` }}
+                      className="absolute inset-0 opacity-40"
+                      style={{
+                        backgroundImage: `radial-gradient(ellipse at 20% 30%, hsl(30, 40%, 35%) 2px, transparent 3px), radial-gradient(ellipse at 70% 60%, hsl(25, 35%, 28%) 3px, transparent 4px), radial-gradient(ellipse at 40% 80%, hsl(20, 45%, 32%) 2px, transparent 3px)`,
+                        backgroundSize: "18px 14px",
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Tiles */}
+                {obj.type === "tiles" && (
+                  <div
+                    className={cn("absolute inset-0 rounded-sm transition-all overflow-hidden", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
+                    style={{
+                      transform: "translateZ(1px)",
+                      background: `linear-gradient(135deg, hsl(0, 0%, 60%) 0%, hsl(0, 0%, 52%) 100%)`,
+                      boxShadow: `inset 0 1px 4px hsl(var(--foreground) / 0.2)`,
+                    }}
+                  >
+                    {/* Tile grid pattern */}
+                    <div
+                      className="absolute inset-0"
+                      style={{
+                        backgroundImage: `linear-gradient(hsl(0, 0%, 45%) 2px, transparent 2px), linear-gradient(90deg, hsl(0, 0%, 45%) 2px, transparent 2px)`,
+                        backgroundSize: "25px 25px",
+                      }}
                     />
                   </div>
                 )}
@@ -1526,6 +1552,8 @@ export function GardenPlotCanvas({
             <ObjectButton icon={TreeDeciduous} label="Gras" onClick={() => spawnObject("grass")} />
             <ObjectButton icon={Rows3} label="Pad" onClick={() => spawnObject("path")} />
             <ObjectButton icon={Ruler} label="Grind" onClick={() => spawnObject("gravel")} />
+            <ObjectButton icon={TreeDeciduous} label="Schors" onClick={() => spawnObject("woodchips")} />
+            <ObjectButton icon={Grid3x3} label="Tegels" onClick={() => spawnObject("tiles")} />
           </div>
 
           {selectedId && (
@@ -1645,8 +1673,10 @@ function labelForObject(t: PlotObjectType) {
       return "Boom";
     case "path":
       return "Pad";
-    case "pond":
-      return "Vijver";
+    case "woodchips":
+      return "Houtschors";
+    case "tiles":
+      return "Tegels";
   }
 }
 
