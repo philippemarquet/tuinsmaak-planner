@@ -585,7 +585,10 @@ export function GardenPlotCanvas({
     };
   }, [walkMode, exitWalkMode]);
 
-  // Walk mode movement loop
+  // Walk mode movement loop - use refs to avoid stale closures
+  const walkDirRef = useRef(walkDir);
+  useEffect(() => { walkDirRef.current = walkDir; }, [walkDir]);
+
   useEffect(() => {
     if (!walkMode) return;
 
@@ -607,17 +610,20 @@ export function GardenPlotCanvas({
       if (keys.has("arrowleft") || keys.has("q")) dr = -TURN_SPEED;
       if (keys.has("arrowright") || keys.has("e")) dr = TURN_SPEED;
 
-      if (dx !== 0 || dy !== 0 || dr !== 0) {
+      // Only update direction when turning
+      if (dr !== 0) {
         setWalkDir((d) => d + dr);
-        setWalkPos((pos) => {
-          const rad = (walkDir * Math.PI) / 180;
-          const cos = Math.cos(rad);
-          const sin = Math.sin(rad);
-          // Forward is -y in our coordinate system
-          const moveX = dx * cos - dy * sin;
-          const moveY = dx * sin + dy * cos;
-          return { x: pos.x + moveX, y: pos.y + moveY };
-        });
+      }
+
+      // Only update position when actually moving (not just rotating)
+      if (dx !== 0 || dy !== 0) {
+        const currentDir = walkDirRef.current + dr; // Include any concurrent rotation
+        const rad = (currentDir * Math.PI) / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const moveX = dx * cos - dy * sin;
+        const moveY = dx * sin + dy * cos;
+        setWalkPos((pos) => ({ x: pos.x + moveX, y: pos.y + moveY }));
       }
 
       animFrame = requestAnimationFrame(loop);
@@ -625,7 +631,7 @@ export function GardenPlotCanvas({
 
     animFrame = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animFrame);
-  }, [walkMode, walkDir]);
+  }, [walkMode]);
 
   // Sorted render list
   const renderList = useMemo(() => {
@@ -739,7 +745,7 @@ export function GardenPlotCanvas({
             height: 0,
             transformStyle: "preserve-3d",
             transform: walkMode && walkTransform
-              ? `translate(-50%, -50%) rotateX(75deg) rotateZ(${-walkTransform.lookDir}deg) translate(${-walkTransform.walkXPx}px, ${-walkTransform.walkYPx}px) translateZ(${-walkTransform.eyeHeightPx}px)`
+              ? `translate(-50%, -50%) translateZ(${-walkTransform.eyeHeightPx}px) rotateX(75deg) rotateZ(${-walkTransform.lookDir}deg) translate(${-walkTransform.walkXPx}px, ${-walkTransform.walkYPx}px)`
               : `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) rotateX(${tilt}deg) rotateZ(${rotZ}deg) scale(${zoom})`,
             transition: walkMode || dragRef.current ? "none" : "transform 200ms cubic-bezier(0.2, 0.9, 0.2, 1)",
           }}
