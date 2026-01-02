@@ -31,6 +31,16 @@ const WALK_SPEED = 4; // meters per second
 const TURN_SPEED = 1.5; // radians per second
 const CM_TO_M = 0.01;
 
+interface PlantingOverlay3D {
+  id: string;
+  bedId: string;
+  startSegment: number;
+  segmentsUsed: number;
+  color: string;
+  iconUrl?: string | null;
+  label?: string;
+}
+
 interface GardenWalkMode3DProps {
   beds: GardenBed[];
   objects: Array<{
@@ -41,6 +51,7 @@ interface GardenWalkMode3DProps {
     w: number;
     h: number;
   }>;
+  plantings?: PlantingOverlay3D[];
   isDayMode: boolean;
   initialPosition: { x: number; y: number }; // in cm
   initialDirection: number; // in degrees
@@ -125,8 +136,16 @@ function Ground({ isDayMode }: { isDayMode: boolean }) {
   );
 }
 
-// Garden bed as 3D box
-function Bed3D({ bed, isDayMode }: { bed: GardenBed; isDayMode: boolean }) {
+// Garden bed as 3D box with optional plantings
+function Bed3D({ 
+  bed, 
+  isDayMode, 
+  plantings = [] 
+}: { 
+  bed: GardenBed; 
+  isDayMode: boolean;
+  plantings?: PlantingOverlay3D[];
+}) {
   const width = bed.width_cm * CM_TO_M;
   const length = bed.length_cm * CM_TO_M;
   const height = 0.25; // 25cm bed height
@@ -136,6 +155,10 @@ function Bed3D({ bed, isDayMode }: { bed: GardenBed; isDayMode: boolean }) {
 
   const woodColor = isDayMode ? "#8B5A2B" : "#5c3d1e";
   const soilColor = isDayMode ? "#3d2817" : "#2a1c10";
+
+  const segments = bed.segments || 1;
+  const isHorizontal = bed.width_cm > bed.length_cm;
+  const bedPlantings = plantings.filter(p => p.bedId === bed.id);
 
   return (
     <group position={[x, height / 2, z]}>
@@ -149,8 +172,61 @@ function Bed3D({ bed, isDayMode }: { bed: GardenBed; isDayMode: boolean }) {
         <boxGeometry args={[width - 0.04, 0.02, length - 0.04]} />
         <meshStandardMaterial color={soilColor} />
       </mesh>
-      {/* Bed label */}
-      {/* TODO: Add 3D text for bed name */}
+      
+      {/* Plantings as 3D crops */}
+      {bedPlantings.map((planting) => {
+        const startSeg = planting.startSegment;
+        const usedSegs = Math.max(1, planting.segmentsUsed);
+        const segWidth = isHorizontal ? width / segments : width;
+        const segLength = isHorizontal ? length : length / segments;
+        
+        // Calculate position within bed
+        const offsetX = isHorizontal 
+          ? -width / 2 + (startSeg + usedSegs / 2) * (width / segments)
+          : 0;
+        const offsetZ = isHorizontal 
+          ? 0
+          : -length / 2 + (startSeg + usedSegs / 2) * (length / segments);
+        
+        const cropWidth = isHorizontal ? usedSegs * (width / segments) - 0.02 : width - 0.06;
+        const cropLength = isHorizontal ? length - 0.06 : usedSegs * (length / segments) - 0.02;
+        
+        // Create multiple small plants
+        const plantCount = Math.min(12, usedSegs * 3);
+        const plants = [];
+        for (let i = 0; i < plantCount; i++) {
+          const px = (Math.random() - 0.5) * cropWidth * 0.8;
+          const pz = (Math.random() - 0.5) * cropLength * 0.8;
+          const plantHeight = 0.15 + Math.random() * 0.25;
+          plants.push({ x: px, z: pz, height: plantHeight });
+        }
+        
+        return (
+          <group key={planting.id} position={[offsetX, height / 2 + 0.02, offsetZ]}>
+            {/* Colored ground patch */}
+            <mesh position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+              <planeGeometry args={[cropWidth, cropLength]} />
+              <meshStandardMaterial color={planting.color} transparent opacity={0.6} />
+            </mesh>
+            
+            {/* 3D plant representations */}
+            {plants.map((plant, idx) => (
+              <group key={idx} position={[plant.x, plant.height / 2, plant.z]}>
+                {/* Stem */}
+                <mesh>
+                  <cylinderGeometry args={[0.01, 0.015, plant.height, 6]} />
+                  <meshStandardMaterial color={isDayMode ? "#228B22" : "#145a14"} />
+                </mesh>
+                {/* Leaves/top */}
+                <mesh position={[0, plant.height / 2 + 0.03, 0]}>
+                  <sphereGeometry args={[0.05 + Math.random() * 0.03, 8, 8]} />
+                  <meshStandardMaterial color={planting.color} />
+                </mesh>
+              </group>
+            ))}
+          </group>
+        );
+      })}
     </group>
   );
 }
@@ -420,6 +496,7 @@ function Grass3D({
 function SceneContent({
   beds,
   objects,
+  plantings = [],
   isDayMode,
   initialPosition,
   initialDirection,
@@ -447,7 +524,7 @@ function SceneContent({
 
       {/* Beds */}
       {beds.map((bed) => (
-        <Bed3D key={bed.id} bed={bed} isDayMode={isDayMode} />
+        <Bed3D key={bed.id} bed={bed} isDayMode={isDayMode} plantings={plantings} />
       ))}
 
       {/* Objects */}

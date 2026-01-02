@@ -45,13 +45,27 @@ type PlotObject = {
   label?: string;
 };
 
+interface PlantingOverlay {
+  id: string;
+  bedId: string;
+  startSegment: number;
+  segmentsUsed: number;
+  color: string;
+  iconUrl?: string | null;
+  label?: string;
+}
+
 interface GardenPlotCanvasProps {
   beds: GardenBed[];
   /** Called when the user *drops* a bed (commit). */
-  onBedMove: (id: UUID, x: number, y: number) => void;
+  onBedMove?: (id: UUID, x: number, y: number) => void;
   onBedDuplicate?: (bed: GardenBed) => void;
   onBedEdit?: (bed: GardenBed) => void;
   storagePrefix?: string;
+  /** If true, hides add/edit controls - just viewing */
+  readOnly?: boolean;
+  /** Plantings to overlay on beds */
+  plantings?: PlantingOverlay[];
 }
 
 // --- Constants ---
@@ -89,6 +103,8 @@ export function GardenPlotCanvas({
   onBedDuplicate,
   onBedEdit,
   storagePrefix = "gardenPlot",
+  readOnly = false,
+  plantings: plantingsOverlay = [],
 }: GardenPlotCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -415,7 +431,7 @@ export function GardenPlotCanvas({
     const d = dragRef.current;
     dragRef.current = null;
 
-    if (d?.kind === "bed" && d.id && d.moved) {
+    if (d?.kind === "bed" && d.id && d.moved && onBedMove) {
       const draft = pendingBedMoveRef.current;
       const finalPos = draft?.id === d.id ? draft : bedDraft[d.id] ? { id: d.id, ...bedDraft[d.id] } : null;
       if (finalPos) {
@@ -623,6 +639,7 @@ export function GardenPlotCanvas({
           <GardenWalkMode3D
             beds={beds}
             objects={objects}
+            plantings={plantingsOverlay}
             isDayMode={isDayMode}
             initialPosition={walkPos}
             initialDirection={walkDir}
@@ -729,13 +746,16 @@ export function GardenPlotCanvas({
               // Segments haaks op lange zijde
               const isHorizontal = bed.width_cm > bed.length_cm;
 
+              // Get plantings for this bed
+              const bedPlantings = plantingsOverlay.filter(p => p.bedId === bed.id);
+
               return (
                 <div
                   key={it.id}
-                  className={cn("absolute select-none", "cursor-grab active:cursor-grabbing")}
+                  className={cn("absolute select-none", !readOnly && "cursor-grab active:cursor-grabbing")}
                   style={{ left, top, width: w, height: h, transformStyle: "preserve-3d" }}
-                  onPointerDown={(e) => startDragBed(e, bed)}
-                  onDoubleClick={() => onBedEdit?.(bed)}
+                  onPointerDown={readOnly ? undefined : (e) => startDragBed(e, bed)}
+                  onDoubleClick={readOnly ? undefined : () => onBedEdit?.(bed)}
                 >
                   {/* Base on ground */}
                   <div className="absolute inset-0 rounded-lg" style={{ background: scene.wood3, transform: "translateZ(0px)" }} />
@@ -755,7 +775,7 @@ export function GardenPlotCanvas({
 
                   {/* Top */}
                   <div
-                    className={cn("absolute inset-0 rounded-lg transition-all duration-150", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
+                    className={cn("absolute inset-0 rounded-lg transition-all duration-150", isSelected && !readOnly && "ring-4 ring-[hsl(var(--scene-highlight))]")}
                     style={{
                       transform: `translateZ(${bedHeightPx}px)`,
                       background: `linear-gradient(135deg, ${scene.wood2} 0%, ${scene.wood} 100%)`,
@@ -789,6 +809,62 @@ export function GardenPlotCanvas({
                           ))}
                         </div>
                       )}
+
+                      {/* Plantings overlay */}
+                      {bedPlantings.length > 0 && (
+                        <div className="absolute inset-0">
+                          {bedPlantings.map((planting) => {
+                            const startSeg = planting.startSegment;
+                            const usedSegs = Math.max(1, planting.segmentsUsed);
+                            const soilW = w - 12; // subtract padding
+                            const soilH = h - 12;
+                            const segW = isHorizontal ? soilW / segments : soilW;
+                            const segH = isHorizontal ? soilH : soilH / segments;
+
+                            const rect = isHorizontal
+                              ? { left: startSeg * segW, top: 0, width: usedSegs * segW, height: soilH }
+                              : { left: 0, top: startSeg * segH, width: soilW, height: usedSegs * segH };
+
+                            return (
+                              <div
+                                key={planting.id}
+                                className="absolute rounded-sm overflow-hidden"
+                                style={{
+                                  ...rect,
+                                  backgroundColor: planting.color,
+                                }}
+                                title={planting.label}
+                              >
+                                {/* Icon tiling */}
+                                {planting.iconUrl && (
+                                  <div className="absolute inset-0 pointer-events-none flex flex-wrap items-center justify-center gap-1 p-1 opacity-80">
+                                    {Array.from({ length: Math.min(6, usedSegs * 2) }).map((_, idx) => (
+                                      <img
+                                        key={idx}
+                                        src={planting.iconUrl!}
+                                        alt=""
+                                        className="w-4 h-4 object-contain drop-shadow-sm"
+                                        draggable={false}
+                                      />
+                                    ))}
+                                  </div>
+                                )}
+                                {/* Label */}
+                                {planting.label && (
+                                  <div className="absolute inset-0 flex items-center justify-center">
+                                    <span
+                                      className="text-[9px] font-medium px-1 py-0.5 rounded bg-black/30 text-white truncate max-w-full"
+                                      style={{ textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}
+                                    >
+                                      {planting.label}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
 
                     {/* Label */}
@@ -806,16 +882,18 @@ export function GardenPlotCanvas({
                       </span>
                     </div>
 
-                    {/* Hint */}
-                    <div className="absolute top-1 right-1 opacity-0 hover:opacity-100 transition-opacity">
-                      <div
-                        className="text-[10px] px-2 py-1 rounded-md flex items-center gap-1"
-                        style={{ background: `hsl(var(--foreground) / 0.35)`, color: hslVar("--primary-foreground") }}
-                      >
-                        <Edit3 className="h-3 w-3" />
-                        Dubbelklik
+                    {/* Hint - only in edit mode */}
+                    {!readOnly && (
+                      <div className="absolute top-1 right-1 opacity-0 hover:opacity-100 transition-opacity">
+                        <div
+                          className="text-[10px] px-2 py-1 rounded-md flex items-center gap-1"
+                          style={{ background: `hsl(var(--foreground) / 0.35)`, color: hslVar("--primary-foreground") }}
+                        >
+                          <Edit3 className="h-3 w-3" />
+                          Dubbelklik
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               );
@@ -1541,8 +1619,8 @@ export function GardenPlotCanvas({
         </div>
       )}
 
-      {/* Bottom dock - hidden in walk mode */}
-      {!walkMode && (
+      {/* Bottom dock - hidden in walk mode and in readOnly mode */}
+      {!walkMode && !readOnly && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-end gap-3 z-20">
           <div className="flex items-center gap-2 bg-background/90 backdrop-blur-md px-4 py-3 rounded-2xl shadow-xl border border-border/50">
             <span className="text-xs font-semibold text-muted-foreground mr-2 uppercase tracking-wider">Toevoegen</span>
@@ -1579,8 +1657,8 @@ export function GardenPlotCanvas({
         </div>
       )}
 
-      {/* Object inspector */}
-      {selectedObject && (
+      {/* Object inspector - hidden in readOnly mode */}
+      {selectedObject && !readOnly && (
         <div className="absolute bottom-4 left-4 z-20 w-[280px] bg-background/90 backdrop-blur-md border border-border/50 rounded-xl shadow-xl p-4 animate-enter">
           <div className="flex items-center justify-between mb-3">
             <div>
