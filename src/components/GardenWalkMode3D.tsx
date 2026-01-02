@@ -646,15 +646,65 @@ function SceneContent({
 }: Omit<GardenWalkMode3DProps, "onExit">) {
   return (
     <>
-      {/* Lighting */}
-      <ambientLight intensity={isDayMode ? 0.6 : 0.2} />
+      {/* Improved Lighting Setup */}
+      {/* Ambient light - soft fill light */}
+      <ambientLight intensity={isDayMode ? 0.4 : 0.15} />
+      
+      {/* Main directional light (sun) with shadows */}
       <directionalLight
-        position={[10, 20, 10]}
-        intensity={isDayMode ? 1 : 0.3}
+        position={isDayMode ? [15, 25, 10] : [5, 15, 5]}
+        intensity={isDayMode ? 1.2 : 0.2}
         castShadow
-        shadow-mapSize={[2048, 2048]}
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+        shadow-camera-far={100}
+        shadow-camera-left={-30}
+        shadow-camera-right={30}
+        shadow-camera-top={30}
+        shadow-camera-bottom={-30}
+        shadow-bias={-0.0001}
+        shadow-normalBias={0.02}
+        color={isDayMode ? "#fff5e6" : "#6677aa"}
       />
-      {isDayMode && <Sky sunPosition={[100, 50, 100]} />}
+      
+      {/* Secondary fill light from opposite side */}
+      <directionalLight
+        position={isDayMode ? [-10, 10, -5] : [-5, 8, -3]}
+        intensity={isDayMode ? 0.3 : 0.05}
+        color={isDayMode ? "#e6f0ff" : "#334466"}
+      />
+      
+      {/* Hemisphere light for natural sky/ground color blending */}
+      <hemisphereLight
+        args={[
+          isDayMode ? "#87ceeb" : "#1a1a3a", // sky color
+          isDayMode ? "#3d5c2e" : "#1a2d18", // ground color
+          isDayMode ? 0.5 : 0.2
+        ]}
+      />
+      
+      {/* Point light for subtle warmth near ground level */}
+      {isDayMode && (
+        <pointLight
+          position={[0, 3, 0]}
+          intensity={0.3}
+          color="#ffeecc"
+          distance={20}
+          decay={2}
+        />
+      )}
+      
+      {/* Night mode moon light */}
+      {!isDayMode && (
+        <pointLight
+          position={[20, 30, 20]}
+          intensity={0.15}
+          color="#aabbff"
+          distance={100}
+        />
+      )}
+      
+      {isDayMode && <Sky sunPosition={[100, 50, 100]} turbidity={8} rayleigh={0.5} />}
       
       {/* Camera controller */}
       <FirstPersonController
