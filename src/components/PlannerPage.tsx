@@ -1,6 +1,6 @@
 // src/components/PlannerPage.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Garden, GardenBed, Planting, Seed, CropType, UUID } from "../lib/types";
+import type { Garden, GardenBed, Planting, Seed, CropType, UUID, Task } from "../lib/types";
 import { GardenPlotCanvas } from "./GardenPlotCanvas";
 import { createPlanting, updatePlanting, deletePlanting } from "../lib/api/plantings";
 import { updateBed } from "../lib/api/beds";
@@ -327,6 +327,7 @@ export function PlannerPage({
   beds: initialBeds,
   seeds: initialSeeds,
   plantings: initialPlantings,
+  tasks: initialTasks,
   cropTypes: initialCropTypes,
   onDataChange
 }: { 
@@ -334,12 +335,14 @@ export function PlannerPage({
   beds: GardenBed[];
   seeds: Seed[];
   plantings: Planting[];
+  tasks: Task[];
   cropTypes: CropType[];
   onDataChange: () => Promise<void>;
 }) {
   const [beds, setBeds] = useState<GardenBed[]>(initialBeds);
   const [seeds, setSeeds] = useState<Seed[]>(initialSeeds);
   const [plantings, setPlantings] = useState<Planting[]>(initialPlantings);
+  const [tasks] = useState<Task[]>(initialTasks);
   const [cropTypes, setCropTypes] = useState<CropType[]>(initialCropTypes);
 
   // ★ Uitgebreid met "harvest" voor Oogstagenda
@@ -475,6 +478,17 @@ export function PlannerPage({
   const plantingsForMap = useMemo(() => {
     const weekStart = new Date(currentWeek);
     const weekEnd = addDays(weekStart, 6);
+    
+    // Build a map of planting_id -> next pending task
+    const nextTaskByPlanting = new Map<string, Task>();
+    for (const task of tasks) {
+      if (task.status !== "pending") continue;
+      const existing = nextTaskByPlanting.get(task.planting_id);
+      if (!existing || new Date(task.due_date) < new Date(existing.due_date)) {
+        nextTaskByPlanting.set(task.planting_id, task);
+      }
+    }
+    
     return (plantings || [])
       .filter((p) => {
         // Show plantings active during selected week (ground date to harvest end)
@@ -487,6 +501,7 @@ export function PlannerPage({
       .map((p) => {
         const seed = seedsById[p.seed_id ?? ""];
         const iconUrl = getEffectiveIconUrl(seed, cropTypesById);
+        const nextTask = nextTaskByPlanting.get(p.id);
         return {
           id: p.id,
           bedId: p.garden_bed_id ?? "",
@@ -496,9 +511,11 @@ export function PlannerPage({
           iconUrl,
           label: seed?.name,
           cropType: seed?.crop_type_id ? cropTypesById.get(seed.crop_type_id)?.name : undefined,
+          nextActionType: nextTask?.type,
+          nextActionDate: nextTask?.due_date,
         };
       });
-  }, [plantings, seedsById, cropTypesById, currentWeek]);
+  }, [plantings, seedsById, cropTypesById, currentWeek, tasks]);
 
   /* ===== conflicts ===== */
   const conflictsMap = useMemo(() => buildConflictsMap(plantings || [], seeds || []), [plantings, seeds]);

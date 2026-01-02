@@ -1,6 +1,6 @@
-import React, { useRef, useEffect, useMemo, Suspense } from "react";
+import React, { useRef, useEffect, useMemo, Suspense, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Sky, KeyboardControls, useKeyboardControls, Text } from "@react-three/drei";
+import { Sky, KeyboardControls, useKeyboardControls, Html } from "@react-three/drei";
 import * as THREE from "three";
 import type { GardenBed } from "../lib/types";
 import { Button } from "./ui/button";
@@ -40,6 +40,8 @@ interface PlantingOverlay3D {
   iconUrl?: string | null;
   label?: string;
   cropType?: string;
+  nextActionType?: string;
+  nextActionDate?: string;
 }
 
 // Plant profile types for different crop categories
@@ -223,6 +225,129 @@ function Ground({ isDayMode }: { isDayMode: boolean }) {
   );
 }
 
+// Individual planting area with color, icons and hover tooltip
+function PlantingArea3D({
+  planting,
+  bed,
+  isDayMode,
+}: {
+  planting: PlantingOverlay3D;
+  bed: GardenBed;
+  isDayMode: boolean;
+}) {
+  const [hovered, setHovered] = useState(false);
+  
+  const width = bed.width_cm * CM_TO_M;
+  const length = bed.length_cm * CM_TO_M;
+  const height = 0.25;
+  const segments = bed.segments || 1;
+  const isHorizontal = bed.width_cm > bed.length_cm;
+  
+  const startSeg = planting.startSegment;
+  const usedSegs = Math.max(1, planting.segmentsUsed);
+  
+  // Calculate position within bed
+  const offsetX = isHorizontal 
+    ? -width / 2 + (startSeg + usedSegs / 2) * (width / segments)
+    : 0;
+  const offsetZ = isHorizontal 
+    ? 0
+    : -length / 2 + (startSeg + usedSegs / 2) * (length / segments);
+  
+  const cropWidth = isHorizontal ? usedSegs * (width / segments) - 0.02 : width - 0.06;
+  const cropLength = isHorizontal ? length - 0.06 : usedSegs * (length / segments) - 0.02;
+  
+  // Format next action for tooltip
+  const formatNextAction = () => {
+    if (!planting.nextActionType || !planting.nextActionDate) return null;
+    const typeLabels: Record<string, string> = {
+      sow: "Zaaien",
+      plant_out: "Uitplanten", 
+      harvest_start: "Oogst start",
+      harvest_end: "Oogst einde",
+    };
+    const label = typeLabels[planting.nextActionType] || planting.nextActionType;
+    const date = new Date(planting.nextActionDate);
+    const dateStr = date.toLocaleDateString("nl-NL", { day: "numeric", month: "short" });
+    return `${label}: ${dateStr}`;
+  };
+  
+  // Calculate icon positions (tiled like top view)
+  const iconCount = Math.min(6, usedSegs * 2);
+  const iconSize = 0.08; // Size of each icon in meters
+  
+  return (
+    <group position={[offsetX, height / 2 + 0.02, offsetZ]}>
+      {/* Colored ground - fully opaque */}
+      <mesh 
+        position={[0, 0.005, 0]} 
+        rotation={[-Math.PI / 2, 0, 0]} 
+        receiveShadow
+        onPointerEnter={() => setHovered(true)}
+        onPointerLeave={() => setHovered(false)}
+      >
+        <planeGeometry args={[cropWidth, cropLength]} />
+        <meshStandardMaterial color={planting.color} />
+      </mesh>
+      
+      {/* Icons displayed on the colored surface */}
+      {planting.iconUrl && (
+        <Html
+          position={[0, 0.02, 0]}
+          center
+          distanceFactor={1.5}
+          style={{ pointerEvents: 'none' }}
+        >
+          <div 
+            className="flex flex-wrap items-center justify-center gap-1"
+            style={{ 
+              width: `${cropWidth * 100}px`,
+              height: `${cropLength * 100}px`,
+            }}
+          >
+            {Array.from({ length: iconCount }).map((_, idx) => (
+              <img
+                key={idx}
+                src={planting.iconUrl!}
+                alt=""
+                className="w-6 h-6 object-contain drop-shadow-md"
+                style={{ 
+                  filter: isDayMode ? 'none' : 'brightness(0.8)',
+                }}
+                draggable={false}
+              />
+            ))}
+          </div>
+        </Html>
+      )}
+      
+      {/* Hover tooltip */}
+      {hovered && (
+        <Html
+          position={[0, 0.15, 0]}
+          center
+          distanceFactor={1}
+          style={{ pointerEvents: 'none' }}
+        >
+          <div 
+            className="px-3 py-2 rounded-lg shadow-lg text-sm whitespace-nowrap"
+            style={{
+              backgroundColor: isDayMode ? 'rgba(255,255,255,0.95)' : 'rgba(30,30,30,0.95)',
+              color: isDayMode ? '#1a1a1a' : '#f0f0f0',
+              border: `2px solid ${planting.color}`,
+            }}
+          >
+            <div className="font-semibold">{planting.label || 'Gewas'}</div>
+            {formatNextAction() && (
+              <div className="text-xs opacity-80 mt-0.5">{formatNextAction()}</div>
+            )}
+          </div>
+        </Html>
+      )}
+    </group>
+  );
+}
+
 // Garden bed as 3D box with optional plantings
 function Bed3D({ 
   bed, 
@@ -260,151 +385,15 @@ function Bed3D({
         <meshStandardMaterial color={soilColor} />
       </mesh>
       
-      {/* Plantings as 3D crops with type-specific rendering */}
-      {bedPlantings.map((planting) => {
-        const startSeg = planting.startSegment;
-        const usedSegs = Math.max(1, planting.segmentsUsed);
-        
-        // Calculate position within bed
-        const offsetX = isHorizontal 
-          ? -width / 2 + (startSeg + usedSegs / 2) * (width / segments)
-          : 0;
-        const offsetZ = isHorizontal 
-          ? 0
-          : -length / 2 + (startSeg + usedSegs / 2) * (length / segments);
-        
-        const cropWidth = isHorizontal ? usedSegs * (width / segments) - 0.02 : width - 0.06;
-        const cropLength = isHorizontal ? length - 0.06 : usedSegs * (length / segments) - 0.02;
-        
-        // Get plant profile based on crop type
-        const profile = getPlantProfile(planting.label, planting.cropType);
-        const chars = getPlantCharacteristics(profile);
-        
-        // Create plants with stable random positions (seeded by planting id)
-        const plantCount = Math.min(15, usedSegs * 4);
-        const plants = [];
-        
-        // Use planting id as seed for consistent random positions
-        const seedNum = planting.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
-        const seededRandom = (i: number) => {
-          const x = Math.sin(seedNum * 9999 + i * 7919) * 10000;
-          return x - Math.floor(x);
-        };
-        
-        for (let i = 0; i < plantCount; i++) {
-          const px = (seededRandom(i * 2) - 0.5) * cropWidth * 0.85;
-          const pz = (seededRandom(i * 2 + 1) - 0.5) * cropLength * 0.85;
-          const heightVar = seededRandom(i * 3);
-          const plantHeight = chars.minHeight + heightVar * (chars.maxHeight - chars.minHeight);
-          const scale = 0.8 + seededRandom(i * 4) * 0.4;
-          plants.push({ x: px, z: pz, height: plantHeight, scale });
-        }
-        
-        // Sign position - at the edge of the planting area
-        const signOffsetX = isHorizontal ? -cropWidth / 2 + 0.08 : 0;
-        const signOffsetZ = isHorizontal ? -cropLength / 2 + 0.08 : -cropLength / 2 + 0.08;
-        
-        return (
-          <group key={planting.id} position={[offsetX, height / 2 + 0.02, offsetZ]}>
-            {/* PROMINENT colored ground - fully opaque, covering the soil */}
-            <mesh position={[0, 0.005, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-              <planeGeometry args={[cropWidth, cropLength]} />
-              <meshStandardMaterial color={planting.color} />
-            </mesh>
-            
-            {/* Wooden garden sign/label - LARGER */}
-            <group position={[signOffsetX, 0, signOffsetZ]}>
-              {/* Wooden stake - taller and thicker */}
-              <mesh position={[0, 0.18, 0]} castShadow>
-                <boxGeometry args={[0.035, 0.36, 0.02]} />
-                <meshStandardMaterial color={isDayMode ? "#8B5A2B" : "#5c3d1e"} />
-              </mesh>
-              {/* Sign board - much larger */}
-              <mesh position={[0, 0.34, 0.02]} castShadow>
-                <boxGeometry args={[0.28, 0.14, 0.02]} />
-                <meshStandardMaterial color={isDayMode ? "#d4a574" : "#8b6b4a"} />
-              </mesh>
-              {/* Colored indicator strip at top of sign */}
-              <mesh position={[0, 0.38, 0.032]}>
-                <planeGeometry args={[0.24, 0.035]} />
-                <meshStandardMaterial color={planting.color} />
-              </mesh>
-              {/* Crop name text using Text component */}
-              <Text
-                position={[0, 0.32, 0.032]}
-                fontSize={0.032}
-                color={isDayMode ? "#3d2817" : "#e8d8c8"}
-                anchorX="center"
-                anchorY="middle"
-                maxWidth={0.24}
-                textAlign="center"
-              >
-                {planting.label || 'Gewas'}
-              </Text>
-            </group>
-            
-            {/* 3D plant representations based on profile */}
-            {plants.map((plant, idx) => {
-              const stemColor = isDayMode ? chars.color : `hsl(120, 40%, ${parseInt(chars.color.slice(1), 16) % 20 + 10}%)`;
-              const topColor = planting.color;
-              const topRadius = 0.04 * chars.topScale * plant.scale;
-              
-              return (
-                <group key={idx} position={[plant.x, 0, plant.z]}>
-                  {/* Stem */}
-                  <mesh position={[0, plant.height / 2, 0]} castShadow>
-                    <cylinderGeometry args={[chars.stemRadius * plant.scale, chars.stemRadius * 1.3 * plant.scale, plant.height, 6]} />
-                    <meshStandardMaterial color={stemColor} />
-                  </mesh>
-                  
-                  {/* Top shape based on profile */}
-                  {chars.topShape === "sphere" && (
-                    <mesh position={[0, plant.height + topRadius * 0.5, 0]} castShadow>
-                      <sphereGeometry args={[topRadius, 8, 8]} />
-                      <meshStandardMaterial color={topColor} />
-                    </mesh>
-                  )}
-                  
-                  {chars.topShape === "cone" && (
-                    <mesh position={[0, plant.height + topRadius, 0]} castShadow>
-                      <coneGeometry args={[topRadius * 0.8, topRadius * 3, 8]} />
-                      <meshStandardMaterial color={topColor} />
-                    </mesh>
-                  )}
-                  
-                  {chars.topShape === "cylinder" && (
-                    <mesh position={[0, plant.height + topRadius, 0]} castShadow>
-                      <cylinderGeometry args={[topRadius * 0.3, topRadius * 0.5, topRadius * 2, 6]} />
-                      <meshStandardMaterial color={isDayMode ? "#daa520" : "#8b6914"} />
-                    </mesh>
-                  )}
-                  
-                  {chars.topShape === "leaves" && (
-                    <>
-                      {/* Multiple small leaves for root vegetables */}
-                      {[0, 1, 2].map((li) => (
-                        <mesh 
-                          key={li} 
-                          position={[
-                            Math.cos(li * 2.1) * topRadius * 0.3, 
-                            plant.height + topRadius * 0.3, 
-                            Math.sin(li * 2.1) * topRadius * 0.3
-                          ]} 
-                          rotation={[0.3, li * 2.1, 0.2]}
-                          castShadow
-                        >
-                          <boxGeometry args={[topRadius * 0.15, topRadius * 1.2, topRadius * 0.05]} />
-                          <meshStandardMaterial color={topColor} />
-                        </mesh>
-                      ))}
-                    </>
-                  )}
-                </group>
-              );
-            })}
-          </group>
-        );
-      })}
+      {/* Plantings as colored areas with icons */}
+      {bedPlantings.map((planting) => (
+        <PlantingArea3D
+          key={planting.id}
+          planting={planting}
+          bed={bed}
+          isDayMode={isDayMode}
+        />
+      ))}
     </group>
   );
 }

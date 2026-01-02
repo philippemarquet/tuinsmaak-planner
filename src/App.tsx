@@ -161,7 +161,7 @@ export default function App() {
       case "inventory":
         return <InventoryPage garden={garden} seeds={seeds} cropTypes={cropTypes} onDataChange={reloadAll} />;
       case "planner":
-        return <PlannerPage garden={garden} beds={beds} seeds={seeds} plantings={plantings} cropTypes={cropTypes} onDataChange={reloadAll} />;
+        return <PlannerPage garden={garden} beds={beds} seeds={seeds} plantings={plantings} tasks={tasks} cropTypes={cropTypes} onDataChange={reloadAll} />;
       case "wishlist":
         return <WishlistPage garden={garden} wishlistItems={wishlistItems} onDataChange={reloadAll} />;
       case "audit":
