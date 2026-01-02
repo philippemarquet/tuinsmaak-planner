@@ -4,6 +4,7 @@ import type { Garden, GardenBed, Planting, Seed, CropType, UUID, Task } from "..
 import { GardenPlotCanvas } from "./GardenPlotCanvas";
 import { createPlanting, updatePlanting, deletePlanting } from "../lib/api/plantings";
 import { updateBed } from "../lib/api/beds";
+import { listPlotObjects, type PlotObject as APIPlotObject } from "../lib/api/plotObjects";
 import { DndContext, useDraggable, useDroppable, DragOverlay } from "@dnd-kit/core";
 import { supabase } from "../lib/supabaseClient";
 import { TimelineView } from "./TimelineView";
@@ -412,6 +413,16 @@ export function PlannerPage({
     setPlantings(initialPlantings);
     setCropTypes(initialCropTypes);
   }, [initialBeds, initialSeeds, initialPlantings, initialCropTypes]);
+
+  // Plot objects for map view (read-only, so just load once)
+  const [plotObjects, setPlotObjects] = useState<APIPlotObject[]>([]);
+  useEffect(() => {
+    if (view === "map" && garden?.id) {
+      listPlotObjects(garden.id)
+        .then(setPlotObjects)
+        .catch((e) => console.error("Failed to load plot objects:", e));
+    }
+  }, [view, garden?.id]);
 
   const reload = async () => {
     await onDataChange();
@@ -1526,6 +1537,16 @@ export function PlannerPage({
                     beds={beds}
                     readOnly={true}
                     plantings={plantingsForMap}
+                    plotObjects={plotObjects.map((o) => ({
+                      id: o.id,
+                      type: o.type as any,
+                      x: o.x,
+                      y: o.y,
+                      w: o.w,
+                      h: o.h,
+                      label: o.label ?? undefined,
+                      zIndex: o.z_index,
+                    }))}
                     onBedMove={async (id, x, y) => {
                       try {
                         await updateBed(id, { location_x: Math.round(x), location_y: Math.round(y) });
