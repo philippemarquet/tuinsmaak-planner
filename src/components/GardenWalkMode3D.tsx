@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useMemo, Suspense } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Sky, KeyboardControls, useKeyboardControls } from "@react-three/drei";
+import { Sky, KeyboardControls, useKeyboardControls, Text } from "@react-three/drei";
 import * as THREE from "three";
 import type { GardenBed } from "../lib/types";
 import { Button } from "./ui/button";
@@ -312,28 +312,36 @@ function Bed3D({
               <meshStandardMaterial color={planting.color} />
             </mesh>
             
-            {/* Wooden garden sign/label */}
+            {/* Wooden garden sign/label - LARGER */}
             <group position={[signOffsetX, 0, signOffsetZ]}>
-              {/* Wooden stake */}
-              <mesh position={[0, 0.12, 0]} castShadow>
-                <boxGeometry args={[0.02, 0.24, 0.01]} />
+              {/* Wooden stake - taller and thicker */}
+              <mesh position={[0, 0.18, 0]} castShadow>
+                <boxGeometry args={[0.035, 0.36, 0.02]} />
                 <meshStandardMaterial color={isDayMode ? "#8B5A2B" : "#5c3d1e"} />
               </mesh>
-              {/* Sign board */}
-              <mesh position={[0, 0.22, 0.015]} castShadow>
-                <boxGeometry args={[0.12, 0.08, 0.015]} />
+              {/* Sign board - much larger */}
+              <mesh position={[0, 0.34, 0.02]} castShadow>
+                <boxGeometry args={[0.28, 0.14, 0.02]} />
                 <meshStandardMaterial color={isDayMode ? "#d4a574" : "#8b6b4a"} />
               </mesh>
-              {/* Colored indicator on sign */}
-              <mesh position={[0, 0.22, 0.024]}>
-                <planeGeometry args={[0.09, 0.05]} />
+              {/* Colored indicator strip at top of sign */}
+              <mesh position={[0, 0.38, 0.032]}>
+                <planeGeometry args={[0.24, 0.035]} />
                 <meshStandardMaterial color={planting.color} />
               </mesh>
-              {/* Small icon representation (colored dot) */}
-              <mesh position={[0, 0.22, 0.025]}>
-                <circleGeometry args={[0.018, 16]} />
-                <meshStandardMaterial color={isDayMode ? "#ffffff" : "#dddddd"} />
-              </mesh>
+              {/* Crop name text using Text component */}
+              <Text
+                position={[0, 0.32, 0.032]}
+                fontSize={0.035}
+                color={isDayMode ? "#3d2817" : "#e8d8c8"}
+                anchorX="center"
+                anchorY="middle"
+                maxWidth={0.24}
+                textAlign="center"
+                font="/fonts/Inter-Bold.woff"
+              >
+                {planting.label || 'Gewas'}
+              </Text>
             </group>
             
             {/* 3D plant representations based on profile */}
