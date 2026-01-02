@@ -238,6 +238,49 @@ function Tree3D({
   );
 }
 
+// Shrub object (low bushes)
+function Shrub3D({
+  x,
+  z,
+  w,
+  h,
+  isDayMode,
+}: {
+  x: number;
+  z: number;
+  w: number;
+  h: number;
+  isDayMode: boolean;
+}) {
+  const posX = x * CM_TO_M;
+  const posZ = z * CM_TO_M;
+  const width = w * CM_TO_M;
+  const length = h * CM_TO_M;
+  const leafColor = isDayMode ? "#2d5a27" : "#1a3518";
+  const leafColor2 = isDayMode ? "#3d7a37" : "#264a22";
+
+  // Create multiple small bushes to fill the area
+  const bushes = [];
+  const bushCount = Math.max(2, Math.floor((width * length) / 0.5));
+  for (let i = 0; i < bushCount; i++) {
+    const bx = (Math.random() - 0.5) * width * 0.8;
+    const bz = (Math.random() - 0.5) * length * 0.8;
+    const size = 0.3 + Math.random() * 0.3;
+    bushes.push({ x: bx, z: bz, size, color: Math.random() > 0.5 ? leafColor : leafColor2 });
+  }
+
+  return (
+    <group position={[posX, 0, posZ]}>
+      {bushes.map((bush, i) => (
+        <mesh key={i} position={[bush.x, bush.size * 0.5, bush.z]} castShadow>
+          <sphereGeometry args={[bush.size, 8, 8]} />
+          <meshStandardMaterial color={bush.color} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
 // Pond object
 function Pond3D({
   x,
@@ -254,7 +297,6 @@ function Pond3D({
 }) {
   const width = w * CM_TO_M;
   const length = h * CM_TO_M;
-  // x,z are already center coordinates
   const posX = x * CM_TO_M;
   const posZ = z * CM_TO_M;
 
@@ -266,6 +308,87 @@ function Pond3D({
         transparent
         opacity={0.8}
       />
+    </mesh>
+  );
+}
+
+// Path object (stone/brick path)
+function Path3D({
+  x,
+  z,
+  w,
+  h,
+  isDayMode,
+}: {
+  x: number;
+  z: number;
+  w: number;
+  h: number;
+  isDayMode: boolean;
+}) {
+  const width = w * CM_TO_M;
+  const length = h * CM_TO_M;
+  const posX = x * CM_TO_M;
+  const posZ = z * CM_TO_M;
+
+  return (
+    <mesh position={[posX, 0.02, posZ]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+      <planeGeometry args={[width, length]} />
+      <meshStandardMaterial color={isDayMode ? "#8b7355" : "#5c4d3a"} />
+    </mesh>
+  );
+}
+
+// Gravel object
+function Gravel3D({
+  x,
+  z,
+  w,
+  h,
+  isDayMode,
+}: {
+  x: number;
+  z: number;
+  w: number;
+  h: number;
+  isDayMode: boolean;
+}) {
+  const width = w * CM_TO_M;
+  const length = h * CM_TO_M;
+  const posX = x * CM_TO_M;
+  const posZ = z * CM_TO_M;
+
+  return (
+    <mesh position={[posX, 0.01, posZ]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+      <planeGeometry args={[width, length]} />
+      <meshStandardMaterial color={isDayMode ? "#a0988a" : "#6b645a"} roughness={1} />
+    </mesh>
+  );
+}
+
+// Grass patch object
+function Grass3D({
+  x,
+  z,
+  w,
+  h,
+  isDayMode,
+}: {
+  x: number;
+  z: number;
+  w: number;
+  h: number;
+  isDayMode: boolean;
+}) {
+  const width = w * CM_TO_M;
+  const length = h * CM_TO_M;
+  const posX = x * CM_TO_M;
+  const posZ = z * CM_TO_M;
+
+  return (
+    <mesh position={[posX, 0.015, posZ]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+      <planeGeometry args={[width, length]} />
+      <meshStandardMaterial color={isDayMode ? "#5a8c4a" : "#3a5c32"} />
     </mesh>
   );
 }
@@ -330,17 +453,51 @@ function SceneContent({
             );
           case "shrub":
             return (
-              <Tree3D
+              <Shrub3D
                 key={obj.id}
-                x={obj.x + obj.w / 2}
-                z={obj.y + obj.h / 2}
+                x={obj.x}
+                z={obj.y}
+                w={obj.w}
+                h={obj.h}
                 isDayMode={isDayMode}
-                variant="pine"
               />
             );
           case "pond":
             return (
               <Pond3D
+                key={obj.id}
+                x={obj.x}
+                z={obj.y}
+                w={obj.w}
+                h={obj.h}
+                isDayMode={isDayMode}
+              />
+            );
+          case "path":
+            return (
+              <Path3D
+                key={obj.id}
+                x={obj.x}
+                z={obj.y}
+                w={obj.w}
+                h={obj.h}
+                isDayMode={isDayMode}
+              />
+            );
+          case "gravel":
+            return (
+              <Gravel3D
+                key={obj.id}
+                x={obj.x}
+                z={obj.y}
+                w={obj.w}
+                h={obj.h}
+                isDayMode={isDayMode}
+              />
+            );
+          case "grass":
+            return (
+              <Grass3D
                 key={obj.id}
                 x={obj.x}
                 z={obj.y}
