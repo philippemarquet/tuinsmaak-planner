@@ -18,6 +18,11 @@ import {
   Rows3,
   Flower2,
   Ruler,
+  Footprints,
+  ArrowUp,
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -91,6 +96,12 @@ export function GardenPlotCanvas({
   const [tilt, setTilt] = useState(0); // degrees - start in top view
   const [isDayMode, setIsDayMode] = useState(true);
   const [gridSnap, setGridSnap] = useState(true); // grid snap on by default
+
+  // Walk mode state
+  const [walkMode, setWalkMode] = useState(false);
+  const [walkPos, setWalkPos] = useState({ x: 0, y: 0 }); // position in cm
+  const [walkDir, setWalkDir] = useState(0); // direction in degrees (0 = looking "up"/north)
+  const keysPressed = useRef<Set<string>>(new Set());
 
   // Objects
   const [objects, setObjects] = useState<PlotObject[]>(() => {
@@ -515,12 +526,106 @@ export function GardenPlotCanvas({
   const setTopView = useCallback(() => {
     hasInteractedRef.current = true;
     setTilt(0);
+    setWalkMode(false);
   }, []);
 
   const setIsoView = useCallback(() => {
     hasInteractedRef.current = true;
     setTilt(55);
+    setWalkMode(false);
   }, []);
+
+  // Walk mode helpers
+  const enterWalkMode = useCallback(() => {
+    hasInteractedRef.current = true;
+    // Set initial walk position to center of all items
+    const cx = allItemsForBounds.length
+      ? allItemsForBounds.reduce((sum, it) => sum + it.x, 0) / allItemsForBounds.length
+      : 0;
+    const cy = allItemsForBounds.length
+      ? allItemsForBounds.reduce((sum, it) => sum + it.y, 0) / allItemsForBounds.length
+      : 0;
+    // Start a bit south so we look towards the garden
+    setWalkPos({ x: cx, y: cy + 300 });
+    setWalkDir(0); // facing north
+    setWalkMode(true);
+  }, [allItemsForBounds]);
+
+  const exitWalkMode = useCallback(() => {
+    setWalkMode(false);
+    fitToView({ force: true });
+  }, [fitToView]);
+
+  // Walk mode keyboard controls
+  useEffect(() => {
+    if (!walkMode) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      if (["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright", "q", "e"].includes(key)) {
+        e.preventDefault();
+        keysPressed.current.add(key);
+      }
+      if (key === "escape") {
+        exitWalkMode();
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      keysPressed.current.delete(e.key.toLowerCase());
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      keysPressed.current.clear();
+    };
+  }, [walkMode, exitWalkMode]);
+
+  // Walk mode movement loop
+  useEffect(() => {
+    if (!walkMode) return;
+
+    const WALK_SPEED = 8; // cm per frame
+    const TURN_SPEED = 2; // degrees per frame
+
+    let animFrame: number;
+    const loop = () => {
+      const keys = keysPressed.current;
+      let dx = 0, dy = 0, dr = 0;
+
+      // Forward/backward relative to direction
+      if (keys.has("w") || keys.has("arrowup")) dy = -WALK_SPEED;
+      if (keys.has("s") || keys.has("arrowdown")) dy = WALK_SPEED;
+      // Strafe left/right
+      if (keys.has("a")) dx = -WALK_SPEED;
+      if (keys.has("d")) dx = WALK_SPEED;
+      // Turn
+      if (keys.has("arrowleft") || keys.has("q")) dr = -TURN_SPEED;
+      if (keys.has("arrowright") || keys.has("e")) dr = TURN_SPEED;
+
+      if (dx !== 0 || dy !== 0 || dr !== 0) {
+        setWalkDir((d) => d + dr);
+        setWalkPos((pos) => {
+          const rad = (walkDir * Math.PI) / 180;
+          const cos = Math.cos(rad);
+          const sin = Math.sin(rad);
+          // Forward is -y in our coordinate system
+          const moveX = dx * cos - dy * sin;
+          const moveY = dx * sin + dy * cos;
+          return { x: pos.x + moveX, y: pos.y + moveY };
+        });
+      }
+
+      animFrame = requestAnimationFrame(loop);
+    };
+
+    animFrame = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(animFrame);
+  }, [walkMode, walkDir]);
 
   // Sorted render list
   const renderList = useMemo(() => {
@@ -570,8 +675,23 @@ export function GardenPlotCanvas({
   const showGrid = gridSnap || tilt < 20;
   const gridSizePx = cmToPx(GRID_SIZE_CM);
 
+  // Walk mode transform calculations
+  const walkTransform = useMemo(() => {
+    if (!walkMode) return null;
+    // Eye height ~170cm, looking forward with slight downward angle
+    const eyeHeightPx = cmToPx(170);
+    const walkXPx = cmToPx(walkPos.x);
+    const walkYPx = cmToPx(walkPos.y);
+    return {
+      eyeHeightPx,
+      walkXPx,
+      walkYPx,
+      lookDir: walkDir,
+    };
+  }, [walkMode, walkPos, walkDir]);
+
   return (
-    <div className="relative w-full h-[700px] rounded-xl overflow-hidden shadow-2xl border border-border/50">
+    <div className="relative w-full h-[700px] rounded-xl overflow-hidden shadow-2xl border border-border/50" tabIndex={0}>
       {/* Sky */}
       <div className="absolute inset-0 transition-all duration-700" style={{ background: scene.sky }} />
 
@@ -600,12 +720,15 @@ export function GardenPlotCanvas({
       <div
         ref={containerRef}
         className={cn("absolute inset-0 overflow-hidden", dragRef.current?.kind === "pan" && "cursor-grabbing")}
-        style={{ perspective: "1200px", perspectiveOrigin: "50% 40%" }}
-        onPointerDown={handlePointerDownCanvas}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
-        onWheel={handleWheel}
+        style={{
+          perspective: walkMode ? "600px" : "1200px",
+          perspectiveOrigin: walkMode ? "50% 70%" : "50% 40%",
+        }}
+        onPointerDown={walkMode ? undefined : handlePointerDownCanvas}
+        onPointerMove={walkMode ? undefined : handlePointerMove}
+        onPointerUp={walkMode ? undefined : handlePointerUp}
+        onPointerLeave={walkMode ? undefined : handlePointerUp}
+        onWheel={walkMode ? undefined : handleWheel}
         onContextMenu={handleContextMenu}
       >
         {/* World */}
@@ -615,8 +738,10 @@ export function GardenPlotCanvas({
             width: 0,
             height: 0,
             transformStyle: "preserve-3d",
-            transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) rotateX(${tilt}deg) rotateZ(${rotZ}deg) scale(${zoom})`,
-            transition: dragRef.current ? "none" : "transform 200ms cubic-bezier(0.2, 0.9, 0.2, 1)",
+            transform: walkMode && walkTransform
+              ? `translate(-50%, -50%) rotateX(75deg) rotateZ(${-walkTransform.lookDir}deg) translate(${-walkTransform.walkXPx}px, ${-walkTransform.walkYPx}px) translateZ(${-walkTransform.eyeHeightPx}px)`
+              : `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) rotateX(${tilt}deg) rotateZ(${rotZ}deg) scale(${zoom})`,
+            transition: walkMode || dragRef.current ? "none" : "transform 200ms cubic-bezier(0.2, 0.9, 0.2, 1)",
           }}
         >
           {/* Ground */}
@@ -1383,86 +1508,122 @@ export function GardenPlotCanvas({
         </div>
       </div>
 
-      {/* Top controls */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-3 z-20">
-        <div className="flex items-center gap-1 bg-background/90 backdrop-blur-md px-4 py-2 rounded-full shadow-xl border border-border/50">
-          <Button variant="ghost" size="sm" onClick={() => setZoom((z) => clamp(z * 1.25, 0.25, 3))} className="h-9 w-9 p-0 rounded-full">
-            <ZoomIn className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setZoom((z) => clamp(z * 0.8, 0.25, 3))} className="h-9 w-9 p-0 rounded-full">
-            <ZoomOut className="h-4 w-4" />
-          </Button>
-          <div className="w-px h-6 bg-border mx-1" />
-          <Button variant="ghost" size="sm" onClick={() => fitToView({ force: true })} className="h-9 w-9 p-0 rounded-full" title="Fit">
-            <Maximize className="h-4 w-4" />
-          </Button>
-          <div className="w-px h-6 bg-border mx-1" />
-          <Button variant={isDayMode ? "default" : "ghost"} size="sm" onClick={() => setIsDayMode(true)} className="h-9 w-9 p-0 rounded-full" title="Dag">
-            <Sun className="h-4 w-4" />
-          </Button>
-          <Button variant={!isDayMode ? "default" : "ghost"} size="sm" onClick={() => setIsDayMode(false)} className="h-9 w-9 p-0 rounded-full" title="Nacht">
-            <Moon className="h-4 w-4" />
-          </Button>
-        </div>
-
-        <div className="flex items-center gap-3 bg-background/90 backdrop-blur-md px-4 py-2 rounded-full shadow-xl border border-border/50">
-          <span className="text-xs font-medium text-muted-foreground">Hoek</span>
-          <Slider value={[tilt]} onValueChange={([v]) => setTilt(v)} min={0} max={80} step={1} className="w-28" />
-          <span className="text-xs text-muted-foreground w-9 tabular-nums">{Math.round(tilt)}°</span>
-          <div className="w-px h-6 bg-border" />
-          <Button variant="ghost" size="sm" onClick={setTopView} className="h-8 px-3 rounded-full text-xs">
-            Top
-          </Button>
-          <Button variant="ghost" size="sm" onClick={setIsoView} className="h-8 px-3 rounded-full text-xs">
-            3D
-          </Button>
-          <div className="w-px h-6 bg-border" />
-          <Button
-            variant={gridSnap ? "default" : "ghost"}
-            size="sm"
-            onClick={() => setGridSnap(!gridSnap)}
-            className="h-8 px-3 rounded-full text-xs gap-1"
-            title="Grid snap (50cm)"
-          >
-            <Grid3x3 className="h-3 w-3" />
-            Grid
-          </Button>
-        </div>
-      </div>
-
-      {/* Bottom dock */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-end gap-3 z-20">
-        <div className="flex items-center gap-2 bg-background/90 backdrop-blur-md px-4 py-3 rounded-2xl shadow-xl border border-border/50">
-          <span className="text-xs font-semibold text-muted-foreground mr-2 uppercase tracking-wider">Toevoegen</span>
-          <ObjectButton icon={Warehouse} label="Kas" onClick={() => spawnObject("greenhouse")} />
-          <ObjectButton icon={TreePine} label="Boom" onClick={() => spawnObject("tree")} />
-          <ObjectButton icon={Flower2} label="Struik" onClick={() => spawnObject("shrub")} />
-          <ObjectButton icon={TreeDeciduous} label="Gras" onClick={() => spawnObject("grass")} />
-          <ObjectButton icon={Rows3} label="Pad" onClick={() => spawnObject("path")} />
-          <ObjectButton icon={Ruler} label="Grind" onClick={() => spawnObject("gravel")} />
-        </div>
-
-        {selectedId && (
-          <div className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-3 rounded-2xl shadow-xl animate-in slide-in-from-bottom-3">
-            <span className="text-xs font-semibold uppercase tracking-wider opacity-70 mr-2">
-              {selectedBed ? "Bak" : "Object"}
-            </span>
-            {selectedBed && onBedEdit && (
-              <Button variant="ghost" size="sm" onClick={() => onBedEdit(selectedBed)} className="h-9 w-9 p-0 rounded-lg hover:bg-primary-foreground/20" title="Bewerken">
-                <Edit3 className="h-4 w-4" />
-              </Button>
-            )}
-            <Button variant="ghost" size="sm" onClick={duplicateSelected} className="h-9 w-9 p-0 rounded-lg hover:bg-primary-foreground/20" title="Dupliceren">
-              <Copy className="h-4 w-4" />
+      {/* Top controls - hidden in walk mode */}
+      {!walkMode && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-3 z-20">
+          <div className="flex items-center gap-1 bg-background/90 backdrop-blur-md px-4 py-2 rounded-full shadow-xl border border-border/50">
+            <Button variant="ghost" size="sm" onClick={() => setZoom((z) => clamp(z * 1.25, 0.25, 3))} className="h-9 w-9 p-0 rounded-full">
+              <ZoomIn className="h-4 w-4" />
             </Button>
-            {!selectedBed && (
-              <Button variant="ghost" size="sm" onClick={deleteSelected} className="h-9 w-9 p-0 rounded-lg hover:bg-destructive" title="Verwijderen">
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            )}
+            <Button variant="ghost" size="sm" onClick={() => setZoom((z) => clamp(z * 0.8, 0.25, 3))} className="h-9 w-9 p-0 rounded-full">
+              <ZoomOut className="h-4 w-4" />
+            </Button>
+            <div className="w-px h-6 bg-border mx-1" />
+            <Button variant="ghost" size="sm" onClick={() => fitToView({ force: true })} className="h-9 w-9 p-0 rounded-full" title="Fit">
+              <Maximize className="h-4 w-4" />
+            </Button>
+            <div className="w-px h-6 bg-border mx-1" />
+            <Button variant={isDayMode ? "default" : "ghost"} size="sm" onClick={() => setIsDayMode(true)} className="h-9 w-9 p-0 rounded-full" title="Dag">
+              <Sun className="h-4 w-4" />
+            </Button>
+            <Button variant={!isDayMode ? "default" : "ghost"} size="sm" onClick={() => setIsDayMode(false)} className="h-9 w-9 p-0 rounded-full" title="Nacht">
+              <Moon className="h-4 w-4" />
+            </Button>
           </div>
-        )}
-      </div>
+
+          <div className="flex items-center gap-3 bg-background/90 backdrop-blur-md px-4 py-2 rounded-full shadow-xl border border-border/50">
+            <span className="text-xs font-medium text-muted-foreground">Hoek</span>
+            <Slider value={[tilt]} onValueChange={([v]) => setTilt(v)} min={0} max={80} step={1} className="w-28" />
+            <span className="text-xs text-muted-foreground w-9 tabular-nums">{Math.round(tilt)}°</span>
+            <div className="w-px h-6 bg-border" />
+            <Button variant="ghost" size="sm" onClick={setTopView} className="h-8 px-3 rounded-full text-xs">
+              Top
+            </Button>
+            <Button variant="ghost" size="sm" onClick={setIsoView} className="h-8 px-3 rounded-full text-xs">
+              3D
+            </Button>
+            <div className="w-px h-6 bg-border" />
+            <Button
+              variant={gridSnap ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setGridSnap(!gridSnap)}
+              className="h-8 px-3 rounded-full text-xs gap-1"
+              title="Grid snap (50cm)"
+            >
+              <Grid3x3 className="h-3 w-3" />
+              Grid
+            </Button>
+            <div className="w-px h-6 bg-border" />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={enterWalkMode}
+              className="h-8 px-3 rounded-full text-xs gap-1"
+              title="Wandel door je tuin"
+            >
+              <Footprints className="h-3 w-3" />
+              Wandel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Walk mode controls */}
+      {walkMode && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20">
+          <div className="flex items-center gap-3 bg-background/90 backdrop-blur-md px-6 py-3 rounded-full shadow-xl border border-border/50">
+            <Footprints className="h-5 w-5 text-primary" />
+            <span className="text-sm font-semibold">Wandelmodus</span>
+            <div className="w-px h-6 bg-border mx-2" />
+            <Button variant={isDayMode ? "default" : "ghost"} size="sm" onClick={() => setIsDayMode(true)} className="h-8 w-8 p-0 rounded-full" title="Dag">
+              <Sun className="h-4 w-4" />
+            </Button>
+            <Button variant={!isDayMode ? "default" : "ghost"} size="sm" onClick={() => setIsDayMode(false)} className="h-8 w-8 p-0 rounded-full" title="Nacht">
+              <Moon className="h-4 w-4" />
+            </Button>
+            <div className="w-px h-6 bg-border mx-2" />
+            <Button variant="default" size="sm" onClick={exitWalkMode} className="h-8 px-4 rounded-full text-xs">
+              Verlaat wandelmodus
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Bottom dock - hidden in walk mode */}
+      {!walkMode && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-end gap-3 z-20">
+          <div className="flex items-center gap-2 bg-background/90 backdrop-blur-md px-4 py-3 rounded-2xl shadow-xl border border-border/50">
+            <span className="text-xs font-semibold text-muted-foreground mr-2 uppercase tracking-wider">Toevoegen</span>
+            <ObjectButton icon={Warehouse} label="Kas" onClick={() => spawnObject("greenhouse")} />
+            <ObjectButton icon={TreePine} label="Boom" onClick={() => spawnObject("tree")} />
+            <ObjectButton icon={Flower2} label="Struik" onClick={() => spawnObject("shrub")} />
+            <ObjectButton icon={TreeDeciduous} label="Gras" onClick={() => spawnObject("grass")} />
+            <ObjectButton icon={Rows3} label="Pad" onClick={() => spawnObject("path")} />
+            <ObjectButton icon={Ruler} label="Grind" onClick={() => spawnObject("gravel")} />
+          </div>
+
+          {selectedId && (
+            <div className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-3 rounded-2xl shadow-xl animate-in slide-in-from-bottom-3">
+              <span className="text-xs font-semibold uppercase tracking-wider opacity-70 mr-2">
+                {selectedBed ? "Bak" : "Object"}
+              </span>
+              {selectedBed && onBedEdit && (
+                <Button variant="ghost" size="sm" onClick={() => onBedEdit(selectedBed)} className="h-9 w-9 p-0 rounded-lg hover:bg-primary-foreground/20" title="Bewerken">
+                  <Edit3 className="h-4 w-4" />
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={duplicateSelected} className="h-9 w-9 p-0 rounded-lg hover:bg-primary-foreground/20" title="Dupliceren">
+                <Copy className="h-4 w-4" />
+              </Button>
+              {!selectedBed && (
+                <Button variant="ghost" size="sm" onClick={deleteSelected} className="h-9 w-9 p-0 rounded-lg hover:bg-destructive" title="Verwijderen">
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Object inspector */}
       {selectedObject && (
@@ -1495,15 +1656,45 @@ export function GardenPlotCanvas({
         </div>
       )}
 
-      {/* Instructions */}
+      {/* Instructions - different in walk mode */}
       <div className="absolute bottom-4 right-4 text-xs text-primary-foreground bg-foreground/40 backdrop-blur-sm px-3 py-2 rounded-lg z-10">
-        <div className="flex flex-col gap-0.5">
-          <span>Sleep item = verplaatsen</span>
-          <span>Sleep lege ruimte = pannen</span>
-          <span>Rechtermuisknop + sleep = draaien</span>
-          <span>Ctrl/⌘ + scroll = zoomen</span>
-          {gridSnap && <span className="text-scene-highlight font-medium">Grid snap actief (50cm)</span>}
-        </div>
+        {walkMode ? (
+          <div className="flex flex-col gap-0.5">
+            <span className="font-semibold mb-1">Besturing:</span>
+            <div className="flex items-center gap-1">
+              <span className="bg-primary-foreground/20 px-1.5 py-0.5 rounded text-[10px] font-mono">W</span>
+              <span className="bg-primary-foreground/20 px-1.5 py-0.5 rounded text-[10px] font-mono">↑</span>
+              <span>Vooruit</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="bg-primary-foreground/20 px-1.5 py-0.5 rounded text-[10px] font-mono">S</span>
+              <span className="bg-primary-foreground/20 px-1.5 py-0.5 rounded text-[10px] font-mono">↓</span>
+              <span>Achteruit</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="bg-primary-foreground/20 px-1.5 py-0.5 rounded text-[10px] font-mono">A</span>
+              <span className="bg-primary-foreground/20 px-1.5 py-0.5 rounded text-[10px] font-mono">D</span>
+              <span>Zijwaarts</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="bg-primary-foreground/20 px-1.5 py-0.5 rounded text-[10px] font-mono">←</span>
+              <span className="bg-primary-foreground/20 px-1.5 py-0.5 rounded text-[10px] font-mono">→</span>
+              <span>Draaien</span>
+            </div>
+            <div className="flex items-center gap-1 mt-1">
+              <span className="bg-primary-foreground/20 px-1.5 py-0.5 rounded text-[10px] font-mono">Esc</span>
+              <span>Verlaat</span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-0.5">
+            <span>Sleep item = verplaatsen</span>
+            <span>Sleep lege ruimte = pannen</span>
+            <span>Rechtermuisknop + sleep = draaien</span>
+            <span>Ctrl/⌘ + scroll = zoomen</span>
+            {gridSnap && <span className="text-scene-highlight font-medium">Grid snap actief (50cm)</span>}
+          </div>
+        )}
       </div>
 
       {/* Counter */}
