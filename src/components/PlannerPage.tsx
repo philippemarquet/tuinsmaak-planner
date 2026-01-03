@@ -954,7 +954,7 @@ export function PlannerPage({
                                       >
                                         {/* icon overlay */}
                                         {iconUrl && (
-                                          <IconTilingOverlay iconUrl={iconUrl} segmentsUsed={1} densityPerSegment={10} opacity={0.85} />
+                                          <IconTilingOverlay iconUrl={iconUrl} segmentsUsed={1} densityPerSegment={2} maxIcons={4} minIcons={1} opacity={0.85} />
                                         )}
 
                                         {/* label/content boven overlay */}
