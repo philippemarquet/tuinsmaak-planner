@@ -1745,7 +1745,21 @@ function PlantingForm({
   }, [beds, seed.greenhouse_compatible, allPlantings, segmentsUsed, plantDate, he, existing?.id]);
 
   const startSegmentOptions = useMemo(() => {
-    return findAllStartSegments(allPlantings, selectedBed, segmentsUsed, plantDate, he, existing?.id);
+    const opts = findAllStartSegments(allPlantings, selectedBed, segmentsUsed, plantDate, he, existing?.id);
+    console.log('[DEBUG] startSegmentOptions:', { 
+      bed: selectedBed.name, 
+      segments: selectedBed.segments, 
+      segmentsUsed, 
+      plantDate: plantDate.toISOString().slice(0,10), 
+      heDate: he.toISOString().slice(0,10), 
+      availableOptions: opts,
+      plantingsInBed: allPlantings.filter(p => p.garden_bed_id === selectedBed.id).map(p => ({
+        start: p.start_segment,
+        used: p.segments_used,
+        dates: `${p.planned_date} → ${p.planned_harvest_end}`
+      }))
+    });
+    return opts;
   }, [allPlantings, selectedBed, segmentsUsed, plantDate, he, existing?.id]);
 
   useEffect(() => {
