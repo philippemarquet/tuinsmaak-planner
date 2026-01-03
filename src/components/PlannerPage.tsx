@@ -311,96 +311,6 @@ function DroppableSegment({ id, occupied, children }: { id: string; occupied: bo
   );
 }
 
-function DraggablePlanting({ 
-  planting, 
-  seed, 
-  bed,
-  segmentIndex,
-  hasConflict,
-  onEdit,
-  onDelete,
-  onViewConflicts,
-  isDragging = false
-}: { 
-  planting: Planting; 
-  seed: Seed | undefined; 
-  bed: GardenBed;
-  segmentIndex: number;
-  hasConflict: boolean;
-  onEdit: () => void;
-  onDelete: () => void;
-  onViewConflicts: () => void;
-  isDragging?: boolean;
-}) {
-  const { attributes, listeners, setNodeRef, transform } = useDraggable({ 
-    id: `planting-${planting.id}`,
-    data: { planting, seed, bed }
-  });
-  
-  const color = planting.color?.startsWith("#") ? planting.color : "#22c55e";
-  const textColor = getContrastTextColor(color);
-  
-  const style = transform ? {
-    transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
-    zIndex: 100,
-  } : undefined;
-  
-  return (
-    <div
-      ref={setNodeRef}
-      style={{ ...style, background: color, color: textColor }}
-      className={`relative rounded px-1.5 py-0.5 text-[10px] flex items-center justify-between overflow-hidden transition-opacity ${
-        isDragging ? "opacity-50 shadow-lg" : ""
-      }`}
-      title={`${seed?.name ?? "—"} • Sleep om te verplaatsen`}
-    >
-      {/* Drag handle area */}
-      <div 
-        {...listeners} 
-        {...attributes}
-        className="relative z-20 flex items-center gap-0.5 min-w-0 cursor-grab active:cursor-grabbing flex-1"
-      >
-        <span className="truncate">{seed?.name ?? "—"}</span>
-        {hasConflict && (
-          <button
-            className="text-[9px] underline decoration-white/70 underline-offset-1 opacity-90"
-            onClick={(e) => {
-              e.stopPropagation();
-              onViewConflicts();
-            }}
-            title="Bekijk in Conflicten"
-          >
-            ⚠️
-          </button>
-        )}
-      </div>
-
-      <div className="absolute top-0.5 right-0.5 flex items-center gap-0.5 ml-0.5 z-20">
-        <button
-          className="p-0.5 hover:bg-white/20 rounded"
-          title="Bewerken"
-          onClick={(e) => {
-            e.stopPropagation();
-            onEdit();
-          }}
-        >
-          <Edit3 className="w-2.5 h-2.5" />
-        </button>
-        <button
-          className="p-0.5 hover:bg-white/20 rounded"
-          title="Verwijderen"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
-          }}
-        >
-          <Trash2 className="w-2.5 h-2.5" />
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function MapDroppable({ id }: { id: string }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
@@ -495,10 +405,6 @@ export function PlannerPage({
   const activeSeed = useMemo(
     () => (activeDragId?.startsWith("seed-") ? seeds.find((s) => s.id === activeDragId.replace("seed-", "")) ?? null : null),
     [activeDragId, seeds]
-  );
-  const activePlanting = useMemo(
-    () => (activeDragId?.startsWith("planting-") ? plantings.find((p) => p.id === activeDragId.replace("planting-", "")) ?? null : null),
-    [activeDragId, plantings]
   );
 
   // Sync met centrale data
@@ -701,73 +607,20 @@ export function PlannerPage({
   };
 
   /* ===== DND ===== */
-  async function handleDragEnd(ev: any) {
+  function handleDragEnd(ev: any) {
     const over = ev.over;
     const active = String(ev.active?.id ?? "");
     setActiveDragId(null);
-    
-    if (!over) return;
-    
-    // Handle seed drag (new planting)
-    if (active.startsWith("seed-")) {
-      const seedId = active.replace("seed-", "");
-      const seed = seeds.find((s) => s.id === seedId);
-      if (!seed) return;
-      const [prefix, bedId, , segStr] = String(over.id).split("__");
-      // Support both "bed" and "timeline" prefixes
-      if (!prefix.startsWith("bed") && !prefix.startsWith("timeline")) return;
-      const bed = beds.find((b) => b.id === bedId);
-      if (!bed) return;
-      setPopup({ mode: "create", seed, bed, segmentIndex: parseInt(segStr, 10) });
-      return;
-    }
-    
-    // Handle planting drag (move existing planting)
-    if (active.startsWith("planting-")) {
-      const plantingId = active.replace("planting-", "");
-      const planting = plantings.find((p) => p.id === plantingId);
-      if (!planting) return;
-      
-      const [prefix, bedId, , segStr] = String(over.id).split("__");
-      if (!prefix.startsWith("bed") && !prefix.startsWith("timeline")) return;
-      
-      const targetBed = beds.find((b) => b.id === bedId);
-      if (!targetBed) return;
-      
-      const newSegment = parseInt(segStr, 10);
-      const segUsed = planting.segments_used ?? 1;
-      
-      // Check if fits in target bed
-      if (newSegment + segUsed > (targetBed.segments ?? 1)) {
-        notify("Past niet in deze bak (te weinig segmenten).", "err");
-        return;
-      }
-      
-      // Check for overlaps
-      const plantStart = parseISO(planting.planned_date);
-      const plantEnd = parseISO(planting.planned_harvest_end);
-      if (!plantStart || !plantEnd) {
-        notify("Ongeldige datums.", "err");
-        return;
-      }
-      
-      if (wouldOverlapWith(plantings, targetBed.id, newSegment, segUsed, plantStart, plantEnd, planting.id)) {
-        notify("Deze plek overlapt met een andere planting.", "err");
-        return;
-      }
-      
-      // Update the planting
-      try {
-        await updatePlanting(planting.id, {
-          garden_bed_id: targetBed.id,
-          start_segment: newSegment,
-        });
-        await reload();
-        notify("Planting verplaatst.", "ok");
-      } catch (e: any) {
-        notify(e?.message || "Fout bij verplaatsen.", "err");
-      }
-    }
+    if (!over || !active.startsWith("seed-")) return;
+    const seedId = active.replace("seed-", "");
+    const seed = seeds.find((s) => s.id === seedId);
+    if (!seed) return;
+    const [prefix, bedId, , segStr] = String(over.id).split("__");
+    // Support both "bed" and "timeline" prefixes
+    if (!prefix.startsWith("bed") && !prefix.startsWith("timeline")) return;
+    const bed = beds.find((b) => b.id === bedId);
+    if (!bed) return;
+    setPopup({ mode: "create", seed, bed, segmentIndex: parseInt(segStr, 10) });
   }
 
   async function handleConfirmPlanting(opts: {
@@ -1069,37 +922,64 @@ export function PlannerPage({
                                 <div className="flex flex-col gap-0.5 w-full px-0.5">
                                   {here.map((p) => {
                                     const seed = seedsById[p.seed_id];
+                                    const color = p.color?.startsWith("#") ? p.color : "#22c55e";
                                     const hasConflict = (conflictsMap.get(p.id)?.length ?? 0) > 0;
-                                    // Only show on first segment of the planting
-                                    const isFirstSegment = i === (p.start_segment ?? 0);
-                                    if (!isFirstSegment) return null;
+                                    const iconUrl = getEffectiveIconUrl(seed, cropTypesById);
+                                    const textColor = getContrastTextColor(color);
 
                                     return (
-                                      <DraggablePlanting
-                                        key={p.id}
-                                        planting={p}
-                                        seed={seed}
-                                        bed={bed}
-                                        segmentIndex={p.start_segment ?? 0}
-                                        hasConflict={hasConflict}
-                                        isDragging={activeDragId === `planting-${p.id}`}
-                                        onEdit={() =>
-                                          setPopup({
-                                            mode: "edit",
-                                            planting: p,
-                                            seed: seed!,
-                                            bed,
-                                            segmentIndex: p.start_segment ?? 0,
-                                          })
-                                        }
-                                        onDelete={() => {
-                                          if (confirm("Verwijderen?")) deletePlanting(p.id).then(reload);
-                                        }}
-                                        onViewConflicts={() => {
-                                          setView("conflicts");
-                                          localStorage.setItem("plannerOpenTab", "conflicts");
-                                        }}
-                                      />
+                                      <div
+                                        key={`${p.id}-${i}`}
+                                        className="relative rounded px-1.5 py-0.5 text-[10px] flex items-center justify-between overflow-hidden"
+                                        style={{ background: color, color: textColor }}
+                                        title={`${seed?.name ?? "—"} • ${fmtDMY(p.planned_date)} → ${fmtDMY(p.planned_harvest_end)}`}
+                                      >
+
+                                        {/* label/content boven overlay */}
+                                        <div className="relative z-20 flex items-center gap-0.5 min-w-0">
+                                          <span className="truncate">{seed?.name ?? "—"}</span>
+                                          {hasConflict && (
+                                            <button
+                                              className="text-[9px] underline decoration-white/70 underline-offset-1 opacity-90"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setView("conflicts");
+                                                localStorage.setItem("plannerOpenTab", "conflicts");
+                                              }}
+                                              title="Bekijk in Conflicten"
+                                            >
+                                              ⚠️
+                                            </button>
+                                          )}
+                                        </div>
+
+                                        <div className="absolute top-0.5 right-0.5 flex items-center gap-0.5 ml-0.5 z-20">
+                                          <button
+                                            className="p-0.5 hover:bg-white/20 rounded"
+                                            title="Bewerken"
+                                            onClick={() =>
+                                              setPopup({
+                                                mode: "edit",
+                                                planting: p,
+                                                seed: seed!,
+                                                bed,
+                                                segmentIndex: p.start_segment ?? 0,
+                                              })
+                                            }
+                                          >
+                                            <Edit3 className="w-2.5 h-2.5" />
+                                          </button>
+                                          <button
+                                            className="p-0.5 hover:bg-white/20 rounded"
+                                            title="Verwijderen"
+                                            onClick={() => {
+                                              if (confirm("Verwijderen?")) deletePlanting(p.id).then(reload);
+                                            }}
+                                          >
+                                            <Trash2 className="w-2.5 h-2.5" />
+                                          </button>
+                                        </div>
+                                      </div>
                                     );
                                   })}
 
@@ -1657,17 +1537,6 @@ export function PlannerPage({
                 style={{ background: activeSeed.default_color?.startsWith("#") ? activeSeed.default_color : "#22c55e" }}
               />
               <span className="font-medium">{activeSeed.name}</span>
-            </div>
-          ) : activePlanting ? (
-            <div 
-              className="px-3 py-2 rounded-lg border-2 border-primary text-sm flex items-center gap-3 pointer-events-none shadow-xl"
-              style={{ 
-                background: activePlanting.color?.startsWith("#") ? activePlanting.color : "#22c55e",
-                color: getContrastTextColor(activePlanting.color?.startsWith("#") ? activePlanting.color : "#22c55e")
-              }}
-            >
-              <span className="font-medium">{seedsById[activePlanting.seed_id]?.name ?? "—"}</span>
-              <span className="text-xs opacity-75">→ sleep naar nieuw segment</span>
             </div>
           ) : null}
         </DragOverlay>
