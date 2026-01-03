@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useMemo, Suspense } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Sky, KeyboardControls, useKeyboardControls, Html } from "@react-three/drei";
+import { Sky, KeyboardControls, useKeyboardControls, useTexture } from "@react-three/drei";
 import * as THREE from "three";
 import type { GardenBed } from "../lib/types";
 import { Button } from "./ui/button";
@@ -225,7 +225,59 @@ function Ground({ isDayMode }: { isDayMode: boolean }) {
   );
 }
 
-// Individual planting area with color, icons and billboard text that faces camera
+// Flat icon tiles (1 per segment) rendered as textured planes (same sizing as top-down view)
+function PlantingIcons3D({
+  iconUrl,
+  usedSegs,
+  isHorizontal,
+  segWidth,
+  segLength,
+}: {
+  iconUrl: string;
+  usedSegs: number;
+  isHorizontal: boolean;
+  segWidth: number;
+  segLength: number;
+}) {
+  const texture = useTexture(iconUrl);
+
+  useEffect(() => {
+    // Ensure icons render with correct colors
+    try {
+      (texture as any).colorSpace = (THREE as any).SRGBColorSpace ?? (texture as any).colorSpace;
+      texture.needsUpdate = true;
+    } catch {}
+  }, [texture]);
+
+  const iconSize = Math.min(segWidth, segLength) * 0.6;
+
+  return (
+    <group position={[0, 0.012, 0]}>
+      {Array.from({ length: usedSegs }).map((_, idx) => {
+        const x = isHorizontal ? -((usedSegs * segWidth) / 2) + (idx + 0.5) * segWidth : 0;
+        const z = isHorizontal ? 0 : -((usedSegs * segLength) / 2) + (idx + 0.5) * segLength;
+
+        return (
+          <mesh key={idx} position={[x, 0, z]} rotation={[-Math.PI / 2, 0, 0]} renderOrder={20}>
+            <planeGeometry args={[iconSize, iconSize]} />
+            <meshBasicMaterial
+              map={texture}
+              transparent
+              toneMapped={false}
+              depthWrite={false}
+              side={THREE.DoubleSide}
+              polygonOffset
+              polygonOffsetFactor={-2}
+              polygonOffsetUnits={-2}
+            />
+          </mesh>
+        );
+      })}
+    </group>
+  );
+}
+
+// Individual planting area with color + flat segment icons
 function PlantingArea3D({
   planting,
   bed,
@@ -235,83 +287,43 @@ function PlantingArea3D({
   bed: GardenBed;
   isDayMode: boolean;
 }) {
-  
   const width = bed.width_cm * CM_TO_M;
   const length = bed.length_cm * CM_TO_M;
   const height = 0.25;
   const segments = bed.segments || 1;
   const isHorizontal = bed.width_cm > bed.length_cm;
-  
+
   const startSeg = planting.startSegment;
   const usedSegs = Math.max(1, planting.segmentsUsed);
-  
+
   // Calculate position within bed
-  const offsetX = isHorizontal 
-    ? -width / 2 + (startSeg + usedSegs / 2) * (width / segments)
-    : 0;
-  const offsetZ = isHorizontal 
-    ? 0
-    : -length / 2 + (startSeg + usedSegs / 2) * (length / segments);
-  
+  const offsetX = isHorizontal ? -width / 2 + (startSeg + usedSegs / 2) * (width / segments) : 0;
+  const offsetZ = isHorizontal ? 0 : -length / 2 + (startSeg + usedSegs / 2) * (length / segments);
+
   const cropWidth = isHorizontal ? usedSegs * (width / segments) - 0.02 : width - 0.06;
   const cropLength = isHorizontal ? length - 0.06 : usedSegs * (length / segments) - 0.02;
-  
-  // Calculate icon size for segment grid (similar to map view)
-  const segWidth = isHorizontal ? (width / segments) : width;
-  const segLength = isHorizontal ? length : (length / segments);
-  // Icon size scaled for HTML rendering (meters * 100 to get base px, then 60% of smallest dimension)
-  const iconSize = Math.min(segWidth, segLength) * 100 * 0.6;
-  
+
+  const segWidth = isHorizontal ? width / segments : width;
+  const segLength = isHorizontal ? length : length / segments;
+
   return (
     <group position={[offsetX, height / 2 + 0.02, offsetZ]}>
       {/* Colored ground - fully opaque */}
-      <mesh 
-        position={[0, 0.005, 0]} 
-        rotation={[-Math.PI / 2, 0, 0]} 
-        receiveShadow
-      >
+      <mesh position={[0, 0.005, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[cropWidth, cropLength]} />
         <meshStandardMaterial color={planting.color} />
       </mesh>
-      
-      {/* Flat icons on the bed surface - same as map view */}
-      {planting.iconUrl && (
-        <Html
-          position={[0, 0.02, 0]}
-          rotation={[-Math.PI / 2, 0, 0]}
-          transform
-          occlude={false}
-          style={{ pointerEvents: 'none' }}
-        >
-          <div 
-            style={{ 
-              display: 'grid',
-              gridTemplateColumns: isHorizontal ? `repeat(${usedSegs}, 1fr)` : '1fr',
-              gridTemplateRows: isHorizontal ? '1fr' : `repeat(${usedSegs}, 1fr)`,
-              width: `${cropWidth * 100}px`,
-              height: `${cropLength * 100}px`,
-              transform: 'scale(0.01)',
-              transformOrigin: 'center center',
-            }}
-          >
-            {Array.from({ length: usedSegs }).map((_, idx) => (
-              <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <img
-                  src={planting.iconUrl!}
-                  alt=""
-                  style={{ 
-                    width: `${iconSize}px`,
-                    height: `${iconSize}px`,
-                    objectFit: 'contain',
-                    filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))',
-                  }}
-                  draggable={false}
-                />
-              </div>
-            ))}
-          </div>
-        </Html>
-      )}
+
+      {/* Flat segment icons (1 per segment) */}
+      {planting.iconUrl ? (
+        <PlantingIcons3D
+          iconUrl={planting.iconUrl}
+          usedSegs={usedSegs}
+          isHorizontal={isHorizontal}
+          segWidth={segWidth}
+          segLength={segLength}
+        />
+      ) : null}
     </group>
   );
 }
