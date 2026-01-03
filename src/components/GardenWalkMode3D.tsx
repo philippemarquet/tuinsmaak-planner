@@ -235,8 +235,6 @@ function PlantingArea3D({
   bed: GardenBed;
   isDayMode: boolean;
 }) {
-  const { camera } = useThree();
-  const groupRef = useRef<THREE.Group>(null);
   
   const width = bed.width_cm * CM_TO_M;
   const length = bed.length_cm * CM_TO_M;
@@ -262,22 +260,6 @@ function PlantingArea3D({
   const longSide = Math.max(cropWidth, cropLength);
   const shortSide = Math.min(cropWidth, cropLength);
   
-  // Rotate billboard to face camera (only Y axis rotation)
-  useFrame(() => {
-    if (groupRef.current) {
-      // Get camera position relative to the planting
-      const cameraPos = camera.position.clone();
-      const plantingWorldPos = new THREE.Vector3();
-      groupRef.current.getWorldPosition(plantingWorldPos);
-      
-      // Calculate angle to camera (only Y rotation for billboard effect)
-      const dx = cameraPos.x - plantingWorldPos.x;
-      const dz = cameraPos.z - plantingWorldPos.z;
-      const angle = Math.atan2(dx, dz);
-      
-      groupRef.current.rotation.y = angle;
-    }
-  });
   
   // Calculate font size to fit within the planting area
   // Base size scales with the long side, max 64px equivalent
@@ -296,57 +278,56 @@ function PlantingArea3D({
         <meshStandardMaterial color={planting.color} />
       </mesh>
       
-      {/* Billboard group that rotates to face camera */}
-      <group ref={groupRef} position={[0, 0.15, 0]}>
-        <Html
-          center
-          distanceFactor={0.5}
-          style={{ pointerEvents: 'none' }}
+      {/* Flat icon and text on the bed surface */}
+      <Html
+        position={[0, 0.02, 0]}
+        rotation={[-Math.PI / 2, 0, 0]}
+        transform
+        occlude={false}
+        style={{ pointerEvents: 'none' }}
+      >
+        <div 
+          style={{ 
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '4px',
+            transform: 'scale(0.02)', // Scale down for 3D world units
+            transformOrigin: 'center center',
+          }}
         >
-          <div 
+          {/* Icon */}
+          {planting.iconUrl && (
+            <img
+              src={planting.iconUrl}
+              alt=""
+              style={{ 
+                width: `${iconSize * 2}px`,
+                height: `${iconSize * 2}px`,
+                objectFit: 'contain',
+                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))',
+              }}
+              draggable={false}
+            />
+          )}
+          {/* Crop name - flat on surface */}
+          <span 
             style={{ 
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              maxWidth: `${longSide * 100}px`,
+              fontSize: `${baseFontSize * 1.5}px`,
+              fontWeight: 700,
+              color: isDayMode ? '#1a1a1a' : '#f5f5f5',
+              textShadow: isDayMode 
+                ? '0 1px 4px rgba(255,255,255,0.9)' 
+                : '0 1px 4px rgba(0,0,0,0.9)',
+              textAlign: 'center',
+              whiteSpace: 'nowrap',
             }}
           >
-            {/* Icon ABOVE text */}
-            {planting.iconUrl && (
-              <img
-                src={planting.iconUrl}
-                alt=""
-                style={{ 
-                  width: `${iconSize}px`,
-                  height: `${iconSize}px`,
-                  objectFit: 'contain',
-                  filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))',
-                }}
-                draggable={false}
-              />
-            )}
-            {/* Crop name - wraps and scales to fit */}
-            <span 
-              style={{ 
-                fontSize: `${baseFontSize}px`,
-                fontWeight: 700,
-                color: isDayMode ? '#1a1a1a' : '#f5f5f5',
-                textShadow: isDayMode 
-                  ? '0 2px 8px rgba(255,255,255,0.9), 0 0 20px rgba(255,255,255,0.8)' 
-                  : '0 2px 8px rgba(0,0,0,0.9), 0 0 20px rgba(0,0,0,0.8)',
-                textAlign: 'center',
-                lineHeight: 1.1,
-                wordBreak: 'break-word',
-                maxWidth: `${longSide * 100}px`,
-              }}
-            >
-              {planting.label || 'Gewas'}
-            </span>
-          </div>
-        </Html>
-      </group>
+            {planting.label || 'Gewas'}
+          </span>
+        </div>
+      </Html>
     </group>
   );
 }
