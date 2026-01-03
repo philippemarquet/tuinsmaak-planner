@@ -235,8 +235,6 @@ function PlantingArea3D({
   bed: GardenBed;
   isDayMode: boolean;
 }) {
-  const [hovered, setHovered] = useState(false);
-  
   const width = bed.width_cm * CM_TO_M;
   const length = bed.length_cm * CM_TO_M;
   const height = 0.25;
@@ -257,43 +255,6 @@ function PlantingArea3D({
   const cropWidth = isHorizontal ? usedSegs * (width / segments) - 0.02 : width - 0.06;
   const cropLength = isHorizontal ? length - 0.06 : usedSegs * (length / segments) - 0.02;
   
-  // Format next action for tooltip
-  const formatNextAction = () => {
-    if (!planting.nextActionType || !planting.nextActionDate) return null;
-    const typeLabels: Record<string, string> = {
-      sow: "Zaaien",
-      plant_out: "Uitplanten", 
-      harvest_start: "Oogst start",
-      harvest_end: "Oogst einde",
-    };
-    const label = typeLabels[planting.nextActionType] || planting.nextActionType;
-    const date = new Date(planting.nextActionDate);
-    const dateStr = date.toLocaleDateString("nl-NL", { day: "numeric", month: "short" });
-    return `${label}: ${dateStr}`;
-  };
-  
-  // Calculate grid of icon positions - fewer, larger icons (3-4 per segment)
-  const iconSpacing = 0.35; // Much larger spacing between icons
-  const cols = Math.max(1, Math.min(2, Math.floor(cropWidth / iconSpacing)));
-  const rows = Math.max(1, Math.min(2, Math.floor(cropLength / iconSpacing)));
-  
-  // Limit total icons to max 4 per segment
-  const maxIcons = Math.min(4, usedSegs * 4);
-  
-  // Generate grid positions centered on the crop area
-  const iconPositions: { x: number; z: number }[] = [];
-  const startX = -(cols - 1) * iconSpacing / 2;
-  const startZ = -(rows - 1) * iconSpacing / 2;
-  
-  for (let row = 0; row < rows && iconPositions.length < maxIcons; row++) {
-    for (let col = 0; col < cols && iconPositions.length < maxIcons; col++) {
-      iconPositions.push({
-        x: startX + col * iconSpacing,
-        z: startZ + row * iconSpacing,
-      });
-    }
-  }
-  
   return (
     <group position={[offsetX, height / 2 + 0.02, offsetZ]}>
       {/* Colored ground - fully opaque */}
@@ -301,76 +262,59 @@ function PlantingArea3D({
         position={[0, 0.005, 0]} 
         rotation={[-Math.PI / 2, 0, 0]} 
         receiveShadow
-        onPointerEnter={() => setHovered(true)}
-        onPointerLeave={() => setHovered(false)}
       >
         <planeGeometry args={[cropWidth, cropLength]} />
         <meshStandardMaterial color={planting.color} />
       </mesh>
       
-      {/* Icons laid flat on the colored surface in a grid pattern */}
-      {planting.iconUrl && iconPositions.map((pos, idx) => (
-        <Html
-          key={idx}
-          position={[pos.x, 0.01, pos.z]}
-          center
-          transform
-          rotation={[-Math.PI / 2, 0, 0]}
-          distanceFactor={0.8}
-          style={{ pointerEvents: 'none' }}
+      {/* Crop name as flat text on the colored surface */}
+      <Html
+        position={[0, 0.02, 0]}
+        center
+        transform
+        rotation={[-Math.PI / 2, 0, 0]}
+        distanceFactor={0.6}
+        style={{ pointerEvents: 'none' }}
+      >
+        <div 
+          style={{ 
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '16px',
+            whiteSpace: 'nowrap',
+          }}
         >
-          <img
-            src={planting.iconUrl!}
-            alt=""
+          {/* Icon next to text */}
+          {planting.iconUrl && (
+            <img
+              src={planting.iconUrl}
+              alt=""
+              style={{ 
+                width: '64px',
+                height: '64px',
+                objectFit: 'contain',
+                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))',
+              }}
+              draggable={false}
+            />
+          )}
+          {/* Crop name */}
+          <span 
             style={{ 
-              width: '96px',
-              height: '96px',
-              objectFit: 'contain',
-              filter: isDayMode ? 'drop-shadow(0 4px 8px rgba(0,0,0,0.4))' : 'brightness(0.8) drop-shadow(0 4px 8px rgba(0,0,0,0.6))',
-            }}
-            draggable={false}
-          />
-        </Html>
-      ))}
-      
-      {/* Hover tooltip - extremely large for easy reading */}
-      {hovered && (
-        <Html
-          position={[0, 1.5, 0]}
-          center
-          distanceFactor={0.08}
-          style={{ pointerEvents: 'none' }}
-        >
-          <div 
-            className="px-20 py-12 rounded-3xl shadow-2xl whitespace-nowrap"
-            style={{
-              backgroundColor: isDayMode ? 'rgba(255,255,255,0.98)' : 'rgba(20,20,20,0.98)',
+              fontSize: '48px',
+              fontWeight: 700,
               color: isDayMode ? '#1a1a1a' : '#f5f5f5',
-              border: `12px solid ${planting.color}`,
-              minWidth: '600px',
-              textAlign: 'center',
+              textShadow: isDayMode 
+                ? '0 2px 8px rgba(255,255,255,0.9), 0 0 20px rgba(255,255,255,0.8)' 
+                : '0 2px 8px rgba(0,0,0,0.9), 0 0 20px rgba(0,0,0,0.8)',
+              letterSpacing: '-1px',
             }}
           >
-            <div 
-              className="font-bold"
-              style={{ fontSize: '96px', marginBottom: '20px' }}
-            >
-              {planting.label || 'Gewas'}
-            </div>
-            {formatNextAction() && (
-              <div 
-                style={{ 
-                  fontSize: '64px', 
-                  opacity: 0.85,
-                  fontWeight: 500,
-                }}
-              >
-                {formatNextAction()}
-              </div>
-            )}
-          </div>
-        </Html>
-      )}
+            {planting.label || 'Gewas'}
+          </span>
+        </div>
+      </Html>
     </group>
   );
 }
