@@ -333,34 +333,34 @@ function PlantingArea3D({
         </Html>
       ))}
       
-      {/* Hover tooltip - much larger and more readable */}
+      {/* Hover tooltip - extremely large for easy reading */}
       {hovered && (
         <Html
-          position={[0, 0.5, 0]}
+          position={[0, 1.5, 0]}
           center
-          distanceFactor={0.3}
+          distanceFactor={0.08}
           style={{ pointerEvents: 'none' }}
         >
           <div 
-            className="px-10 py-6 rounded-2xl shadow-2xl whitespace-nowrap"
+            className="px-20 py-12 rounded-3xl shadow-2xl whitespace-nowrap"
             style={{
               backgroundColor: isDayMode ? 'rgba(255,255,255,0.98)' : 'rgba(20,20,20,0.98)',
               color: isDayMode ? '#1a1a1a' : '#f5f5f5',
-              border: `6px solid ${planting.color}`,
-              minWidth: '280px',
+              border: `12px solid ${planting.color}`,
+              minWidth: '600px',
               textAlign: 'center',
             }}
           >
             <div 
               className="font-bold"
-              style={{ fontSize: '42px', marginBottom: '10px' }}
+              style={{ fontSize: '96px', marginBottom: '20px' }}
             >
               {planting.label || 'Gewas'}
             </div>
             {formatNextAction() && (
               <div 
                 style={{ 
-                  fontSize: '28px', 
+                  fontSize: '64px', 
                   opacity: 0.85,
                   fontWeight: 500,
                 }}
@@ -466,90 +466,6 @@ function Greenhouse3D({
   );
 }
 
-// Tree object
-function Tree3D({
-  x,
-  z,
-  isDayMode,
-  variant = "deciduous",
-}: {
-  x: number;
-  z: number;
-  isDayMode: boolean;
-  variant?: "deciduous" | "pine";
-}) {
-  const posX = x * CM_TO_M;
-  const posZ = z * CM_TO_M;
-  const trunkColor = isDayMode ? "#5c4033" : "#3d2a22";
-  const leafColor = variant === "pine"
-    ? (isDayMode ? "#1a472a" : "#0f2d1a")
-    : (isDayMode ? "#228b22" : "#145214");
-
-  return (
-    <group position={[posX, 0, posZ]}>
-      {/* Trunk */}
-      <mesh position={[0, 0.75, 0]} castShadow>
-        <cylinderGeometry args={[0.1, 0.15, 1.5, 8]} />
-        <meshStandardMaterial color={trunkColor} />
-      </mesh>
-      {/* Crown */}
-      {variant === "pine" ? (
-        <mesh position={[0, 2.5, 0]} castShadow>
-          <coneGeometry args={[1, 3, 8]} />
-          <meshStandardMaterial color={leafColor} />
-        </mesh>
-      ) : (
-        <mesh position={[0, 2.5, 0]} castShadow>
-          <sphereGeometry args={[1.2, 16, 16]} />
-          <meshStandardMaterial color={leafColor} />
-        </mesh>
-      )}
-    </group>
-  );
-}
-
-// Shrub object (low bushes)
-function Shrub3D({
-  x,
-  z,
-  w,
-  h,
-  isDayMode,
-}: {
-  x: number;
-  z: number;
-  w: number;
-  h: number;
-  isDayMode: boolean;
-}) {
-  const posX = x * CM_TO_M;
-  const posZ = z * CM_TO_M;
-  const width = w * CM_TO_M;
-  const length = h * CM_TO_M;
-  const leafColor = isDayMode ? "#2d5a27" : "#1a3518";
-  const leafColor2 = isDayMode ? "#3d7a37" : "#264a22";
-
-  // Create multiple small bushes to fill the area
-  const bushes = [];
-  const bushCount = Math.max(2, Math.floor((width * length) / 0.5));
-  for (let i = 0; i < bushCount; i++) {
-    const bx = (Math.random() - 0.5) * width * 0.8;
-    const bz = (Math.random() - 0.5) * length * 0.8;
-    const size = 0.3 + Math.random() * 0.3;
-    bushes.push({ x: bx, z: bz, size, color: Math.random() > 0.5 ? leafColor : leafColor2 });
-  }
-
-  return (
-    <group position={[posX, 0, posZ]}>
-      {bushes.map((bush, i) => (
-        <mesh key={i} position={[bush.x, bush.size * 0.5, bush.z]} castShadow>
-          <sphereGeometry args={[bush.size, 8, 8]} />
-          <meshStandardMaterial color={bush.color} />
-        </mesh>
-      ))}
-    </group>
-  );
-}
 
 // Woodchips object (bark mulch)
 function Woodchips3D({
@@ -578,32 +494,6 @@ function Woodchips3D({
   );
 }
 
-// Tiles object (stone tiles)
-function Tiles3D({
-  x,
-  z,
-  w,
-  h,
-  isDayMode,
-}: {
-  x: number;
-  z: number;
-  w: number;
-  h: number;
-  isDayMode: boolean;
-}) {
-  const width = w * CM_TO_M;
-  const length = h * CM_TO_M;
-  const posX = x * CM_TO_M;
-  const posZ = z * CM_TO_M;
-
-  return (
-    <mesh position={[posX, 0.025, posZ]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-      <planeGeometry args={[width, length]} />
-      <meshStandardMaterial color={isDayMode ? "#8a8a8a" : "#5a5a5a"} roughness={0.8} />
-    </mesh>
-  );
-}
 
 // Path object (stone/brick path)
 function Path3D({
@@ -659,32 +549,6 @@ function Gravel3D({
   );
 }
 
-// Grass patch object
-function Grass3D({
-  x,
-  z,
-  w,
-  h,
-  isDayMode,
-}: {
-  x: number;
-  z: number;
-  w: number;
-  h: number;
-  isDayMode: boolean;
-}) {
-  const width = w * CM_TO_M;
-  const length = h * CM_TO_M;
-  const posX = x * CM_TO_M;
-  const posZ = z * CM_TO_M;
-
-  return (
-    <mesh position={[posX, 0.015, posZ]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-      <planeGeometry args={[width, length]} />
-      <meshStandardMaterial color={isDayMode ? "#5a8c4a" : "#3a5c32"} />
-    </mesh>
-  );
-}
 
 // Scene content
 function SceneContent({
@@ -785,41 +649,9 @@ function SceneContent({
                 isDayMode={isDayMode}
               />
             );
-          case "tree":
-            return (
-              <Tree3D
-                key={obj.id}
-                x={obj.x + obj.w / 2}
-                z={obj.y + obj.h / 2}
-                isDayMode={isDayMode}
-                variant="deciduous"
-              />
-            );
-          case "shrub":
-            return (
-              <Shrub3D
-                key={obj.id}
-                x={obj.x}
-                z={obj.y}
-                w={obj.w}
-                h={obj.h}
-                isDayMode={isDayMode}
-              />
-            );
           case "woodchips":
             return (
               <Woodchips3D
-                key={obj.id}
-                x={obj.x}
-                z={obj.y}
-                w={obj.w}
-                h={obj.h}
-                isDayMode={isDayMode}
-              />
-            );
-          case "tiles":
-            return (
-              <Tiles3D
                 key={obj.id}
                 x={obj.x}
                 z={obj.y}
@@ -842,17 +674,6 @@ function SceneContent({
           case "gravel":
             return (
               <Gravel3D
-                key={obj.id}
-                x={obj.x}
-                z={obj.y}
-                w={obj.w}
-                h={obj.h}
-                isDayMode={isDayMode}
-              />
-            );
-          case "grass":
-            return (
-              <Grass3D
                 key={obj.id}
                 x={obj.x}
                 z={obj.y}

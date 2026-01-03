@@ -10,13 +10,10 @@ import {
   RotateCcw,
   Sun,
   Trash2,
-  TreeDeciduous,
-  TreePine,
   Warehouse,
   ZoomIn,
   ZoomOut,
   Rows3,
-  Flower2,
   Ruler,
   Footprints,
   ArrowUp,
@@ -33,7 +30,7 @@ import { toast } from "sonner";
 const GardenWalkMode3D = lazy(() => import("./GardenWalkMode3D").then(m => ({ default: m.GardenWalkMode3D })));
 
 // --- Types ---
-export type PlotObjectType = "greenhouse" | "grass" | "shrub" | "gravel" | "tree" | "path" | "woodchips" | "tiles";
+export type PlotObjectType = "greenhouse" | "gravel" | "path" | "woodchips";
 
 export type PlotObject = {
   id: string;
@@ -548,13 +545,9 @@ export function GardenPlotCanvas({
 
       const sizes: Record<PlotObjectType, { w: number; h: number }> = {
         greenhouse: { w: 400, h: 300 },
-        grass: { w: 200, h: 200 },
-        shrub: { w: 80, h: 80 },
         gravel: { w: 150, h: 100 },
-        tree: { w: 100, h: 100 },
         path: { w: 300, h: 60 },
         woodchips: { w: 150, h: 100 },
-        tiles: { w: 200, h: 150 },
       };
 
       const center = beds.length
@@ -1388,259 +1381,8 @@ export function GardenPlotCanvas({
                   </>
                 )}
 
-                {/* Grass patch - Lush realistic grass with varied blades */}
-                {obj.type === "grass" && (
-                  <div
-                    className={cn("absolute inset-0 transition-all overflow-hidden", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
-                    style={{
-                      transform: "translateZ(2px)",
-                      background: `radial-gradient(ellipse at 40% 40%, hsl(104, 50%, 42%) 0%, hsl(104, 45%, 35%) 40%, hsl(104, 40%, 28%) 100%)`,
-                      borderRadius: 6,
-                      boxShadow: `inset 0 0 20px hsl(104, 35%, 20% / 0.3)`,
-                    }}
-                  >
-                    {/* Base grass texture */}
-                    <div
-                      className="absolute inset-0"
-                      style={{
-                        backgroundImage: `
-                          linear-gradient(172deg, transparent 46%, hsl(104, 50%, 38%) 48%, hsl(104, 50%, 38%) 50%, transparent 52%),
-                          linear-gradient(168deg, transparent 46%, hsl(104, 45%, 32%) 48%, hsl(104, 45%, 32%) 50%, transparent 52%),
-                          linear-gradient(176deg, transparent 46%, hsl(104, 55%, 42%) 48%, hsl(104, 55%, 42%) 50%, transparent 52%),
-                          linear-gradient(170deg, transparent 46%, hsl(104, 48%, 35%) 48%, hsl(104, 48%, 35%) 50%, transparent 52%)
-                        `,
-                        backgroundSize: "6px 14px, 8px 16px, 5px 12px, 7px 15px",
-                        backgroundPosition: "0 0, 3px 2px, 1px 4px, 4px 1px",
-                      }}
-                    />
-                    {/* Lighter grass highlights */}
-                    <div
-                      className="absolute inset-0 opacity-60"
-                      style={{
-                        backgroundImage: `
-                          linear-gradient(174deg, transparent 47%, hsl(104, 58%, 48%) 49%, hsl(104, 58%, 48%) 51%, transparent 53%),
-                          linear-gradient(166deg, transparent 47%, hsl(104, 52%, 45%) 49%, hsl(104, 52%, 45%) 51%, transparent 53%),
-                          linear-gradient(178deg, transparent 47%, hsl(104, 60%, 52%) 49%, hsl(104, 60%, 52%) 51%, transparent 53%)
-                        `,
-                        backgroundSize: "9px 18px, 11px 20px, 7px 16px",
-                        backgroundPosition: "2px 0, 5px 3px, 0 5px",
-                      }}
-                    />
-                    {/* Dark grass shadows */}
-                    <div
-                      className="absolute inset-0 opacity-40"
-                      style={{
-                        backgroundImage: `
-                          linear-gradient(171deg, transparent 46%, hsl(104, 35%, 22%) 48%, hsl(104, 35%, 22%) 50%, transparent 52%),
-                          linear-gradient(169deg, transparent 46%, hsl(104, 30%, 18%) 48%, hsl(104, 30%, 18%) 50%, transparent 52%)
-                        `,
-                        backgroundSize: "10px 22px, 13px 24px",
-                        backgroundPosition: "1px 1px, 6px 4px",
-                      }}
-                    />
-                    {/* Subtle light reflection */}
-                    <div
-                      className="absolute top-0 left-0 w-2/3 h-1/2"
-                      style={{
-                        background: `linear-gradient(145deg, hsl(104, 55%, 50% / 0.2) 0%, transparent 50%)`,
-                      }}
-                    />
-                  </div>
-                )}
 
-                {/* Shrub - Realistic bush with multiple foliage clusters */}
-                {obj.type === "shrub" && (
-                  <>
-                    {/* Shadow on ground */}
-                    <div
-                      className="absolute"
-                      style={{
-                        left: "5%",
-                        right: "5%",
-                        top: "45%",
-                        bottom: "-15%",
-                        transform: "translateZ(0px)",
-                        background: `radial-gradient(ellipse at 50% 30%, hsl(var(--foreground) / 0.3) 0%, transparent 65%)`,
-                      }}
-                    />
-                    {/* Base woody stems (visible at bottom) */}
-                    <div
-                      className="absolute"
-                      style={{
-                        left: "30%",
-                        right: "50%",
-                        top: "70%",
-                        bottom: "20%",
-                        transform: `translateZ(${cmToPx(3)}px)`,
-                        background: `linear-gradient(90deg, hsl(25, 35%, 25%) 0%, hsl(25, 40%, 32%) 100%)`,
-                        borderRadius: 2,
-                      }}
-                    />
-                    <div
-                      className="absolute"
-                      style={{
-                        left: "55%",
-                        right: "25%",
-                        top: "65%",
-                        bottom: "25%",
-                        transform: `translateZ(${cmToPx(3)}px)`,
-                        background: `linear-gradient(90deg, hsl(25, 40%, 32%) 0%, hsl(25, 35%, 25%) 100%)`,
-                        borderRadius: 2,
-                      }}
-                    />
-                    {/* Back foliage cluster */}
-                    <div
-                      className="absolute"
-                      style={{
-                        left: "15%",
-                        right: "25%",
-                        top: "10%",
-                        bottom: "25%",
-                        transform: `translateZ(${cmToPx(25)}px)`,
-                        background: `radial-gradient(circle at 40% 40%, hsl(104, 40%, 35%) 0%, hsl(104, 35%, 28%) 60%, hsl(104, 30%, 22%) 100%)`,
-                        borderRadius: "50%",
-                        boxShadow: `inset -5px -5px 15px hsl(var(--foreground) / 0.2)`,
-                      }}
-                    />
-                    {/* Left foliage cluster */}
-                    <div
-                      className="absolute"
-                      style={{
-                        left: "5%",
-                        right: "45%",
-                        top: "20%",
-                        bottom: "15%",
-                        transform: `translateZ(${cmToPx(38)}px)`,
-                        background: `radial-gradient(circle at 35% 40%, hsl(104, 48%, 42%) 0%, hsl(104, 42%, 32%) 50%, hsl(104, 35%, 25%) 100%)`,
-                        borderRadius: "50%",
-                        boxShadow: `inset 3px 3px 10px hsl(104, 55%, 50% / 0.25), inset -4px -4px 12px hsl(var(--foreground) / 0.15)`,
-                      }}
-                    />
-                    {/* Right foliage cluster */}
-                    <div
-                      className="absolute"
-                      style={{
-                        left: "40%",
-                        right: "8%",
-                        top: "15%",
-                        bottom: "20%",
-                        transform: `translateZ(${cmToPx(42)}px)`,
-                        background: `radial-gradient(circle at 55% 35%, hsl(104, 50%, 45%) 0%, hsl(104, 45%, 35%) 50%, hsl(104, 38%, 28%) 100%)`,
-                        borderRadius: "50%",
-                        boxShadow: `inset 4px 4px 12px hsl(104, 58%, 52% / 0.3), inset -5px -5px 15px hsl(var(--foreground) / 0.18)`,
-                      }}
-                    />
-                    {/* Top highlight cluster */}
-                    <div
-                      className={cn("absolute transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
-                      style={{
-                        left: "25%",
-                        right: "25%",
-                        top: "5%",
-                        bottom: "35%",
-                        transform: `translateZ(${cmToPx(52)}px)`,
-                        background: `radial-gradient(circle at 40% 35%, hsl(104, 55%, 50%) 0%, hsl(104, 48%, 40%) 40%, hsl(104, 40%, 30%) 100%)`,
-                        borderRadius: "50%",
-                        boxShadow: `0 15px 30px -20px hsl(var(--foreground) / 0.4), inset 3px 3px 8px hsl(104, 60%, 55% / 0.3)`,
-                      }}
-                    />
-                  </>
-                )}
 
-                {/* Tree - Realistic with layered foliage */}
-                {obj.type === "tree" && (
-                  <>
-                    {/* Shadow on ground */}
-                    <div
-                      className="absolute"
-                      style={{
-                        left: "-10%",
-                        right: "-10%",
-                        top: "30%",
-                        bottom: "-30%",
-                        transform: "translateZ(0px)",
-                        background: `radial-gradient(ellipse at 50% 20%, hsl(var(--foreground) / 0.35) 0%, transparent 65%)`,
-                      }}
-                    />
-                    {/* Trunk base (wider) */}
-                    <div
-                      className="absolute"
-                      style={{
-                        left: "35%",
-                        right: "35%",
-                        top: "60%",
-                        bottom: "35%",
-                        transform: `translateZ(${cmToPx(2)}px)`,
-                        background: `linear-gradient(90deg, hsl(25, 40%, 18%) 0%, hsl(25, 45%, 28%) 30%, hsl(25, 50%, 32%) 50%, hsl(25, 45%, 28%) 70%, hsl(25, 40%, 18%) 100%)`,
-                        borderRadius: "4px 4px 8px 8px",
-                        boxShadow: `inset 2px 0 4px hsl(25, 30%, 12%), inset -2px 0 4px hsl(25, 30%, 12%)`,
-                      }}
-                    >
-                      {/* Bark texture */}
-                      <div
-                        className="absolute inset-0 opacity-40"
-                        style={{
-                          backgroundImage: `repeating-linear-gradient(180deg, transparent 0px, transparent 3px, hsl(25, 30%, 15%) 3px, hsl(25, 30%, 15%) 4px)`,
-                        }}
-                      />
-                    </div>
-                    {/* Trunk main */}
-                    <div
-                      className="absolute"
-                      style={{
-                        left: "38%",
-                        right: "38%",
-                        top: "35%",
-                        bottom: "45%",
-                        transform: `translateZ(${cmToPx(50)}px)`,
-                        background: `linear-gradient(90deg, hsl(25, 40%, 18%) 0%, hsl(25, 50%, 30%) 50%, hsl(25, 40%, 18%) 100%)`,
-                        borderRadius: 3,
-                      }}
-                    />
-                    {/* Lower foliage layer */}
-                    <div
-                      className="absolute"
-                      style={{
-                        left: "5%",
-                        right: "5%",
-                        top: "15%",
-                        bottom: "15%",
-                        transform: `translateZ(${cmToPx(90)}px)`,
-                        background: `radial-gradient(circle at 45% 45%, hsl(104, 45%, 38%) 0%, hsl(104, 40%, 30%) 60%, hsl(104, 35%, 22%) 100%)`,
-                        borderRadius: "50%",
-                        boxShadow: `inset -8px -8px 20px hsl(var(--foreground) / 0.25)`,
-                      }}
-                    />
-                    {/* Middle foliage layer */}
-                    <div
-                      className="absolute"
-                      style={{
-                        left: "12%",
-                        right: "12%",
-                        top: "8%",
-                        bottom: "22%",
-                        transform: `translateZ(${cmToPx(120)}px)`,
-                        background: `radial-gradient(circle at 40% 40%, hsl(104, 50%, 45%) 0%, hsl(104, 45%, 35%) 50%, hsl(104, 35%, 25%) 100%)`,
-                        borderRadius: "50%",
-                        boxShadow: `inset 5px 5px 15px hsl(104, 60%, 55% / 0.3), inset -6px -6px 15px hsl(var(--foreground) / 0.2)`,
-                      }}
-                    />
-                    {/* Top foliage layer (crown) */}
-                    <div
-                      className={cn("absolute transition-all", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
-                      style={{
-                        left: "20%",
-                        right: "20%",
-                        top: "2%",
-                        bottom: "35%",
-                        transform: `translateZ(${cmToPx(150)}px)`,
-                        background: `radial-gradient(circle at 35% 35%, hsl(104, 55%, 52%) 0%, hsl(104, 50%, 42%) 40%, hsl(104, 40%, 30%) 100%)`,
-                        borderRadius: "50%",
-                        boxShadow: `0 25px 50px -30px hsl(var(--foreground) / 0.5), inset 4px 4px 12px hsl(104, 60%, 60% / 0.3)`,
-                      }}
-                    />
-                  </>
-                )}
 
                 {/* Woodchips */}
                 {obj.type === "woodchips" && (
@@ -1663,26 +1405,6 @@ export function GardenPlotCanvas({
                   </div>
                 )}
 
-                {/* Tiles */}
-                {obj.type === "tiles" && (
-                  <div
-                    className={cn("absolute inset-0 rounded-sm transition-all overflow-hidden", isSelected && "ring-4 ring-[hsl(var(--scene-highlight))]")}
-                    style={{
-                      transform: "translateZ(1px)",
-                      background: `linear-gradient(135deg, hsl(0, 0%, 60%) 0%, hsl(0, 0%, 52%) 100%)`,
-                      boxShadow: `inset 0 1px 4px hsl(var(--foreground) / 0.2)`,
-                    }}
-                  >
-                    {/* Tile grid pattern */}
-                    <div
-                      className="absolute inset-0"
-                      style={{
-                        backgroundImage: `linear-gradient(hsl(0, 0%, 45%) 2px, transparent 2px), linear-gradient(90deg, hsl(0, 0%, 45%) 2px, transparent 2px)`,
-                        backgroundSize: "25px 25px",
-                      }}
-                    />
-                  </div>
-                )}
               </div>
             );
           })}
@@ -1776,13 +1498,9 @@ export function GardenPlotCanvas({
           <div className="flex items-center gap-2 bg-background/90 backdrop-blur-md px-4 py-3 rounded-2xl shadow-xl border border-border/50" onPointerDown={(e) => e.stopPropagation()}>
             <span className="text-xs font-semibold text-muted-foreground mr-2 uppercase tracking-wider">Toevoegen</span>
             <ObjectButton icon={Warehouse} label="Kas" onClick={() => spawnObject("greenhouse")} />
-            <ObjectButton icon={TreePine} label="Boom" onClick={() => spawnObject("tree")} />
-            <ObjectButton icon={Flower2} label="Struik" onClick={() => spawnObject("shrub")} />
-            <ObjectButton icon={TreeDeciduous} label="Gras" onClick={() => spawnObject("grass")} />
             <ObjectButton icon={Rows3} label="Pad" onClick={() => spawnObject("path")} />
             <ObjectButton icon={Ruler} label="Grind" onClick={() => spawnObject("gravel")} />
-            <ObjectButton icon={TreeDeciduous} label="Schors" onClick={() => spawnObject("woodchips")} />
-            <ObjectButton icon={Grid3x3} label="Tegels" onClick={() => spawnObject("tiles")} />
+            <ObjectButton icon={Rows3} label="Schors" onClick={() => spawnObject("woodchips")} />
           </div>
 
           {selectedId && (
@@ -1888,20 +1606,12 @@ function labelForObject(t: PlotObjectType) {
   switch (t) {
     case "greenhouse":
       return "Kas";
-    case "grass":
-      return "Gras";
-    case "shrub":
-      return "Struik";
     case "gravel":
       return "Grind";
-    case "tree":
-      return "Boom";
     case "path":
       return "Pad";
     case "woodchips":
       return "Houtschors";
-    case "tiles":
-      return "Tegels";
   }
 }
 
