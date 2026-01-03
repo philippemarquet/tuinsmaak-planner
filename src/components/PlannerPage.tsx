@@ -952,10 +952,6 @@ export function PlannerPage({
                                         style={{ background: color, color: textColor }}
                                         title={`${seed?.name ?? "—"} • ${fmtDMY(p.planned_date)} → ${fmtDMY(p.planned_harvest_end)}`}
                                       >
-                                        {/* icon overlay */}
-                                        {iconUrl && (
-                                          <IconTilingOverlay iconUrl={iconUrl} segmentsUsed={1} densityPerSegment={2} maxIcons={4} minIcons={1} opacity={0.85} />
-                                        )}
 
                                         {/* label/content boven overlay */}
                                         <div className="relative z-20 flex items-center gap-0.5 min-w-0">
