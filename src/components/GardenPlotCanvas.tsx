@@ -803,25 +803,6 @@ export function GardenPlotCanvas({
     <div className="relative w-full h-[700px] rounded-xl overflow-hidden shadow-2xl border border-border/50" tabIndex={0}>
       {/* Sky */}
       <div className="absolute inset-0 transition-all duration-700" style={{ background: scene.sky }} />
-      <div className={cn("absolute top-8 transition-all duration-700 z-10", isDayMode ? "right-12" : "right-20")}>
-        {isDayMode ? (
-          <div
-            className="w-16 h-16 rounded-full"
-            style={{
-              background: `radial-gradient(circle at 30% 30%, ${hslVar("--scene-sun-1")} 0%, ${hslVar("--scene-sun-2")} 60%, ${hslVar("--scene-sun-3")} 100%)`,
-              boxShadow: `0 0 60px 18px hsl(var(--scene-sun-glow) / 0.35)`,
-            }}
-          />
-        ) : (
-          <div
-            className="w-12 h-12 rounded-full"
-            style={{
-              background: `radial-gradient(circle at 30% 30%, ${hslVar("--scene-moon-1")} 0%, ${hslVar("--scene-moon-2")} 100%)`,
-              boxShadow: `0 0 40px 12px hsl(var(--scene-moon-glow) / 0.18)`,
-            }}
-          />
-        )}
-      </div>
 
       {/* Canvas */}
       <div

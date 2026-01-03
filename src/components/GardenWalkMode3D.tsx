@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useMemo, Suspense, useState } from "react";
+import React, { useRef, useEffect, useMemo, Suspense } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Sky, KeyboardControls, useKeyboardControls, Html } from "@react-three/drei";
 import * as THREE from "three";
@@ -225,7 +225,7 @@ function Ground({ isDayMode }: { isDayMode: boolean }) {
   );
 }
 
-// Individual planting area with color, icons and hover tooltip
+// Individual planting area with color, icons and billboard text that faces camera
 function PlantingArea3D({
   planting,
   bed,
@@ -235,6 +235,9 @@ function PlantingArea3D({
   bed: GardenBed;
   isDayMode: boolean;
 }) {
+  const { camera } = useThree();
+  const groupRef = useRef<THREE.Group>(null);
+  
   const width = bed.width_cm * CM_TO_M;
   const length = bed.length_cm * CM_TO_M;
   const height = 0.25;
@@ -255,6 +258,32 @@ function PlantingArea3D({
   const cropWidth = isHorizontal ? usedSegs * (width / segments) - 0.02 : width - 0.06;
   const cropLength = isHorizontal ? length - 0.06 : usedSegs * (length / segments) - 0.02;
   
+  // Size along the long axis of the planting area (for text scaling)
+  const longSide = Math.max(cropWidth, cropLength);
+  const shortSide = Math.min(cropWidth, cropLength);
+  
+  // Rotate billboard to face camera (only Y axis rotation)
+  useFrame(() => {
+    if (groupRef.current) {
+      // Get camera position relative to the planting
+      const cameraPos = camera.position.clone();
+      const plantingWorldPos = new THREE.Vector3();
+      groupRef.current.getWorldPosition(plantingWorldPos);
+      
+      // Calculate angle to camera (only Y rotation for billboard effect)
+      const dx = cameraPos.x - plantingWorldPos.x;
+      const dz = cameraPos.z - plantingWorldPos.z;
+      const angle = Math.atan2(dx, dz);
+      
+      groupRef.current.rotation.y = angle;
+    }
+  });
+  
+  // Calculate font size to fit within the planting area
+  // Base size scales with the long side, max 64px equivalent
+  const baseFontSize = Math.min(64, Math.max(24, longSide * 50));
+  const iconSize = Math.min(80, Math.max(32, shortSide * 60));
+  
   return (
     <group position={[offsetX, height / 2 + 0.02, offsetZ]}>
       {/* Colored ground - fully opaque */}
@@ -267,54 +296,57 @@ function PlantingArea3D({
         <meshStandardMaterial color={planting.color} />
       </mesh>
       
-      {/* Crop name as flat text on the colored surface */}
-      <Html
-        position={[0, 0.02, 0]}
-        center
-        transform
-        rotation={[-Math.PI / 2, 0, 0]}
-        distanceFactor={0.6}
-        style={{ pointerEvents: 'none' }}
-      >
-        <div 
-          style={{ 
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '16px',
-            whiteSpace: 'nowrap',
-          }}
+      {/* Billboard group that rotates to face camera */}
+      <group ref={groupRef} position={[0, 0.15, 0]}>
+        <Html
+          center
+          distanceFactor={0.5}
+          style={{ pointerEvents: 'none' }}
         >
-          {/* Icon next to text */}
-          {planting.iconUrl && (
-            <img
-              src={planting.iconUrl}
-              alt=""
-              style={{ 
-                width: '64px',
-                height: '64px',
-                objectFit: 'contain',
-                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))',
-              }}
-              draggable={false}
-            />
-          )}
-          {/* Crop name */}
-          <span 
+          <div 
             style={{ 
-              fontSize: '48px',
-              fontWeight: 700,
-              color: isDayMode ? '#1a1a1a' : '#f5f5f5',
-              textShadow: isDayMode 
-                ? '0 2px 8px rgba(255,255,255,0.9), 0 0 20px rgba(255,255,255,0.8)' 
-                : '0 2px 8px rgba(0,0,0,0.9), 0 0 20px rgba(0,0,0,0.8)',
-              letterSpacing: '-1px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              maxWidth: `${longSide * 100}px`,
             }}
           >
-            {planting.label || 'Gewas'}
-          </span>
-        </div>
-      </Html>
+            {/* Icon ABOVE text */}
+            {planting.iconUrl && (
+              <img
+                src={planting.iconUrl}
+                alt=""
+                style={{ 
+                  width: `${iconSize}px`,
+                  height: `${iconSize}px`,
+                  objectFit: 'contain',
+                  filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))',
+                }}
+                draggable={false}
+              />
+            )}
+            {/* Crop name - wraps and scales to fit */}
+            <span 
+              style={{ 
+                fontSize: `${baseFontSize}px`,
+                fontWeight: 700,
+                color: isDayMode ? '#1a1a1a' : '#f5f5f5',
+                textShadow: isDayMode 
+                  ? '0 2px 8px rgba(255,255,255,0.9), 0 0 20px rgba(255,255,255,0.8)' 
+                  : '0 2px 8px rgba(0,0,0,0.9), 0 0 20px rgba(0,0,0,0.8)',
+                textAlign: 'center',
+                lineHeight: 1.1,
+                wordBreak: 'break-word',
+                maxWidth: `${longSide * 100}px`,
+              }}
+            >
+              {planting.label || 'Gewas'}
+            </span>
+          </div>
+        </Html>
+      </group>
     </group>
   );
 }
