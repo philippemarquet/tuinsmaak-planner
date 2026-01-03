@@ -336,31 +336,31 @@ function PlantingArea3D({
       {/* Hover tooltip - much larger and more readable */}
       {hovered && (
         <Html
-          position={[0, 0.3, 0]}
+          position={[0, 0.5, 0]}
           center
-          distanceFactor={0.6}
+          distanceFactor={0.3}
           style={{ pointerEvents: 'none' }}
         >
           <div 
-            className="px-6 py-4 rounded-xl shadow-2xl whitespace-nowrap"
+            className="px-10 py-6 rounded-2xl shadow-2xl whitespace-nowrap"
             style={{
               backgroundColor: isDayMode ? 'rgba(255,255,255,0.98)' : 'rgba(20,20,20,0.98)',
               color: isDayMode ? '#1a1a1a' : '#f5f5f5',
-              border: `4px solid ${planting.color}`,
-              minWidth: '180px',
+              border: `6px solid ${planting.color}`,
+              minWidth: '280px',
               textAlign: 'center',
             }}
           >
             <div 
               className="font-bold"
-              style={{ fontSize: '22px', marginBottom: '6px' }}
+              style={{ fontSize: '42px', marginBottom: '10px' }}
             >
               {planting.label || 'Gewas'}
             </div>
             {formatNextAction() && (
               <div 
                 style={{ 
-                  fontSize: '16px', 
+                  fontSize: '28px', 
                   opacity: 0.85,
                   fontWeight: 500,
                 }}
