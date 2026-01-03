@@ -965,31 +965,33 @@ export function GardenPlotCanvas({
                                 }}
                                 title={planting.label}
                               >
-                                {/* Icon tiling - fewer but larger icons (3-4 per segment) */}
-                                {planting.iconUrl && (
-                                  <div className="absolute inset-0 pointer-events-none flex flex-wrap items-center justify-center gap-2 p-2 opacity-85">
-                                    {Array.from({ length: Math.min(4, Math.max(1, usedSegs)) * 3 }).map((_, idx) => (
-                                      <img
-                                        key={idx}
-                                        src={planting.iconUrl!}
-                                        alt=""
-                                        className="w-8 h-8 object-contain drop-shadow-md"
-                                        draggable={false}
-                                      />
-                                    ))}
-                                  </div>
-                                )}
-                                {/* Label - larger hover tooltip */}
-                                {planting.label && (
-                                  <div className="absolute inset-0 flex items-center justify-center group">
-                                    <span
-                                      className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-black/50 text-white truncate max-w-full shadow-lg transition-all duration-200 group-hover:text-base group-hover:px-4 group-hover:py-2 group-hover:bg-black/80 group-hover:scale-125 group-hover:z-50"
-                                      style={{ textShadow: "0 1px 3px rgba(0,0,0,0.7)" }}
+                                {/* Icon tiling - 1 icon per segment, properly sized to fit */}
+                                {planting.iconUrl && (() => {
+                                  // Calculate icon size based on segment dimensions (already calculated as segW and segH)
+                                  const iconSize = Math.min(segW, segH) * 0.6; // 60% of smallest dimension
+                                  
+                                  return (
+                                    <div 
+                                      className="absolute inset-0 pointer-events-none grid opacity-85"
+                                      style={{
+                                        gridTemplateColumns: isHorizontal ? `repeat(${usedSegs}, 1fr)` : '1fr',
+                                        gridTemplateRows: isHorizontal ? '1fr' : `repeat(${usedSegs}, 1fr)`,
+                                      }}
                                     >
-                                      {planting.label}
-                                    </span>
-                                  </div>
-                                )}
+                                      {Array.from({ length: usedSegs }).map((_, idx) => (
+                                        <div key={idx} className="flex items-center justify-center">
+                                          <img
+                                            src={planting.iconUrl!}
+                                            alt=""
+                                            style={{ width: iconSize, height: iconSize }}
+                                            className="object-contain drop-shadow-md"
+                                            draggable={false}
+                                          />
+                                        </div>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             );
                           })}
