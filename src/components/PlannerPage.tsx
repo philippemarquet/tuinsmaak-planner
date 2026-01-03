@@ -374,7 +374,7 @@ export function PlannerPage({
   });
   const [seedDetailsModal, setSeedDetailsModal] = useState<Seed | null>(null);
 
-  const [showGhosts, setShowGhosts] = useState(localStorage.getItem("plannerShowGhosts") === "1");
+  
   const [currentWeek, setCurrentWeek] = useState<Date>(() => {
     const saved = localStorage.getItem("plannerWeekISO");
     if (saved) return new Date(saved);
@@ -458,9 +458,6 @@ export function PlannerPage({
   useEffect(() => {
     localStorage.setItem("plannerGHOnly", greenhouseOnly ? "1" : "0");
   }, [greenhouseOnly]);
-  useEffect(() => {
-    localStorage.setItem("plannerShowGhosts", showGhosts ? "1" : "0");
-  }, [showGhosts]);
   useEffect(() => {
     localStorage.setItem("plannerWeekISO", toISO(currentWeek));
   }, [currentWeek]);
@@ -547,13 +544,6 @@ export function PlannerPage({
     const mon = new Date(week);
     const sun = addDays(mon, 6);
     return s <= sun && e >= mon;
-  };
-  const isFutureRelativeToWeek = (p: Planting, week: Date) => {
-    const s = parseISO(p.planned_date);
-    if (!s) return false;
-    const mon = new Date(week);
-    const sun = addDays(mon, 6);
-    return s > sun;
   };
 
   /* ===== filters for seeds sidebar (met maand + categorie) ===== */
@@ -906,9 +896,6 @@ export function PlannerPage({
                 <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}>
                   {bedList.map((bed) => {
                     const activePlantings = plantings.filter((p) => p.garden_bed_id === bed.id && isActiveInWeek(p, currentWeek));
-                    const futurePlantings = showGhosts
-                      ? plantings.filter((p) => p.garden_bed_id === bed.id && !isActiveInWeek(p, currentWeek) && isFutureRelativeToWeek(p, currentWeek))
-                      : [];
                     const segs = Array.from({ length: bed.segments }, (_, i) => i);
 
                     return (
@@ -925,11 +912,6 @@ export function PlannerPage({
                         <div className="grid gap-0.5" style={{ gridTemplateRows: `repeat(${bed.segments}, minmax(20px, auto))` }}>
                           {segs.map((i) => {
                             const here = activePlantings.filter((p) => {
-                              const s = p.start_segment ?? 0,
-                                u = p.segments_used ?? 1;
-                              return i >= s && i < s + u;
-                            });
-                            const ghosts = futurePlantings.filter((p) => {
                               const s = p.start_segment ?? 0,
                                 u = p.segments_used ?? 1;
                               return i >= s && i < s + u;
@@ -1001,17 +983,6 @@ export function PlannerPage({
                                     );
                                   })}
 
-                                  {ghosts.length > 0 && (
-                                    <div
-                                      className="text-white text-[9px] rounded px-1.5 py-0.5"
-                                      style={{ background: "rgba(34,197,94,.35)", border: "1px dashed rgba(0,0,0,.35)" }}
-                                    >
-                                      {ghosts
-                                        .map((g) => seedsById[g.seed_id]?.name)
-                                        .filter(Boolean)
-                                        .join(", ")}
-                                    </div>
-                                  )}
                                 </div>
                               </DroppableSegment>
                             );
@@ -1083,7 +1054,6 @@ export function PlannerPage({
     }, []);
 
     const isActive = (p: Planting) => isActiveInWeek(p, currentWeek);
-    const isFuture = (p: Planting) => showGhosts && isFutureRelativeToWeek(p, currentWeek);
 
     const ZoomControls = () => (
       <div className="flex items-center gap-2">
@@ -1154,7 +1124,6 @@ export function PlannerPage({
                 const vertical = innerW >= innerH; // segmentlijnen haaks op lange zijde
 
                 const active = plantings.filter((p) => p.garden_bed_id === bed.id && isActive(p));
-                const ghosts = plantings.filter((p) => p.garden_bed_id === bed.id && isFuture(p));
 
                 return (
                   <div
@@ -1374,37 +1343,6 @@ export function PlannerPage({
                           })}
                         </div>
 
-                        {/* Toekomstige 'ghosts' */}
-                        {showGhosts && (
-                          <div className="absolute inset-0 pointer-events-none">
-                            {ghosts.map((p) => {
-                              const seed = seedsById[p.seed_id];
-                              if (!seed) return null;
-                              const start = p.start_segment ?? 0;
-                              const used = Math.max(1, p.segments_used ?? 1);
-                              const inset = 2;
-                              // Calculate segment dimensions based on inner container size
-                              const segW = vertical ? (innerW / segCount) : innerW;
-                              const segH = vertical ? innerH : (innerH / segCount);
-                              const bg = p.color?.startsWith("#") ? p.color : "rgba(34,197,94,.35)";
-                              const ghostTextColor = getContrastTextColor(p.color);
-
-                              const rect = vertical
-                                ? { top: inset, height: Math.max(1, innerH - inset * 2), left: inset + start * segW, width: Math.max(1, used * segW - inset * 2) }
-                                : { left: inset, width: Math.max(1, innerW - inset * 2), top: inset + start * segH, height: Math.max(1, used * segH - inset * 2) };
-
-                              return (
-                                <div
-                                  key={`ghost-${p.id}`}
-                                  className="absolute rounded text-[10px] px-1 flex items-center"
-                                  style={{ ...rect, backgroundColor: bg, opacity: 0.35, border: "1px dashed rgba(0,0,0,.45)", color: ghostTextColor }}
-                                >
-                                  <span className="truncate">{seed.name}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -1490,18 +1428,6 @@ export function PlannerPage({
             );
           })}
           
-          {/* Toekomstige plantingen */}
-          <button
-            onClick={() => setShowGhosts(!showGhosts)}
-            className={cn(
-              "ml-auto px-3 py-2 text-sm font-medium rounded-lg transition-all",
-              showGhosts 
-                ? "bg-primary/10 text-primary" 
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-            )}
-          >
-            Toekomstige plantingen
-          </button>
         </div>
       </header>
 
