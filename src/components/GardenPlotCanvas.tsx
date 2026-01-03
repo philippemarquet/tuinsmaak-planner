@@ -6,9 +6,7 @@ import {
   Edit3,
   Grid3x3,
   Maximize,
-  Moon,
   RotateCcw,
-  Sun,
   Trash2,
   Warehouse,
   ZoomIn,
@@ -186,9 +184,10 @@ export function GardenPlotCanvas({
   const setObjects = externalObjects ? (() => {}) as any : setLocalObjects; // Disable local setter when using external
 
   // Draft positions for beds while dragging (smooth preview, no DB calls)
-
-  // Draft positions for beds while dragging (smooth preview, no DB calls)
   const [bedDraft, setBedDraft] = useState<Record<string, { x: number; y: number }>>({});
+  
+  // Draft positions for objects while dragging (smooth preview for external objects)
+  const [objectDraft, setObjectDraft] = useState<Record<string, { x: number; y: number }>>({});
 
   // Selection
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -479,13 +478,9 @@ export function GardenPlotCanvas({
       }
 
       if (d.kind === "object") {
-        // Update local state for visual feedback during drag
-        if (externalObjects) {
-          // We need a local draft for external objects too during drag
-          pendingObjectMoveRef.current = { id: d.id, x: nextX, y: nextY };
-        } else {
-          setLocalObjects((prev) => prev.map((o) => (o.id === d.id ? { ...o, x: nextX, y: nextY } : o)));
-        }
+        // Update draft state for visual feedback during drag
+        pendingObjectMoveRef.current = { id: d.id, x: nextX, y: nextY };
+        setObjectDraft((prev) => ({ ...prev, [d.id]: { x: nextX, y: nextY } }));
       }
     },
     [rotZ, zoom, scheduleBedDraftUpdate, snapValue]
@@ -517,6 +512,12 @@ export function GardenPlotCanvas({
         }
       }
       pendingObjectMoveRef.current = null;
+      // Clear the draft after commit
+      setObjectDraft((prev) => {
+        const next = { ...prev };
+        delete next[d.id];
+        return next;
+      });
     }
   }, [bedDraft, onBedMove, onObjectUpdate]);
 
@@ -713,8 +714,12 @@ export function GardenPlotCanvas({
     > = [];
 
     // Objects get their zIndex (default 0 for old objects without zIndex)
+    // Use draft positions during drag for smooth visual feedback
     for (const o of objects) {
-      list.push({ kind: "obj", id: o.id, obj: o, x: o.x, y: o.y, w: o.w, h: o.h, zIndex: o.zIndex ?? 0 });
+      const draft = objectDraft[o.id];
+      const x = draft?.x ?? o.x;
+      const y = draft?.y ?? o.y;
+      list.push({ kind: "obj", id: o.id, obj: o, x, y, w: o.w, h: o.h, zIndex: o.zIndex ?? 0 });
     }
 
     // Beds always on top: give them a very high zIndex
@@ -729,7 +734,7 @@ export function GardenPlotCanvas({
       if (a.zIndex !== b.zIndex) return a.zIndex - b.zIndex;
       return (a.y + a.h / 2) - (b.y + b.h / 2);
     });
-  }, [beds, objects, getBedPos]);
+  }, [beds, objects, getBedPos, objectDraft]);
 
   const scene = useMemo(() => {
     const day = isDayMode;
@@ -841,7 +846,7 @@ export function GardenPlotCanvas({
             height: 0,
             transformStyle: "preserve-3d",
             transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) rotateX(${tilt}deg) rotateZ(${rotZ}deg) scale(${zoom})`,
-            transition: dragRef.current ? "none" : "transform 200ms cubic-bezier(0.2, 0.9, 0.2, 1)",
+            willChange: 'transform',
           }}
         >
           {/* Ground */}
@@ -1425,13 +1430,6 @@ export function GardenPlotCanvas({
             <Button variant="ghost" size="sm" onClick={() => fitToView({ force: true })} className="h-9 w-9 p-0 rounded-full" title="Fit">
               <Maximize className="h-4 w-4" />
             </Button>
-            <div className="w-px h-6 bg-border mx-1" />
-            <Button variant={isDayMode ? "default" : "ghost"} size="sm" onClick={() => setIsDayMode(true)} className="h-9 w-9 p-0 rounded-full" title="Dag">
-              <Sun className="h-4 w-4" />
-            </Button>
-            <Button variant={!isDayMode ? "default" : "ghost"} size="sm" onClick={() => setIsDayMode(false)} className="h-9 w-9 p-0 rounded-full" title="Nacht">
-              <Moon className="h-4 w-4" />
-            </Button>
           </div>
 
           <div className="flex items-center gap-3 bg-background/90 backdrop-blur-md px-4 py-2 rounded-full shadow-xl border border-border/50">
@@ -1477,13 +1475,6 @@ export function GardenPlotCanvas({
           <div className="flex items-center gap-3 bg-background/90 backdrop-blur-md px-6 py-3 rounded-full shadow-xl border border-border/50">
             <Footprints className="h-5 w-5 text-primary" />
             <span className="text-sm font-semibold">Wandelmodus</span>
-            <div className="w-px h-6 bg-border mx-2" />
-            <Button variant={isDayMode ? "default" : "ghost"} size="sm" onClick={() => setIsDayMode(true)} className="h-8 w-8 p-0 rounded-full" title="Dag">
-              <Sun className="h-4 w-4" />
-            </Button>
-            <Button variant={!isDayMode ? "default" : "ghost"} size="sm" onClick={() => setIsDayMode(false)} className="h-8 w-8 p-0 rounded-full" title="Nacht">
-              <Moon className="h-4 w-4" />
-            </Button>
             <div className="w-px h-6 bg-border mx-2" />
             <Button variant="default" size="sm" onClick={exitWalkMode} className="h-8 px-4 rounded-full text-xs">
               Verlaat wandelmodus
