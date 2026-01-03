@@ -1533,7 +1533,7 @@ export function PlannerPage({
                   </span>
                 </div>
                 
-                <div className="flex-1 min-h-0">
+                <div className="flex-1 min-h-0 relative">
                   <GardenPlotCanvas
                     beds={beds}
                     readOnly={true}
@@ -1555,6 +1555,25 @@ export function PlannerPage({
                       } catch (e: any) {
                         console.error("Kon positie niet opslaan:", e);
                       }
+                    }}
+                    renderBedOverlay={(bed) => {
+                      const segCount = bed.segments || 1;
+                      const vertical = bed.width_cm > bed.length_cm;
+                      return (
+                        <div
+                          className="absolute inset-0 grid"
+                          style={{
+                            gridTemplateColumns: vertical ? `repeat(${segCount}, 1fr)` : "1fr",
+                            gridTemplateRows: vertical ? "1fr" : `repeat(${segCount}, 1fr)`,
+                          }}
+                        >
+                          {Array.from({ length: segCount }, (_, i) => (
+                            <div key={i} className="relative">
+                              <MapDroppable id={`bed__${bed.id}__segment__${i}`} />
+                            </div>
+                          ))}
+                        </div>
+                      );
                     }}
                   />
                 </div>

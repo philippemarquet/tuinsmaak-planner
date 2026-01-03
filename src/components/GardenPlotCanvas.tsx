@@ -52,6 +52,13 @@ interface PlantingOverlay {
   cropType?: string;
 }
 
+interface BedOverlayRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
 interface GardenPlotCanvasProps {
   beds: GardenBed[];
   /** Called when the user *drops* a bed (commit). */
@@ -69,6 +76,8 @@ interface GardenPlotCanvasProps {
   onObjectCreate?: (type: PlotObjectType, x: number, y: number, w: number, h: number, zIndex: number) => Promise<PlotObject | void>;
   onObjectUpdate?: (id: string, patch: Partial<PlotObject>) => Promise<void>;
   onObjectDelete?: (id: string) => Promise<void>;
+  /** Optional render prop for custom overlays on each bed (e.g., droppable zones) */
+  renderBedOverlay?: (bed: GardenBed, rect: BedOverlayRect) => React.ReactNode;
 }
 
 // --- Constants ---
@@ -160,6 +169,7 @@ export function GardenPlotCanvas({
   onObjectCreate,
   onObjectUpdate,
   onObjectDelete,
+  renderBedOverlay,
 }: GardenPlotCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -1024,6 +1034,13 @@ export function GardenPlotCanvas({
                           <Edit3 className="h-3 w-3" />
                           Dubbelklik
                         </div>
+                      </div>
+                    )}
+                    
+                    {/* Custom overlay for droppable zones */}
+                    {renderBedOverlay && (
+                      <div className="absolute inset-0 pointer-events-auto" style={{ transform: 'translateZ(1px)' }}>
+                        {renderBedOverlay(bed, { left: 0, top: 0, width: w, height: h })}
                       </div>
                     )}
                   </div>
