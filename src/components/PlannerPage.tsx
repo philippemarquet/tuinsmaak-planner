@@ -1314,9 +1314,10 @@ export function PlannerPage({
                             const seed = seedsById[p.seed_id];
                             const start = p.start_segment ?? 0;
                             const used = Math.max(1, p.segments_used ?? 1);
-                            const inset = 1;
-                            const segW = vertical ? innerW / segCount : innerW;
-                            const segH = vertical ? innerH : innerH / segCount;
+                            const inset = 2;
+                            // Calculate segment dimensions based on inner container size
+                            const segW = vertical ? (innerW / segCount) : innerW;
+                            const segH = vertical ? innerH : (innerH / segCount);
 
                             const rect = vertical
                               ? { top: inset, height: Math.max(1, innerH - inset * 2), left: inset + start * segW, width: Math.max(1, used * segW - inset * 2) }
@@ -1338,7 +1339,9 @@ export function PlannerPage({
                                   <IconTilingOverlay
                                     iconUrl={iconUrl}
                                     segmentsUsed={used}
-                                    densityPerSegment={10}
+                                    densityPerSegment={2}
+                                    maxIcons={6}
+                                    minIcons={1}
                                     opacity={0.88}
                                   />
                                 )}
@@ -1383,9 +1386,10 @@ export function PlannerPage({
                               if (!seed) return null;
                               const start = p.start_segment ?? 0;
                               const used = Math.max(1, p.segments_used ?? 1);
-                              const inset = 1;
-                              const segW = vertical ? innerW / segCount : innerW;
-                              const segH = vertical ? innerH : innerH / segCount;
+                              const inset = 2;
+                              // Calculate segment dimensions based on inner container size
+                              const segW = vertical ? (innerW / segCount) : innerW;
+                              const segH = vertical ? innerH : (innerH / segCount);
                               const bg = p.color?.startsWith("#") ? p.color : "rgba(34,197,94,.35)";
                               const ghostTextColor = getContrastTextColor(p.color);
 
