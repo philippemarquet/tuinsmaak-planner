@@ -15,12 +15,21 @@ type Props = {
   onSaved: (p: Planting) => void;
 };
 
-function parseISO(iso?: string | null) {
-  return iso ? new Date(iso) : null;
+// Parse YYYY-MM-DD string to local Date (avoids timezone shift)
+function parseISO(iso?: string | null): Date | null {
+  if (!iso) return null;
+  const [year, month, day] = iso.split('-').map(Number);
+  return new Date(year, month - 1, day);
 }
-function toISO(d: Date) { return d.toISOString().slice(0,10); }
-function addDays(d: Date, n: number) { const x=new Date(d); x.setDate(x.getDate()+n); return x; }
-function addWeeks(d: Date, w: number) { return addDays(d, w*7); }
+// Format Date to YYYY-MM-DD in local time
+function toISO(d: Date) { 
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+function addWeeks(d: Date, w: number) { return addDays(d, w * 7); }
 
 function intervalsOverlap(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
   return aStart <= bEnd && bStart <= aEnd;
@@ -120,7 +129,9 @@ export default function PlantingEditor({ gardenId, planting, onClose, onSaved }:
     const dateToCheck = plantDate || sowDate;
     if (!dateToCheck) return null;
     
-    const month = new Date(dateToCheck).getMonth() + 1; // 1-12
+    const parsed = parseISO(dateToCheck);
+    if (!parsed) return null;
+    const month = parsed.getMonth() + 1; // 1-12
     const isGreenhouse = selectedBed.is_greenhouse;
     
     const monthNames = ['', 'januari', 'februari', 'maart', 'april', 'mei', 'juni', 
