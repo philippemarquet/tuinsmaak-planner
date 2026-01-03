@@ -256,15 +256,11 @@ function PlantingArea3D({
   const cropWidth = isHorizontal ? usedSegs * (width / segments) - 0.02 : width - 0.06;
   const cropLength = isHorizontal ? length - 0.06 : usedSegs * (length / segments) - 0.02;
   
-  // Size along the long axis of the planting area (for text scaling)
-  const longSide = Math.max(cropWidth, cropLength);
-  const shortSide = Math.min(cropWidth, cropLength);
-  
-  
-  // Calculate font size to fit within the planting area
-  // Base size scales with the long side, max 64px equivalent
-  const baseFontSize = Math.min(64, Math.max(24, longSide * 50));
-  const iconSize = Math.min(80, Math.max(32, shortSide * 60));
+  // Calculate icon size for segment grid (similar to map view)
+  const segWidth = isHorizontal ? (width / segments) : width;
+  const segLength = isHorizontal ? length : (length / segments);
+  const iconSize = Math.min(segWidth, segLength) * 0.6 * 50; // Scale for HTML rendering
+  const isHorizontalLayout = bed.width_cm > bed.length_cm;
   
   return (
     <group position={[offsetX, height / 2 + 0.02, offsetZ]}>
@@ -278,56 +274,44 @@ function PlantingArea3D({
         <meshStandardMaterial color={planting.color} />
       </mesh>
       
-      {/* Flat icon and text on the bed surface */}
-      <Html
-        position={[0, 0.02, 0]}
-        rotation={[-Math.PI / 2, 0, 0]}
-        transform
-        occlude={false}
-        style={{ pointerEvents: 'none' }}
-      >
-        <div 
-          style={{ 
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '4px',
-            transform: 'scale(0.02)', // Scale down for 3D world units
-            transformOrigin: 'center center',
-          }}
+      {/* Flat icons on the bed surface - same as map view */}
+      {planting.iconUrl && (
+        <Html
+          position={[0, 0.02, 0]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          transform
+          occlude={false}
+          style={{ pointerEvents: 'none' }}
         >
-          {/* Icon */}
-          {planting.iconUrl && (
-            <img
-              src={planting.iconUrl}
-              alt=""
-              style={{ 
-                width: `${iconSize * 2}px`,
-                height: `${iconSize * 2}px`,
-                objectFit: 'contain',
-                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))',
-              }}
-              draggable={false}
-            />
-          )}
-          {/* Crop name - flat on surface */}
-          <span 
+          <div 
             style={{ 
-              fontSize: `${baseFontSize * 1.5}px`,
-              fontWeight: 700,
-              color: isDayMode ? '#1a1a1a' : '#f5f5f5',
-              textShadow: isDayMode 
-                ? '0 1px 4px rgba(255,255,255,0.9)' 
-                : '0 1px 4px rgba(0,0,0,0.9)',
-              textAlign: 'center',
-              whiteSpace: 'nowrap',
+              display: 'grid',
+              gridTemplateColumns: isHorizontal ? `repeat(${usedSegs}, 1fr)` : '1fr',
+              gridTemplateRows: isHorizontal ? '1fr' : `repeat(${usedSegs}, 1fr)`,
+              width: `${cropWidth * 50}px`,
+              height: `${cropLength * 50}px`,
+              transform: 'scale(0.02)',
+              transformOrigin: 'center center',
             }}
           >
-            {planting.label || 'Gewas'}
-          </span>
-        </div>
-      </Html>
+            {Array.from({ length: usedSegs }).map((_, idx) => (
+              <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <img
+                  src={planting.iconUrl!}
+                  alt=""
+                  style={{ 
+                    width: `${iconSize}px`,
+                    height: `${iconSize}px`,
+                    objectFit: 'contain',
+                    filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))',
+                  }}
+                  draggable={false}
+                />
+              </div>
+            ))}
+          </div>
+        </Html>
+      )}
     </group>
   );
 }
