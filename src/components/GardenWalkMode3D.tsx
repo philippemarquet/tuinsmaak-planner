@@ -272,18 +272,21 @@ function PlantingArea3D({
     return `${label}: ${dateStr}`;
   };
   
-  // Calculate grid of icon positions for even distribution
-  const iconSpacing = 0.12; // Spacing between icons in meters
-  const cols = Math.max(1, Math.floor(cropWidth / iconSpacing));
-  const rows = Math.max(1, Math.floor(cropLength / iconSpacing));
+  // Calculate grid of icon positions - fewer, larger icons (3-4 per segment)
+  const iconSpacing = 0.35; // Much larger spacing between icons
+  const cols = Math.max(1, Math.min(2, Math.floor(cropWidth / iconSpacing)));
+  const rows = Math.max(1, Math.min(2, Math.floor(cropLength / iconSpacing)));
+  
+  // Limit total icons to max 4 per segment
+  const maxIcons = Math.min(4, usedSegs * 4);
   
   // Generate grid positions centered on the crop area
   const iconPositions: { x: number; z: number }[] = [];
   const startX = -(cols - 1) * iconSpacing / 2;
   const startZ = -(rows - 1) * iconSpacing / 2;
   
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
+  for (let row = 0; row < rows && iconPositions.length < maxIcons; row++) {
+    for (let col = 0; col < cols && iconPositions.length < maxIcons; col++) {
       iconPositions.push({
         x: startX + col * iconSpacing,
         z: startZ + row * iconSpacing,
@@ -320,10 +323,10 @@ function PlantingArea3D({
             src={planting.iconUrl!}
             alt=""
             style={{ 
-              width: '48px',
-              height: '48px',
+              width: '96px',
+              height: '96px',
               objectFit: 'contain',
-              filter: isDayMode ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' : 'brightness(0.8) drop-shadow(0 2px 4px rgba(0,0,0,0.5))',
+              filter: isDayMode ? 'drop-shadow(0 4px 8px rgba(0,0,0,0.4))' : 'brightness(0.8) drop-shadow(0 4px 8px rgba(0,0,0,0.6))',
             }}
             draggable={false}
           />
