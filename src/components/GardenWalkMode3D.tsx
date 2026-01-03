@@ -259,8 +259,8 @@ function PlantingArea3D({
   // Calculate icon size for segment grid (similar to map view)
   const segWidth = isHorizontal ? (width / segments) : width;
   const segLength = isHorizontal ? length : (length / segments);
-  const iconSize = Math.min(segWidth, segLength) * 0.6 * 50; // Scale for HTML rendering
-  const isHorizontalLayout = bed.width_cm > bed.length_cm;
+  // Icon size scaled for HTML rendering (meters * 100 to get base px, then 60% of smallest dimension)
+  const iconSize = Math.min(segWidth, segLength) * 100 * 0.6;
   
   return (
     <group position={[offsetX, height / 2 + 0.02, offsetZ]}>
@@ -288,9 +288,9 @@ function PlantingArea3D({
               display: 'grid',
               gridTemplateColumns: isHorizontal ? `repeat(${usedSegs}, 1fr)` : '1fr',
               gridTemplateRows: isHorizontal ? '1fr' : `repeat(${usedSegs}, 1fr)`,
-              width: `${cropWidth * 50}px`,
-              height: `${cropLength * 50}px`,
-              transform: 'scale(0.02)',
+              width: `${cropWidth * 100}px`,
+              height: `${cropLength * 100}px`,
+              transform: 'scale(0.01)',
               transformOrigin: 'center center',
             }}
           >
