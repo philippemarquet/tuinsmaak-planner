@@ -293,6 +293,52 @@ export default function PlantingEditor({ gardenId, planting, onClose, onSaved }:
             <label className="text-sm">Plan: Oogst einde (optioneel)</label>
             <input type="date" className="w-full rounded-md border border-input bg-background px-3 py-2" value={harvestEnd} onChange={e=>setHarvestEnd(e.target.value)} />
 
+            {/* Datum preview op basis van seed eigenschappen */}
+            {curSeed && (plantDate || sowDate) && (() => {
+              const baseDate = parseISO(plantDate || sowDate);
+              if (!baseDate) return null;
+              
+              const presowWeeks = curSeed.presow_duration_weeks ?? 0;
+              const growWeeks = curSeed.grow_duration_weeks ?? 0;
+              const harvestWeeks = curSeed.harvest_duration_weeks ?? 0;
+              
+              // Bereken datums
+              const groundDate = method === 'presow' && sowDate && presowWeeks > 0
+                ? addWeeks(parseISO(sowDate)!, presowWeeks)
+                : baseDate;
+              const expectedHarvestStart = addWeeks(groundDate, growWeeks);
+              const expectedHarvestEnd = addWeeks(expectedHarvestStart, harvestWeeks);
+              
+              const formatDate = (d: Date) => d.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' });
+              
+              return (
+                <div className="p-3 rounded-lg bg-muted/50 border border-border text-sm space-y-1">
+                  <div className="font-medium text-muted-foreground mb-2">Verwachte planning ({curSeed.name})</div>
+                  {method === 'presow' && presowWeeks > 0 && sowDate && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Uitplanten na {presowWeeks} weken:</span>
+                      <span className="font-medium">{formatDate(groundDate)}</span>
+                    </div>
+                  )}
+                  {growWeeks > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Oogst start ({growWeeks} weken groei):</span>
+                      <span className="font-medium text-green-600">{formatDate(expectedHarvestStart)}</span>
+                    </div>
+                  )}
+                  {harvestWeeks > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Oogst einde ({harvestWeeks} weken oogst):</span>
+                      <span className="font-medium text-green-600">{formatDate(expectedHarvestEnd)}</span>
+                    </div>
+                  )}
+                  {growWeeks === 0 && harvestWeeks === 0 && (
+                    <div className="text-muted-foreground italic">Geen groei/oogst duur ingesteld voor dit gewas.</div>
+                  )}
+                </div>
+              );
+            })()}
+
             <label className="text-sm">Status</label>
             <select className="w-full rounded-md border border-input bg-background px-3 py-2" value={status} onChange={e=>setStatus(e.target.value as any)}>
               {(['planned','sown','planted','growing','harvesting','completed'] as const).map(s => (
