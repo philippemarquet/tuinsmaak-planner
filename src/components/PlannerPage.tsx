@@ -155,10 +155,27 @@ function IconTilingOverlay({
 }
 
 /* ===== helpers ===== */
-const toISO = (d: Date) => d.toISOString().slice(0, 10);
+// Format Date to YYYY-MM-DD in local time (avoids timezone shift)
+const toISO = (d: Date) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 const addDays = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 const addWeeks = (d: Date, w: number) => addDays(d, w * 7);
-const parseISO = (x?: string | null) => (x ? new Date(x) : null);
+// Parse YYYY-MM-DD string to local Date (avoids timezone shift)
+const parseISO = (x?: string | null) => {
+  if (!x) return null;
+  const [year, month, day] = x.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+// Get Friday of the week for a given date
+const getFridayOfWeek = (d: Date): Date => {
+  const dayOfWeek = d.getDay(); // 0=Sun, 1=Mon, ..., 5=Fri, 6=Sat
+  const daysToFriday = 5 - dayOfWeek;
+  return addDays(d, daysToFriday);
+};
 const fmtDMY = (iso?: string | null) => (!iso ? "—" : new Date(iso).toLocaleDateString("nl-NL"));
 const clamp = (n: number, a: number, b: number) => Math.max(a, Math.min(b, n));
 const weekOf = (d: Date) => {
@@ -761,7 +778,7 @@ export function PlannerPage({
           </div>
 
           {/* Categorie filter */}
-          <Popover>
+          <Popover modal={false}>
             <PopoverTrigger asChild>
               <button className="w-full px-3 py-2 text-xs text-left rounded-lg flex justify-between items-center bg-muted/30 hover:bg-muted/50 transition-all group">
                 <span className={cn(
@@ -777,7 +794,16 @@ export function PlannerPage({
                 <ChevronDown className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
               </button>
             </PopoverTrigger>
-            <PopoverContent className="w-52 p-2 max-h-56 overflow-y-auto bg-popover/95 backdrop-blur-sm border-border/50 z-50">
+            <PopoverContent 
+              className="w-52 p-2 max-h-56 overflow-y-auto bg-popover/95 backdrop-blur-sm border-border/50 z-50"
+              onInteractOutside={(e) => {
+                // Voorkom sluiten bij klikken op checkboxen
+                const target = e.target as HTMLElement;
+                if (target.closest('[role="checkbox"]') || target.closest('label')) {
+                  e.preventDefault();
+                }
+              }}
+            >
               <div className="space-y-0.5">
                 {cropTypeFilters.length > 0 && (
                   <button onClick={() => setCropTypeFilters([])} className="w-full text-left text-[11px] text-primary hover:underline px-2 py-1 mb-1">
@@ -813,7 +839,7 @@ export function PlannerPage({
           </Popover>
 
           {/* Maand filter */}
-          <Popover>
+          <Popover modal={false}>
             <PopoverTrigger asChild>
               <button className="w-full px-3 py-2 text-xs text-left rounded-lg flex justify-between items-center bg-muted/30 hover:bg-muted/50 transition-all group">
                 <span className={cn(
@@ -829,7 +855,16 @@ export function PlannerPage({
                 <ChevronDown className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
               </button>
             </PopoverTrigger>
-            <PopoverContent className="w-52 p-2 max-h-56 overflow-y-auto bg-popover/95 backdrop-blur-sm border-border/50 z-50">
+            <PopoverContent 
+              className="w-52 p-2 max-h-56 overflow-y-auto bg-popover/95 backdrop-blur-sm border-border/50 z-50"
+              onInteractOutside={(e) => {
+                // Voorkom sluiten bij klikken op checkboxen
+                const target = e.target as HTMLElement;
+                if (target.closest('[role="checkbox"]') || target.closest('label')) {
+                  e.preventDefault();
+                }
+              }}
+            >
               <div className="space-y-0.5">
                 {selectedMonths.length > 0 && (
                   <button onClick={() => setSelectedMonths([])} className="w-full text-left text-[11px] text-primary hover:underline px-2 py-1 mb-1">
@@ -1677,7 +1712,7 @@ function PlantingForm({
   const [datePickerOpen, setDatePickerOpen] = useState(false);
 
   const selectedBed = useMemo(() => beds.find((x) => x.id === bedId) ?? bed, [beds, bedId, bed]);
-  const plantDate = useMemo(() => new Date(date), [date]);
+  const plantDate = useMemo(() => parseISO(date) ?? new Date(), [date]);
   const hs = useMemo(() => addWeeks(plantDate, seed.grow_duration_weeks ?? 0), [plantDate, seed.grow_duration_weeks]);
   const he = useMemo(() => addDays(addWeeks(hs, seed.harvest_duration_weeks ?? 0), -1), [hs, seed.harvest_duration_weeks]);
 
@@ -1701,8 +1736,8 @@ function PlantingForm({
 
   const monthWarning = useMemo(() => {
     if (!date) return null;
-    const dt = new Date(date);
-    if (Number.isNaN(dt.getTime())) return null;
+    const dt = parseISO(date);
+    if (!dt || Number.isNaN(dt.getTime())) return null;
 
     const month = dt.getMonth() + 1; // 1-12
     const monthNames = ["","januari","februari","maart","april","mei","juni","juli","augustus","september","oktober","november","december"];
@@ -1882,13 +1917,13 @@ function PlantingForm({
                 )}
               >
                 <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-                {date ? format(new Date(date), "d MMM yyyy", { locale: nl }) : "Kies datum"}
+                {date ? format(parseISO(date) ?? new Date(), "d MMM yyyy", { locale: nl }) : "Kies datum"}
               </button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0 bg-popover/95 backdrop-blur-md border-border/50" align="start">
               <Calendar
                 mode="single"
-                selected={date ? new Date(date) : undefined}
+                selected={parseISO(date) ?? undefined}
                 onSelect={(d) => {
                   if (d) {
                     setDate(toISO(d));
