@@ -4,14 +4,14 @@ import type { GardenBed, Planting, Seed } from "../lib/types";
 import { useDroppable, useDraggable } from "@dnd-kit/core";
 import { ChevronDown, ChevronRight, Edit3, ChevronLeft, ChevronRight as ChevRight } from "lucide-react";
 
-/* ===== helpers ===== */
+/* ===== date & math helpers ===== */
 const toISO=(d:Date)=>{ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,"0"); const dd=String(d.getDate()).padStart(2,"0"); return `${y}-${m}-${dd}`; };
 const parseISO=(x?:string|null)=>{ if(!x) return null; const [y,m,dd]=x.split("-").map(Number); return new Date(y,m-1,dd); };
 const addDays=(d:Date,n:number)=>{ const x=new Date(d); x.setDate(x.getDate()+n); return x; };
 const clamp=(n:number,a:number,b:number)=>Math.max(a,Math.min(b,n));
 const daysInMonth=(y:number,m0:number)=> new Date(y,m0+1,0).getDate();
 
-/* 0..1 -> wit→donkergroen (capaciteit) */
+/* 0..1 -> wit → donkergroen voor bezetting */
 function occupancyColor(t:number){
   const tt=clamp(t,0,1);
   const dark={r:6,g:78,b:59}; // #064e3b
@@ -21,7 +21,7 @@ function occupancyColor(t:number){
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-/* ===== dnd helpers ===== */
+/* ===== DnD helpers ===== */
 function DroppableCell({ id }: { id:string }){
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
@@ -32,7 +32,7 @@ function DroppableCell({ id }: { id:string }){
   );
 }
 
-/* Blok met aparte drag-handle (hele vlak) en bovenliggend ✏️-icoon */
+/* Draggable blok met aparte ✏️-knop die drag blokkeert */
 function DraggablePlanting({
   planting, label, gridColumnStart, gridColumnEnd, gridRowStart, gridRowEnd, color, onEdit,
 }:{
@@ -55,7 +55,7 @@ function DraggablePlanting({
       } as React.CSSProperties}
       title={label}
     >
-      {/* DRAG HANDLE — achter UI; klik op ✏️ triggert geen drag */}
+      {/* DRAG HANDLE (hele vlak) */}
       <div
         ref={setNodeRef}
         {...attributes}
@@ -66,6 +66,7 @@ function DraggablePlanting({
 
       <div className="relative z-10 truncate pr-5">{label}</div>
 
+      {/* EDIT KNOP — blokkeert drag met stopPropagation + preventDefault */}
       <button
         type="button"
         aria-label="Bewerken"
@@ -86,8 +87,12 @@ export default function CapacityTimelineView({
 }:{
   beds:GardenBed[]; plantings:Planting[]; seeds:Seed[]; currentWeek:Date;
   onReload:()=>Promise<void>;
-  onPlantClick:(p:Planting)=>void;
+  onPlantClick:(p:Planting)=>void; // moet in PlannerPage de PlantingForm popup openen
 }){
+  const safeBeds = Array.isArray(beds) ? beds : [];
+  const safePlantings = Array.isArray(plantings) ? plantings : [];
+  const safeSeeds = Array.isArray(seeds) ? seeds : [];
+
   // Toon ALTIJD de volledige maand van currentWeek
   const initialMonthStart = useMemo(()=> new Date(currentWeek.getFullYear(), currentWeek.getMonth(), 1), [currentWeek]);
   const [monthStart, setMonthStart] = useState<Date>(initialMonthStart);
@@ -99,18 +104,25 @@ export default function CapacityTimelineView({
 
   // layout
   const DAY_W=28;           // 28px per dag
-  const ROW_H=22;
+  const ROW_H=22;           // 22px per segment
   const daysWidth = totalDays * DAY_W;
 
-  const seedsById=useMemo(()=> Object.fromEntries(seeds.map(s=>[s.id,s])), [seeds]);
+  const seedsById=useMemo(()=> Object.fromEntries(safeSeeds.map(s=>[s.id,s])), [safeSeeds]);
 
-  // Occupancy per bed per dag
+  // ===== Expand/Collapse state (Set<string>) — GEEN null meer!
+  const [expanded,setExpanded]=useState<Set<string>>(()=>new Set());
+  const allExpanded = expanded.size===safeBeds.length;
+  const expandAll=()=> setExpanded(new Set(safeBeds.map(b=>b.id)));
+  const collapseAll=()=> setExpanded(new Set());
+  const toggleBed=(id:string)=> setExpanded(prev=>{ const n=new Set(prev); if(n.has(id)) n.delete(id); else n.add(id); return n; });
+
+  // ===== Bezetting per bed per dag (0..1)
   const occupancyByBedDay = useMemo(()=>{
     const map=new Map<string, number[]>();
-    for(const bed of beds){
+    for(const bed of safeBeds){
       const arr=new Array<number>(totalDays).fill(0);
       const segTotal=Math.max(1, bed.segments||1);
-      for(const p of plantings){
+      for(const p of safePlantings){
         if(p.garden_bed_id!==bed.id) continue;
         const s=parseISO(p.planned_date), e=parseISO(p.planned_harvest_end); if(!s||!e) continue;
         for(let di=0; di<totalDays; di++){
@@ -122,37 +134,29 @@ export default function CapacityTimelineView({
       map.set(bed.id, arr);
     }
     return map;
-  },[beds, plantings, dayDates, totalDays]);
-
-  // Expand/collapse
-  const [expanded,setExpanded]=useState<Set<string>>(()=>new Set());
-  const allExpanded = expanded.size===beds.length;
-  const expandAll=()=> setExpanded(new Set(beds.map(b=>b.id)));
-  const collapseAll=()=> setExpanded(new Set());
-  const toggleBed=(id:string)=> setExpanded(prev=>{ const n=new Set(prev); if(n.has(id)) n.delete(id); else n.add(id); return n; });
+  },[safeBeds, safePlantings, dayDates, totalDays]);
 
   // Navigatie
   const prevMonth=()=> setMonthStart(new Date(monthStart.getFullYear(), monthStart.getMonth()-1, 1));
   const nextMonth=()=> setMonthStart(new Date(monthStart.getFullYear(), monthStart.getMonth()+1, 1));
   const thisMonth=()=> setMonthStart(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
 
-  // === BELANGRIJK: zelfde sortering als lijstweergave ===
+  // === zelfde sortering als lijstweergave: sort_order, dan naam
   const sortBeds = (arr: GardenBed[]) =>
     arr.slice().sort((a,b)=>
       ((a.sort_order ?? 0) - (b.sort_order ?? 0)) ||
       ((a.name ?? "").localeCompare(b.name ?? ""))
     );
 
-  // Groepen buiten/kas (gesorteerd)
+  // Groepen buiten/kas
   const groups = useMemo(()=>[
-    { key:"outdoor", label:"Buiten", items: sortBeds(beds.filter(b=>!b.is_greenhouse)) },
-    { key:"greenhouse", label:"Kas", items: sortBeds(beds.filter(b=> b.is_greenhouse)) },
-  ],[beds]);
+    { key:"outdoor", label:"Buiten", items: sortBeds(safeBeds.filter(b=>!b.is_greenhouse)) },
+    { key:"greenhouse", label:"Kas", items: sortBeds(safeBeds.filter(b=> b.is_greenhouse)) },
+  ],[safeBeds]);
 
-  // Header
   return (
     <div className="space-y-4">
-      {/* Header — nette segment controls + uitlijning */}
+      {/* Header — nette, uitgelijnde knoppen */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="flex items-center p-0.5 bg-muted/40 rounded-lg">
@@ -192,7 +196,7 @@ export default function CapacityTimelineView({
         </button>
       </div>
 
-      {/* Scrollcontainer: volledige maand altijd zichtbaar */}
+      {/* Scrollcontainer: volledige maand */}
       <div className="overflow-x-auto rounded-lg border">
         {/* Dag-header */}
         <div style={{ minWidth: 240 + daysWidth }}>
@@ -223,30 +227,20 @@ export default function CapacityTimelineView({
             {group.items.map((bed)=>{
               const segCount=Math.max(1, bed.segments||1);
               const occ=occupancyByBedDay.get(bed.id) ?? new Array<number>(totalDays).fill(0);
-              const [expanded,setIsExpanded]=[ /* shadowing avoided */ null, null ];
-              const isOpen=(expanded as any)?.has?.(bed.id) ?? false; // placeholder to keep types happy in this isolated file
-              // We gebruiken hieronder de echte expanded-state:
-              const _isOpen = (expanded as any) === null ? ( (window as any).__forceOpen ?? false ) : ( (expanded as Set<string>).has(bed.id) );
-              // maar in deze component gebruiken we onze lokale expanded:
-              // (dit is een no-op hack voor type hints; functioneel gebruiken we expanded hieronder correct)
-
-              const reallyOpen = ( (expanded as Set<string>).has?.(bed.id) ) ?? false;
-
-              const showOpen = reallyOpen;
+              const isOpen = expanded.has(bed.id);
 
               const gridCols=`repeat(${totalDays}, ${DAY_W}px)`;
-              const gridRows=`repeat(${segCount}, ${ROW_H}px)`;
 
               return (
                 <div key={bed.id} className="border-b bg-card/50">
-                  {/* Collapsed row: bezetting in kleurgradaties */}
+                  {/* Collapsed row met bezettingsgradaties */}
                   <button
                     className="w-full px-3 py-2 text-sm font-medium flex items-center justify-between border-b bg-muted/40"
-                    onClick={()=> ( (setExpanded as any)((prev: Set<string>)=>{ const n=new Set(prev); if(n.has(bed.id)) n.delete(bed.id); else n.add(bed.id); return n; }) )}
-                    title={( (expanded as Set<string>).has?.(bed.id) ? "Inklappen":"Uitklappen")}
+                    onClick={()=> toggleBed(bed.id)}
+                    title={isOpen ? "Inklappen":"Uitklappen"}
                   >
                     <span className="flex items-center gap-2">
-                      {(expanded as Set<string>).has?.(bed.id) ? <ChevronDown className="w-4 h-4"/> : <ChevronRight className="w-4 h-4"/>}
+                      {isOpen ? <ChevronDown className="w-4 h-4"/> : <ChevronRight className="w-4 h-4"/>}
                       <span className="truncate">{bed.name}</span>
                       {bed.is_greenhouse && (
                         <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-600 text-white">Kas</span>
@@ -259,7 +253,7 @@ export default function CapacityTimelineView({
 
                   <div className="grid" style={{ gridTemplateColumns:`240px repeat(${totalDays}, ${DAY_W}px)` }}>
                     <div className="bg-background/60 border-r px-3 py-2 text-[11px] text-muted-foreground">
-                      {(expanded as Set<string>).has?.(bed.id) ? "Segmenten":"Bezetting per dag"}
+                      {isOpen ? "Segmenten":"Bezetting per dag"}
                     </div>
                     {occ.map((t,i)=>(
                       <div
@@ -272,14 +266,14 @@ export default function CapacityTimelineView({
                   </div>
 
                   {/* Expanded: segmenten + blokken */}
-                  {(expanded as Set<string>).has?.(bed.id) && (
+                  {isOpen && (
                     <BedExpandedRow
                       bed={bed}
                       segCount={segCount}
                       dayDates={dayDates}
                       totalDays={totalDays}
                       daysWidth={daysWidth}
-                      plantings={plantings}
+                      plantings={safePlantings}
                       seedsById={seedsById}
                       monthStart={monthStart}
                       onPlantClick={onPlantClick}
@@ -297,7 +291,7 @@ export default function CapacityTimelineView({
   );
 }
 
-/* Uitgeklapte rij uitgelicht voor leesbaarheid */
+/* ===== Uitgeklapte bed-rij ===== */
 function BedExpandedRow({
   bed, segCount, dayDates, totalDays, daysWidth, plantings, seedsById, monthStart, onPlantClick, DAY_W, ROW_H
 }:{
@@ -339,7 +333,7 @@ function BedExpandedRow({
           )}
         </div>
 
-        {/* blokken */}
+        {/* geplande blokken */}
         <div className="grid absolute inset-0" style={{ gridTemplateColumns: gridCols, gridTemplateRows: gridRows }}>
           {(plantings||[]).filter(p=>p.garden_bed_id===bed.id).map(p=>{
             const seed=seedsById[p.seed_id];
@@ -347,7 +341,7 @@ function BedExpandedRow({
             const e=parseISO(p.planned_harvest_end);
             if(!s||!e) return null;
 
-            // Clip aan zichtbare maand
+            // Clip binnen de zichtbare maand
             const startIdx = Math.max(0, Math.floor((s.getTime()-monthStart.getTime())/86400000));
             const endIdx   = Math.min(totalDays-1, Math.floor((e.getTime()-monthStart.getTime())/86400000));
             if(endIdx<0 || startIdx>totalDays-1) return null;
