@@ -2,7 +2,7 @@
 import React, { useMemo, useState } from "react";
 import type { GardenBed, Planting, Seed } from "../lib/types";
 import { useDroppable, useDraggable } from "@dnd-kit/core";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Edit3 } from "lucide-react";
 
 /* helpers */
 const toISO=(d:Date)=>{ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,"0"); const dd=String(d.getDate()).padStart(2,"0"); return `${y}-${m}-${dd}`; };
@@ -23,28 +23,43 @@ function occupancyColor(t:number){
 
 function DroppableCell({ id }: { id:string }){
   const { setNodeRef, isOver } = useDroppable({ id });
-  // pointer-events: none zodat clicks op blokken erdoor gaan; dnd-kit gebruikt bounding rects
+  // pointer-events: none zodat clicks/knoppen in blokken erdoor gaan; dnd-kit gebruikt de rects alsnog
   return <div ref={setNodeRef} className={`relative h-full w-full pointer-events-none ${isOver?"outline outline-2 outline-primary/60 bg-primary/5":""}`}/>;
 }
 
 function DraggablePlanting({
-  planting, label, gridColumnStart, gridColumnEnd, gridRowStart, gridRowEnd, color, onClick,
+  planting, label, gridColumnStart, gridColumnEnd, gridRowStart, gridRowEnd, color, onEdit,
 }:{
   planting:Planting; label:string;
   gridColumnStart:number; gridColumnEnd:number;
   gridRowStart:number; gridRowEnd:number;
-  color:string; onClick:()=>void;
+  color:string; onEdit:()=>void;
 }){
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id:`planting-${planting.id}` });
+
   return (
-    <div ref={setNodeRef} {...listeners} {...attributes}
-      className={`text-[10px] rounded px-1 py-0.5 cursor-grab active:cursor-grabbing select-none z-10 ${isDragging?"opacity-60 scale-[0.98]":""}`}
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className={`relative text-[10px] rounded px-1 py-0.5 cursor-grab active:cursor-grabbing select-none z-10 ${isDragging?"opacity-60 scale-[0.98]":""}`}
       style={{ gridColumnStart, gridColumnEnd, gridRowStart, gridRowEnd, background:color, color:"#fff" } as React.CSSProperties}
-      onClick={(e)=>{ e.stopPropagation(); onClick(); }}
-      role="button"
       title={label}
     >
-      <div className="truncate">{label}</div>
+      {/* label (ruimte vrijhouden rechts voor de bewerkknop) */}
+      <div className="truncate pr-5">{label}</div>
+
+      {/* BEWERKEN-knop — klikt niet-mee voor drag */}
+      <button
+        type="button"
+        aria-label="Bewerken"
+        title="Bewerken"
+        className="absolute top-0.5 right-0.5 p-0.5 rounded bg-black/25 hover:bg-black/35 text-white"
+        onMouseDown={(e)=>{ e.stopPropagation(); e.preventDefault(); }} // voorkomt drag-start
+        onClick={(e)=>{ e.stopPropagation(); onEdit(); }}
+      >
+        <Edit3 className="w-3 h-3" />
+      </button>
     </div>
   );
 }
@@ -123,7 +138,7 @@ export default function CapacityTimelineView({
           <button className="px-2 py-1 rounded border bg-muted hover:bg-muted/70 text-xs" onClick={allExpanded?collapseAll:expandAll}>
             {allExpanded?"Alles inklappen":"Alles uitklappen"}
           </button>
-          <div className="text-xs text-muted-foreground">Sleep seeds naar dag×segment of versleep blokken. Klik op een blok om te bewerken.</div>
+          <div className="text-xs text-muted-foreground">Sleep seeds naar dag×segment of versleep blokken. Klik op ✏️ om te bewerken.</div>
         </div>
       </div>
 
@@ -232,11 +247,16 @@ export default function CapacityTimelineView({
                             const color=(p.color && p.color.startsWith("#")) ? p.color : (seed?.default_color?.startsWith("#") ? seed.default_color! : "#16a34a");
 
                             return (
-                              <DraggablePlanting key={p.id} planting={p} label={label}
-                                gridColumnStart={gridColumnStart} gridColumnEnd={gridColumnEnd}
-                                gridRowStart={rStart} gridRowEnd={rEnd}
+                              <DraggablePlanting
+                                key={p.id}
+                                planting={p}
+                                label={label}
+                                gridColumnStart={gridColumnStart}
+                                gridColumnEnd={gridColumnEnd}
+                                gridRowStart={rStart}
+                                gridRowEnd={rEnd}
                                 color={color}
-                                onClick={()=>onPlantClick(p)}
+                                onEdit={()=>onPlantClick(p)}
                               />
                             );
                           })}
