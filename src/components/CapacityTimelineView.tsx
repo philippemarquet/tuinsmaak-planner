@@ -87,7 +87,7 @@ export default function CapacityTimelineView({
 }:{
   beds:GardenBed[]; plantings:Planting[]; seeds:Seed[]; currentWeek:Date;
   onReload:()=>Promise<void>;
-  onPlantClick:(p:Planting)=>void; // moet in PlannerPage de PlantingForm popup openen
+  onPlantClick:(p:Planting)=>void; // opent PlantingForm popup in PlannerPage
 }){
   const safeBeds = Array.isArray(beds) ? beds : [];
   const safePlantings = Array.isArray(plantings) ? plantings : [];
@@ -105,11 +105,12 @@ export default function CapacityTimelineView({
   // layout
   const DAY_W=28;           // 28px per dag
   const ROW_H=22;           // 22px per segment
+  const HEADER_H=56;        // sticky header hoogte (toolbar)
   const daysWidth = totalDays * DAY_W;
 
   const seedsById=useMemo(()=> Object.fromEntries(safeSeeds.map(s=>[s.id,s])), [safeSeeds]);
 
-  // ===== Expand/Collapse state (Set<string>) — GEEN null meer!
+  // ===== Expand/Collapse state
   const [expanded,setExpanded]=useState<Set<string>>(()=>new Set());
   const allExpanded = expanded.size===safeBeds.length;
   const expandAll=()=> setExpanded(new Set(safeBeds.map(b=>b.id)));
@@ -156,51 +157,59 @@ export default function CapacityTimelineView({
 
   return (
     <div className="space-y-4">
-      {/* Header — nette, uitgelijnde knoppen */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="flex items-center p-0.5 bg-muted/40 rounded-lg">
+      {/* Sticky Header — maandselector */}
+      <div
+        className="sticky top-0 z-30 bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b"
+        style={{ height: HEADER_H }}
+      >
+        <div className="h-full flex items-center justify-between px-0">
+          <div className="flex items-center gap-2 pl-0">
+            <div className="flex items-center p-0.5 bg-muted/40 rounded-lg">
+              <button
+                className="px-3 py-2 text-sm font-medium rounded-md hover:bg-background transition-colors"
+                onClick={prevMonth}
+                title="Vorige maand"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="px-4 py-2 font-semibold text-sm min-w-[180px] text-center">
+                {monthStart.toLocaleString("nl-NL", { month:"long", year:"numeric" })}
+              </span>
+              <button
+                className="px-3 py-2 text-sm font-medium rounded-md hover:bg-background transition-colors"
+                onClick={nextMonth}
+                title="Volgende maand"
+              >
+                <ChevRight className="w-4 h-4" />
+              </button>
+            </div>
+
             <button
-              className="px-3 py-2 text-sm font-medium rounded-md hover:bg-background transition-colors"
-              onClick={prevMonth}
-              title="Vorige maand"
+              className="ml-2 px-3 py-2 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
+              onClick={thisMonth}
+              title="Terug naar huidige maand"
             >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="px-4 py-2 font-semibold text-sm min-w-[180px] text-center">
-              {monthStart.toLocaleString("nl-NL", { month:"long", year:"numeric" })}
-            </span>
-            <button
-              className="px-3 py-2 text-sm font-medium rounded-md hover:bg-background transition-colors"
-              onClick={nextMonth}
-              title="Volgende maand"
-            >
-              <ChevRight className="w-4 h-4" />
+              Vandaag
             </button>
           </div>
 
           <button
-            className="px-3 py-2 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
-            onClick={thisMonth}
-            title="Terug naar huidige maand"
+            className={`mr-0 px-3 py-2 text-sm font-medium rounded-lg transition-all ${allExpanded ? "bg-muted/50 hover:bg-muted" : "bg-primary text-primary-foreground hover:bg-primary/90"}`}
+            onClick={allExpanded ? collapseAll : expandAll}
           >
-            Vandaag
+            {allExpanded ? "Alles inklappen" : "Alles uitklappen"}
           </button>
         </div>
-
-        <button
-          className={`px-3 py-2 text-sm font-medium rounded-lg transition-all ${allExpanded ? "bg-muted/50 hover:bg-muted" : "bg-primary text-primary-foreground hover:bg-primary/90"}`}
-          onClick={allExpanded ? collapseAll : expandAll}
-        >
-          {allExpanded ? "Alles inklappen" : "Alles uitklappen"}
-        </button>
       </div>
 
-      {/* Scrollcontainer: volledige maand */}
+      {/* Scrollcontainer: volledige maand (horizontaal) */}
       <div className="overflow-x-auto rounded-lg border">
-        {/* Dag-header */}
+        {/* Dag-header (sticky onder de toolbar) */}
         <div style={{ minWidth: 240 + daysWidth }}>
-          <div className="grid sticky top-0 z-10 bg-background" style={{ gridTemplateColumns:`240px repeat(${totalDays}, ${DAY_W}px)` }}>
+          <div
+            className="grid sticky z-20 bg-background"
+            style={{ gridTemplateColumns:`240px repeat(${totalDays}, ${DAY_W}px)`, top: HEADER_H }}
+          >
             <div className="h-8 flex items-end pl-3 text-xs text-muted-foreground">Dag</div>
             {dayDates.map((d,idx)=>(
               <div key={idx} className="h-8 text-[10px] flex items-end justify-center text-muted-foreground">
@@ -226,9 +235,8 @@ export default function CapacityTimelineView({
             {/* Per bed */}
             {group.items.map((bed)=>{
               const segCount=Math.max(1, bed.segments||1);
-              const occ=occupancyByBedDay.get(bed.id) ?? new Array<number>(totalDays).fill(0);
+              const occ=occupancyColorArr(occupancyByBedDay.get(bed.id), totalDays);
               const isOpen = expanded.has(bed.id);
-
               const gridCols=`repeat(${totalDays}, ${DAY_W}px)`;
 
               return (
@@ -247,7 +255,7 @@ export default function CapacityTimelineView({
                       )}
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      {Math.round((occ.reduce((a,b)=>a+b,0)/Math.max(1,occ.length))*100)}% gemiddeld bezet
+                      {occ.avgPct}% gemiddeld bezet
                     </span>
                   </button>
 
@@ -255,12 +263,12 @@ export default function CapacityTimelineView({
                     <div className="bg-background/60 border-r px-3 py-2 text-[11px] text-muted-foreground">
                       {isOpen ? "Segmenten":"Bezetting per dag"}
                     </div>
-                    {occ.map((t,i)=>(
+                    {occ.values.map((bg,i)=>(
                       <div
                         key={i}
                         className="h-[22px] border-r border-muted-foreground/10"
-                        style={{ background: occupancyColor(t) }}
-                        title={`${toISO(dayDates[i])}: ${Math.round(t*100)}%`}
+                        style={{ background: bg }}
+                        title={`${toISO(dayDates[i])}: ${occ.pcts[i]}%`}
                       />
                     ))}
                   </div>
@@ -274,7 +282,7 @@ export default function CapacityTimelineView({
                       totalDays={totalDays}
                       daysWidth={daysWidth}
                       plantings={safePlantings}
-                      seedsById={seedsById}
+                      seedsById={Object.fromEntries(safeSeeds.map(s=>[s.id,s]))}
                       monthStart={monthStart}
                       onPlantClick={onPlantClick}
                       DAY_W={DAY_W}
@@ -289,6 +297,15 @@ export default function CapacityTimelineView({
       </div>
     </div>
   );
+}
+
+/* helper: kleur-array + percentages + gemiddelde */
+function occupancyColorArr(arr: number|number[]|undefined, totalDays: number){
+  const a = Array.isArray(arr) ? arr : new Array<number>(totalDays).fill(0);
+  const values = a.map(t=> occupancyColor(t));
+  const pcts = a.map(t=> Math.round(clamp(t,0,1)*100));
+  const avgPct = Math.round((a.reduce((x,y)=>x+y,0)/Math.max(1,a.length))*100);
+  return { values, pcts, avgPct };
 }
 
 /* ===== Uitgeklapte bed-rij ===== */
