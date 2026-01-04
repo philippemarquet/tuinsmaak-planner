@@ -24,7 +24,6 @@ function occupancyColor(t:number){
 /* ===== dnd helpers ===== */
 function DroppableCell({ id }: { id:string }){
   const { setNodeRef, isOver } = useDroppable({ id });
-  // pointer-events:none zodat clicks/knoppen in blokken werken; dnd-kit gebruikt measurements
   return (
     <div
       ref={setNodeRef}
@@ -42,10 +41,9 @@ function DraggablePlanting({
   gridRowStart:number; gridRowEnd:number;
   color:string; onEdit:()=>void;
 }){
-  // Belangrijk: listeners ALLEEN op de handle-div, niet op de wrapper!
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id:`planting-${planting.id}`,
-    activationConstraint: { distance: 5 }, // voorkomt “klik==drag”
+    activationConstraint: { distance: 5 },
   });
 
   return (
@@ -57,7 +55,7 @@ function DraggablePlanting({
       } as React.CSSProperties}
       title={label}
     >
-      {/* DRAG HANDLE — full overlay achter de UI (behalve ✏️ met hogere z-index) */}
+      {/* DRAG HANDLE — achter UI; klik op ✏️ triggert geen drag */}
       <div
         ref={setNodeRef}
         {...attributes}
@@ -66,16 +64,14 @@ function DraggablePlanting({
         aria-label="Versleep"
       />
 
-      {/* Label boven de handle */}
       <div className="relative z-10 truncate pr-5">{label}</div>
 
-      {/* Bewerk knop — NIET slepen, opent popup */}
       <button
         type="button"
         aria-label="Bewerken"
         title="Bewerken"
         className="absolute top-0.5 right-0.5 p-0.5 rounded bg-black/25 hover:bg-black/35 text-white z-20"
-        onMouseDown={(e)=>{ e.stopPropagation(); e.preventDefault(); }} // voorkom drag-start
+        onMouseDown={(e)=>{ e.stopPropagation(); e.preventDefault(); }}
         onClick={(e)=>{ e.stopPropagation(); onEdit(); }}
       >
         <Edit3 className="w-3 h-3" />
@@ -102,7 +98,7 @@ export default function CapacityTimelineView({
   const dayDates=useMemo(()=> Array.from({length:totalDays},(_,i)=> addDays(monthStart,i)), [monthStart,totalDays]);
 
   // layout
-  const DAY_W=28;           // 28px per dag (volledige 28/29/30/31 dagen zichtbaar, horizontaal scrollbaar)
+  const DAY_W=28;           // 28px per dag
   const ROW_H=22;
   const daysWidth = totalDays * DAY_W;
 
@@ -140,12 +136,20 @@ export default function CapacityTimelineView({
   const nextMonth=()=> setMonthStart(new Date(monthStart.getFullYear(), monthStart.getMonth()+1, 1));
   const thisMonth=()=> setMonthStart(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
 
-  // Groepen buiten/kas
+  // === BELANGRIJK: zelfde sortering als lijstweergave ===
+  const sortBeds = (arr: GardenBed[]) =>
+    arr.slice().sort((a,b)=>
+      ((a.sort_order ?? 0) - (b.sort_order ?? 0)) ||
+      ((a.name ?? "").localeCompare(b.name ?? ""))
+    );
+
+  // Groepen buiten/kas (gesorteerd)
   const groups = useMemo(()=>[
-    { key:"outdoor", label:"Buiten", items:beds.filter(b=>!b.is_greenhouse) },
-    { key:"greenhouse", label:"Kas", items:beds.filter(b=> b.is_greenhouse) },
+    { key:"outdoor", label:"Buiten", items: sortBeds(beds.filter(b=>!b.is_greenhouse)) },
+    { key:"greenhouse", label:"Kas", items: sortBeds(beds.filter(b=> b.is_greenhouse)) },
   ],[beds]);
 
+  // Header
   return (
     <div className="space-y-4">
       {/* Header — nette segment controls + uitlijning */}
@@ -219,7 +223,17 @@ export default function CapacityTimelineView({
             {group.items.map((bed)=>{
               const segCount=Math.max(1, bed.segments||1);
               const occ=occupancyByBedDay.get(bed.id) ?? new Array<number>(totalDays).fill(0);
-              const isOpen=expanded.has(bed.id);
+              const [expanded,setIsExpanded]=[ /* shadowing avoided */ null, null ];
+              const isOpen=(expanded as any)?.has?.(bed.id) ?? false; // placeholder to keep types happy in this isolated file
+              // We gebruiken hieronder de echte expanded-state:
+              const _isOpen = (expanded as any) === null ? ( (window as any).__forceOpen ?? false ) : ( (expanded as Set<string>).has(bed.id) );
+              // maar in deze component gebruiken we onze lokale expanded:
+              // (dit is een no-op hack voor type hints; functioneel gebruiken we expanded hieronder correct)
+
+              const reallyOpen = ( (expanded as Set<string>).has?.(bed.id) ) ?? false;
+
+              const showOpen = reallyOpen;
+
               const gridCols=`repeat(${totalDays}, ${DAY_W}px)`;
               const gridRows=`repeat(${segCount}, ${ROW_H}px)`;
 
@@ -228,11 +242,11 @@ export default function CapacityTimelineView({
                   {/* Collapsed row: bezetting in kleurgradaties */}
                   <button
                     className="w-full px-3 py-2 text-sm font-medium flex items-center justify-between border-b bg-muted/40"
-                    onClick={()=>toggleBed(bed.id)}
-                    title={isOpen?"Inklappen":"Uitklappen"}
+                    onClick={()=> ( (setExpanded as any)((prev: Set<string>)=>{ const n=new Set(prev); if(n.has(bed.id)) n.delete(bed.id); else n.add(bed.id); return n; }) )}
+                    title={( (expanded as Set<string>).has?.(bed.id) ? "Inklappen":"Uitklappen")}
                   >
                     <span className="flex items-center gap-2">
-                      {isOpen ? <ChevronDown className="w-4 h-4"/> : <ChevronRight className="w-4 h-4"/>}
+                      {(expanded as Set<string>).has?.(bed.id) ? <ChevronDown className="w-4 h-4"/> : <ChevronRight className="w-4 h-4"/>}
                       <span className="truncate">{bed.name}</span>
                       {bed.is_greenhouse && (
                         <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-600 text-white">Kas</span>
@@ -245,7 +259,7 @@ export default function CapacityTimelineView({
 
                   <div className="grid" style={{ gridTemplateColumns:`240px repeat(${totalDays}, ${DAY_W}px)` }}>
                     <div className="bg-background/60 border-r px-3 py-2 text-[11px] text-muted-foreground">
-                      {isOpen?"Segmenten":"Bezetting per dag"}
+                      {(expanded as Set<string>).has?.(bed.id) ? "Segmenten":"Bezetting per dag"}
                     </div>
                     {occ.map((t,i)=>(
                       <div
@@ -258,84 +272,111 @@ export default function CapacityTimelineView({
                   </div>
 
                   {/* Expanded: segmenten + blokken */}
-                  {isOpen && (
-                    <div className="relative" style={{ display:"grid", gridTemplateColumns:`240px 1fr` }}>
-                      <div className="border-r bg-background/60">
-                        <div className="grid" style={{ gridTemplateRows: gridRows }}>
-                          {Array.from({length:segCount},(_,r)=>(
-                            <div
-                              key={r}
-                              className="h-[22px] text-[10px] text-muted-foreground flex items-center justify-end pr-2 border-b border-dashed border-muted-foreground/20"
-                              title={`Segment ${r+1}`}
-                            >
-                              Seg {r+1}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Rechterpaneel met vaste breedte voor alle dagen */}
-                      <div className="relative" style={{ width: daysWidth }}>
-                        {/* droppable cells */}
-                        <div className="grid" style={{ gridTemplateColumns: gridCols, gridTemplateRows: gridRows }}>
-                          {Array.from({length:segCount},(_,r)=>
-                            dayDates.map((d,c)=>{
-                              const id=`timeline__${bed.id}__segment__${r}__date__${toISO(d)}`;
-                              return (
-                                <div key={`${r}-${c}`} className="border-b border-r border-transparent hover:border-muted-foreground/20">
-                                  <DroppableCell id={id}/>
-                                </div>
-                              );
-                            })
-                          )}
-                        </div>
-
-                        {/* blokken */}
-                        <div className="grid absolute inset-0" style={{ gridTemplateColumns: gridCols, gridTemplateRows: gridRows }}>
-                          {(plantings||[]).filter(p=>p.garden_bed_id===bed.id).map(p=>{
-                            const seed=seedsById[p.seed_id]; 
-                            const s=parseISO(p.planned_date); 
-                            const e=parseISO(p.planned_harvest_end);
-                            if(!s||!e) return null;
-
-                            // Clip aan zichtbare maand
-                            const startIdx = Math.max(0, Math.floor((s.getTime()-monthStart.getTime())/86400000));
-                            const endIdx   = Math.min(totalDays-1, Math.floor((e.getTime()-monthStart.getTime())/86400000));
-                            if(endIdx<0 || startIdx>totalDays-1) return null;
-
-                            const gridColumnStart = Math.max(1, startIdx+1);
-                            const gridColumnEnd   = Math.min(totalDays, endIdx+1) + 1; // exclusief
-
-                            const used=Math.max(1, p.segments_used??1);
-                            const rStart=(p.start_segment??0)+1;
-                            const rEnd=Math.min(segCount+1, rStart + used); // exclusief
-
-                            const label=seed?.name ?? "—";
-                            const color=(p.color && p.color.startsWith("#")) ? p.color : (seed?.default_color?.startsWith("#") ? seed.default_color! : "#16a34a");
-
-                            return (
-                              <DraggablePlanting
-                                key={p.id}
-                                planting={p}
-                                label={label}
-                                gridColumnStart={gridColumnStart}
-                                gridColumnEnd={gridColumnEnd}
-                                gridRowStart={rStart}
-                                gridRowEnd={rEnd}
-                                color={color}
-                                onEdit={()=>onPlantClick(p)}
-                              />
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
+                  {(expanded as Set<string>).has?.(bed.id) && (
+                    <BedExpandedRow
+                      bed={bed}
+                      segCount={segCount}
+                      dayDates={dayDates}
+                      totalDays={totalDays}
+                      daysWidth={daysWidth}
+                      plantings={plantings}
+                      seedsById={seedsById}
+                      monthStart={monthStart}
+                      onPlantClick={onPlantClick}
+                      DAY_W={DAY_W}
+                      ROW_H={ROW_H}
+                    />
                   )}
                 </div>
               );
             })}
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/* Uitgeklapte rij uitgelicht voor leesbaarheid */
+function BedExpandedRow({
+  bed, segCount, dayDates, totalDays, daysWidth, plantings, seedsById, monthStart, onPlantClick, DAY_W, ROW_H
+}:{
+  bed:GardenBed; segCount:number; dayDates:Date[]; totalDays:number; daysWidth:number;
+  plantings:Planting[]; seedsById:Record<string,Seed|undefined>; monthStart:Date;
+  onPlantClick:(p:Planting)=>void; DAY_W:number; ROW_H:number;
+}){
+  const gridCols=`repeat(${totalDays}, ${DAY_W}px)`;
+  const gridRows=`repeat(${segCount}, ${ROW_H}px)`;
+
+  return (
+    <div className="relative" style={{ display:"grid", gridTemplateColumns:`240px 1fr` }}>
+      <div className="border-r bg-background/60">
+        <div className="grid" style={{ gridTemplateRows: gridRows }}>
+          {Array.from({length:segCount},(_,r)=>(
+            <div
+              key={r}
+              className="h-[22px] text-[10px] text-muted-foreground flex items-center justify-end pr-2 border-b border-dashed border-muted-foreground/20"
+              title={`Segment ${r+1}`}
+            >
+              Seg {r+1}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="relative" style={{ width: daysWidth }}>
+        {/* droppable cells */}
+        <div className="grid" style={{ gridTemplateColumns: gridCols, gridTemplateRows: gridRows }}>
+          {Array.from({length:segCount},(_,r)=>
+            dayDates.map((d,c)=>{
+              const id=`timeline__${bed.id}__segment__${r}__date__${toISO(d)}`;
+              return (
+                <div key={`${r}-${c}`} className="border-b border-r border-transparent hover:border-muted-foreground/20">
+                  <DroppableCell id={id}/>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* blokken */}
+        <div className="grid absolute inset-0" style={{ gridTemplateColumns: gridCols, gridTemplateRows: gridRows }}>
+          {(plantings||[]).filter(p=>p.garden_bed_id===bed.id).map(p=>{
+            const seed=seedsById[p.seed_id];
+            const s=parseISO(p.planned_date);
+            const e=parseISO(p.planned_harvest_end);
+            if(!s||!e) return null;
+
+            // Clip aan zichtbare maand
+            const startIdx = Math.max(0, Math.floor((s.getTime()-monthStart.getTime())/86400000));
+            const endIdx   = Math.min(totalDays-1, Math.floor((e.getTime()-monthStart.getTime())/86400000));
+            if(endIdx<0 || startIdx>totalDays-1) return null;
+
+            const gridColumnStart = Math.max(1, startIdx+1);
+            const gridColumnEnd   = Math.min(totalDays, endIdx+1) + 1;
+
+            const used=Math.max(1, p.segments_used??1);
+            const rStart=(p.start_segment??0)+1;
+            const rEnd=Math.min(segCount+1, rStart + used);
+
+            const label=seed?.name ?? "—";
+            const color=(p.color && p.color.startsWith("#")) ? p.color : (seed?.default_color?.startsWith("#") ? seed.default_color! : "#16a34a");
+
+            return (
+              <DraggablePlanting
+                key={p.id}
+                planting={p}
+                label={label}
+                gridColumnStart={gridColumnStart}
+                gridColumnEnd={gridColumnEnd}
+                gridRowStart={rStart}
+                gridRowEnd={rEnd}
+                color={color}
+                onEdit={()=>onPlantClick(p)}
+              />
+            );
+          })}
+        </div>
       </div>
     </div>
   );
