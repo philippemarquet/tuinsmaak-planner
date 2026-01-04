@@ -46,10 +46,7 @@ function hexToRgba(hex: string, alpha: number) {
   if (!hex?.startsWith("#")) return hex;
   let h = hex.replace("#", "");
   if (h.length === 3) {
-    h = h
-      .split("")
-      .map((c) => c + c)
-      .join("");
+    h = h.split("").map((c) => c + c).join("");
   }
   const r = parseInt(h.slice(0, 2), 16);
   const g = parseInt(h.slice(2, 4), 16);
@@ -70,7 +67,7 @@ function DroppableCell({ id }: { id: string }) {
   );
 }
 
-/* Draggable blok met aparte ✏️ en 🗑️ die drag blokkeren */
+/* Draggable blok met ✏️ en 🗑️ (blokkeren drag) */
 function DraggablePlanting({
   planting,
   label,
@@ -117,7 +114,7 @@ function DraggablePlanting({
       }
       title={label}
     >
-      {/* DRAG HANDLE (hele vlak) */}
+      {/* DRAG HANDLE */}
       <div
         ref={setNodeRef}
         {...attributes}
@@ -126,33 +123,24 @@ function DraggablePlanting({
         aria-label="Versleep"
       />
 
-      {/* Subtiele outline tijdens drag, zodat het raster leesbaar blijft */}
+      {/* Outline tijdens drag */}
       {isDragging && (
         <div className="absolute inset-0 rounded border-2 border-primary/60 pointer-events-none" />
       )}
 
-      <div
-        className="relative z-10 truncate pr-10"
-        style={{ opacity: labelOpacity }}
-      >
+      <div className="relative z-10 truncate pr-10" style={{ opacity: labelOpacity }}>
         {label}
       </div>
 
-      {/* Actieknoppen rechtsboven — blokkeren drag met stopPropagation + preventDefault */}
+      {/* Actieknoppen */}
       <div className="absolute top-0.5 right-0.5 flex gap-0.5 z-20">
         <button
           type="button"
           aria-label="Bewerken"
           title="Bewerken"
           className="p-0.5 rounded bg-black/25 hover:bg-black/35 text-white"
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            e.preventDefault();
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            onEdit();
-          }}
+          onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+          onClick={(e) => { e.stopPropagation(); onEdit(); }}
         >
           <Edit3 className="w-3 h-3" />
         </button>
@@ -161,14 +149,8 @@ function DraggablePlanting({
           aria-label="Verwijderen"
           title="Verwijderen"
           className="p-0.5 rounded bg-black/25 hover:bg-black/35 text-white"
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            e.preventDefault();
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
-          }}
+          onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
         >
           <Trash2 className="w-3 h-3" />
         </button>
@@ -192,14 +174,14 @@ export default function CapacityTimelineView({
   seeds: Seed[];
   currentWeek: Date;
   onReload: () => Promise<void>;
-  onPlantClick: (p: Planting) => void; // opent PlantingForm popup in PlannerPage
+  onPlantClick: (p: Planting) => void; // opent PlantingForm
   onPlantDelete: (p: Planting) => void | Promise<void>;
 }) {
   const safeBeds = Array.isArray(beds) ? beds : [];
   const safePlantings = Array.isArray(plantings) ? plantings : [];
   const safeSeeds = Array.isArray(seeds) ? seeds : [];
 
-  // Toon ALTIJD de volledige maand van currentWeek
+  // Volledige maand van currentWeek
   const initialMonthStart = useMemo(
     () => new Date(currentWeek.getFullYear(), currentWeek.getMonth(), 1),
     [currentWeek]
@@ -217,8 +199,7 @@ export default function CapacityTimelineView({
   // layout
   const DAY_W = 28; // 28px per dag
   const ROW_H = 22; // 22px per segment
-  const HEADER_H = 56; // sticky header hoogte (bovenste balk)
-  const FOOTER_H = 32; // sticky footer dag-regel hoogte
+  const HEADER_H = 56; // sticky header hoogte
   const daysWidth = totalDays * DAY_W;
 
   const seedsById = useMemo(
@@ -226,7 +207,7 @@ export default function CapacityTimelineView({
     [safeSeeds]
   );
 
-  // ===== Expand/Collapse state
+  // Expand/Collapse per bak
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const allExpanded = expanded.size === safeBeds.length;
   const expandAll = () => setExpanded(new Set(safeBeds.map((b) => b.id)));
@@ -239,7 +220,7 @@ export default function CapacityTimelineView({
       return n;
     });
 
-  // ===== Bezetting per bed per dag (0..1)
+  // Bezetting per dag (0..1)
   const occupancyByBedDay = useMemo(() => {
     const map = new Map<string, number[]>();
     for (const bed of safeBeds) {
@@ -247,8 +228,7 @@ export default function CapacityTimelineView({
       const segTotal = Math.max(1, bed.segments || 1);
       for (const p of safePlantings) {
         if (p.garden_bed_id !== bed.id) continue;
-        const s = parseISO(p.planned_date),
-          e = parseISO(p.planned_harvest_end);
+        const s = parseISO(p.planned_date), e = parseISO(p.planned_harvest_end);
         if (!s || !e) continue;
         for (let di = 0; di < totalDays; di++) {
           const d = dayDates[di];
@@ -269,7 +249,7 @@ export default function CapacityTimelineView({
   const thisMonth = () =>
     setMonthStart(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
 
-  // === zelfde sortering als lijstweergave: sort_order, dan naam
+  // Zelfde sortering als lijstweergave
   const sortBeds = (arr: GardenBed[]) =>
     arr
       .slice()
@@ -279,7 +259,7 @@ export default function CapacityTimelineView({
           (a.name ?? "").localeCompare(b.name ?? "")
       );
 
-  // Groepen buiten/kas
+  // Groepen
   const groups = useMemo(
     () => [
       { key: "outdoor", label: "Buiten", items: sortBeds(safeBeds.filter((b) => !b.is_greenhouse)) },
@@ -295,8 +275,8 @@ export default function CapacityTimelineView({
         className="sticky top-0 z-30 bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b"
         style={{ height: HEADER_H }}
       >
-        <div className="h-full flex items-center justify-between px-0">
-          <div className="flex items-center gap-2 pl-0">
+        <div className="h-full flex items-center justify-between">
+          <div className="flex items-center gap-2">
             <div className="flex items-center p-0.5 bg-muted/40 rounded-lg">
               <button
                 className="px-3 py-2 text-sm font-medium rounded-md hover:bg-background transition-colors"
@@ -306,10 +286,7 @@ export default function CapacityTimelineView({
                 <ChevronLeft className="w-4 h-4" />
               </button>
               <span className="px-4 py-2 font-semibold text-sm min-w-[180px] text-center">
-                {monthStart.toLocaleString("nl-NL", {
-                  month: "long",
-                  year: "numeric",
-                })}
+                {monthStart.toLocaleString("nl-NL", { month: "long", year: "numeric" })}
               </span>
               <button
                 className="px-3 py-2 text-sm font-medium rounded-md hover:bg-background transition-colors"
@@ -330,7 +307,7 @@ export default function CapacityTimelineView({
           </div>
 
           <button
-            className={`mr-0 px-3 py-2 text-sm font-medium rounded-lg transition-all ${
+            className={`px-3 py-2 text-sm font-medium rounded-lg transition-all ${
               allExpanded
                 ? "bg-muted/50 hover:bg-muted"
                 : "bg-primary text-primary-foreground hover:bg-primary/90"
@@ -342,10 +319,10 @@ export default function CapacityTimelineView({
         </div>
       </div>
 
-      {/* Scrollcontainer: volledige maand (horizontaal) */}
+      {/* Scrollcontainer */}
       <div className="overflow-x-auto rounded-lg border relative">
         <div style={{ minWidth: 240 + daysWidth }}>
-          {/* Dag-header (sticky onder de toolbar) */}
+          {/* Globale dag-header onder de toolbar (blijft handig) */}
           <div
             className="grid sticky z-20 bg-background"
             style={{
@@ -353,30 +330,22 @@ export default function CapacityTimelineView({
               top: HEADER_H,
             }}
           >
-            <div className="h-8 flex items-end pl-3 text-xs text-muted-foreground">
-              Dag
-            </div>
+            <div className="h-8 flex items-end pl-3 text-xs text-muted-foreground">Dag</div>
             {dayDates.map((d, idx) => (
-              <div
-                key={idx}
-                className="h-8 text-[10px] flex items-end justify-center text-muted-foreground"
-              >
+              <div key={idx} className="h-8 text-[10px] flex items-end justify-center text-muted-foreground">
                 <div className="pb-1">{d.getDate()}</div>
               </div>
             ))}
           </div>
+
+          {/* Dotted separator */}
           <div
             className="grid"
-            style={{
-              gridTemplateColumns: `240px repeat(${totalDays}, ${DAY_W}px)`,
-            }}
+            style={{ gridTemplateColumns: `240px repeat(${totalDays}, ${DAY_W}px)` }}
           >
             <div className="h-1 border-t border-dashed border-muted-foreground/30"></div>
             {dayDates.map((_, idx) => (
-              <div
-                key={idx}
-                className="h-1 border-t border-dashed border-muted-foreground/30"
-              />
+              <div key={idx} className="h-1 border-t border-dashed border-muted-foreground/30" />
             ))}
           </div>
 
@@ -389,7 +358,6 @@ export default function CapacityTimelineView({
                 </div>
               )}
 
-              {/* Per bed */}
               {group.items.map((bed) => {
                 const segCount = Math.max(1, bed.segments || 1);
                 const occ = occupancyColorArr(occupancyByBedDay.get(bed.id), totalDays);
@@ -397,7 +365,7 @@ export default function CapacityTimelineView({
 
                 return (
                   <div key={bed.id} className="border-b bg-card/50">
-                    {/* Collapsed row met bezettingsgradaties */}
+                    {/* Titelrij */}
                     <button
                       className="w-full px-3 py-2 text-sm font-medium flex items-center justify-between border-b bg-muted/40"
                       onClick={() => toggleBed(bed.id)}
@@ -411,21 +379,32 @@ export default function CapacityTimelineView({
                         )}
                         <span className="truncate">{bed.name}</span>
                         {bed.is_greenhouse && (
-                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-600 text-white">
-                            Kas
-                          </span>
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-600 text-white">Kas</span>
                         )}
                       </span>
-                      <span className="text-xs text-muted-foreground">
-                        {occ.avgPct}% gemiddeld bezet
-                      </span>
+                      <span className="text-xs text-muted-foreground">{occ.avgPct}% gemiddeld bezet</span>
                     </button>
 
+                    {/* >>> Per-bak DATUMREGEL — meescrollend met de bak <<< */}
+                    <div
+                      className="grid bg-background/70"
+                      style={{ gridTemplateColumns: `240px repeat(${totalDays}, ${DAY_W}px)` }}
+                    >
+                      <div className="h-7 flex items-center pl-3 text-[11px] text-muted-foreground">Dag</div>
+                      {dayDates.map((d, idx) => (
+                        <div
+                          key={idx}
+                          className="h-7 text-[10px] flex items-center justify-center text-muted-foreground"
+                        >
+                          {d.getDate()}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Collapsed: bezettingsgradaties */}
                     <div
                       className="grid"
-                      style={{
-                        gridTemplateColumns: `240px repeat(${totalDays}, ${DAY_W}px)`,
-                      }}
+                      style={{ gridTemplateColumns: `240px repeat(${totalDays}, ${DAY_W}px)` }}
                     >
                       <div className="bg-background/60 border-r px-3 py-2 text-[11px] text-muted-foreground">
                         {isOpen ? "Segmenten" : "Bezetting per dag"}
@@ -449,9 +428,7 @@ export default function CapacityTimelineView({
                         totalDays={totalDays}
                         daysWidth={daysWidth}
                         plantings={safePlantings}
-                        seedsById={Object.fromEntries(
-                          safeSeeds.map((s) => [s.id, s])
-                        )}
+                        seedsById={Object.fromEntries(safeSeeds.map((s) => [s.id, s]))}
                         monthStart={monthStart}
                         onPlantClick={onPlantClick}
                         onPlantDelete={onPlantDelete}
@@ -464,34 +441,6 @@ export default function CapacityTimelineView({
               })}
             </div>
           ))}
-
-          {/* Spacer zodat de sticky bottom datumregel niets bedekt */}
-          <div style={{ height: FOOTER_H }} />
-        </div>
-
-        {/* Sticky bottom datumregel */}
-        <div
-          className="sticky bottom-0 z-20 bg-background/95 backdrop-blur border-t"
-          style={{ minWidth: 240 + daysWidth, height: FOOTER_H }}
-        >
-          <div
-            className="grid"
-            style={{
-              gridTemplateColumns: `240px repeat(${totalDays}, ${DAY_W}px)`,
-            }}
-          >
-            <div className="h-8 flex items-center pl-3 text-xs text-muted-foreground">
-              Dag
-            </div>
-            {dayDates.map((d, idx) => (
-              <div
-                key={idx}
-                className="h-8 text-[10px] flex items-center justify-center text-muted-foreground"
-              >
-                {d.getDate()}
-              </div>
-            ))}
-          </div>
         </div>
       </div>
     </div>
@@ -503,9 +452,7 @@ function occupancyColorArr(arr: number | number[] | undefined, totalDays: number
   const a = Array.isArray(arr) ? arr : new Array<number>(totalDays).fill(0);
   const values = a.map((t) => occupancyColor(t));
   const pcts = a.map((t) => Math.round(clamp(t, 0, 1) * 100));
-  const avgPct = Math.round(
-    (a.reduce((x, y) => x + y, 0) / Math.max(1, a.length)) * 100
-  );
+  const avgPct = Math.round((a.reduce((x, y) => x + y, 0) / Math.max(1, a.length)) * 100);
   return { values, pcts, avgPct };
 }
 
@@ -541,10 +488,7 @@ function BedExpandedRow({
   const gridRows = `repeat(${segCount}, ${ROW_H}px)`;
 
   return (
-    <div
-      className="relative"
-      style={{ display: "grid", gridTemplateColumns: `240px 1fr` }}
-    >
+    <div className="relative" style={{ display: "grid", gridTemplateColumns: `240px 1fr` }}>
       <div className="border-r bg-background/60">
         <div className="grid" style={{ gridTemplateRows: gridRows }}>
           {Array.from({ length: segCount }, (_, r) => (
@@ -560,19 +504,13 @@ function BedExpandedRow({
       </div>
 
       <div className="relative" style={{ width: daysWidth }}>
-        {/* droppable cells */}
-        <div
-          className="grid"
-          style={{ gridTemplateColumns: gridCols, gridTemplateRows: gridRows }}
-        >
+        {/* Droppable cells */}
+        <div className="grid" style={{ gridTemplateColumns: gridCols, gridTemplateRows: gridRows }}>
           {Array.from({ length: segCount }, (_, r) =>
             dayDates.map((d, c) => {
               const id = `timeline__${bed.id}__segment__${r}__date__${toISO(d)}`;
               return (
-                <div
-                  key={`${r}-${c}`}
-                  className="border-b border-r border-transparent hover:border-muted-foreground/20"
-                >
+                <div key={`${r}-${c}`} className="border-b border-r border-transparent hover:border-muted-foreground/20">
                   <DroppableCell id={id} />
                 </div>
               );
@@ -580,11 +518,8 @@ function BedExpandedRow({
           )}
         </div>
 
-        {/* geplande blokken */}
-        <div
-          className="grid absolute inset-0"
-          style={{ gridTemplateColumns: gridCols, gridTemplateRows: gridRows }}
-        >
+        {/* Geplande blokken */}
+        <div className="grid absolute inset-0" style={{ gridTemplateColumns: gridCols, gridTemplateRows: gridRows }}>
           {(plantings || [])
             .filter((p) => p.garden_bed_id === bed.id)
             .map((p) => {
@@ -593,15 +528,9 @@ function BedExpandedRow({
               const e = parseISO(p.planned_harvest_end);
               if (!s || !e) return null;
 
-              // Clip binnen de zichtbare maand
-              const startIdx = Math.max(
-                0,
-                Math.floor((s.getTime() - monthStart.getTime()) / 86400000)
-              );
-              const endIdx = Math.min(
-                totalDays - 1,
-                Math.floor((e.getTime() - monthStart.getTime()) / 86400000)
-              );
+              // Clip tot zichtbare maand
+              const startIdx = Math.max(0, Math.floor((s.getTime() - monthStart.getTime()) / 86400000));
+              const endIdx = Math.min(totalDays - 1, Math.floor((e.getTime() - monthStart.getTime()) / 86400000));
               if (endIdx < 0 || startIdx > totalDays - 1) return null;
 
               const gridColumnStart = Math.max(1, startIdx + 1);
