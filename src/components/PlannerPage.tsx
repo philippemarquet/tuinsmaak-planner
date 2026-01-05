@@ -767,6 +767,9 @@ export function PlannerPage({
                     const seed=seedsById[p.seed_id]!;
                     setPopup({ mode:"edit", planting:p, seed, bed, segmentIndex:p.start_segment??0 });
                   }}
+                  onPlantDelete={async(p)=>{
+                    if(confirm("Verwijderen?")) { await deletePlanting(p.id); reload(); }
+                  }}
                 />
               </div>
             )}
@@ -855,7 +858,8 @@ function PlantingForm({
   beds:GardenBed[]; allPlantings:Planting[]; onCancel:()=>void;
   onConfirm:(startSegment:number,segmentsUsed:number,method:"direct"|"presow",dateISO:string,color:string,bedId:string)=>void;
 }){
-  const [segmentsUsed,setSegmentsUsed]=useState<number>(existing?.segments_used ?? 1);
+  const [segmentsUsedStr,setSegmentsUsedStr]=useState<string>(String(existing?.segments_used ?? 1));
+  const segmentsUsed=Math.max(1,parseInt(segmentsUsedStr,10)||1);
   const [method,setMethod]=useState<"direct"|"presow">(existing?.method ?? (seed.sowing_type==="both"?"direct":(seed.sowing_type as any) ?? "direct"));
   const [date,setDate]=useState<string>(existing?.planned_date ?? defaultDateISO);
   const [color,setColor]=useState<string>(()=> existing?.color?.startsWith("#") ? existing.color as string : seed.default_color?.startsWith("#") ? seed.default_color! : "#22c55e");
@@ -974,8 +978,9 @@ function PlantingForm({
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Segmenten</label>
           <div className="relative">
-            <input type="number" min={1} max={maxSegSpinner} value={segmentsUsed}
-                   onChange={(e)=>setSegmentsUsed(clamp(parseInt(e.target.value||"1",10),1,maxSegSpinner))}
+            <input type="number" min={1} max={maxSegSpinner} value={segmentsUsedStr}
+                   onChange={(e)=>setSegmentsUsedStr(e.target.value)}
+                   onBlur={()=>{ if(!segmentsUsedStr.trim() || parseInt(segmentsUsedStr,10)<1) setSegmentsUsedStr("1"); else if(parseInt(segmentsUsedStr,10)>maxSegSpinner) setSegmentsUsedStr(String(maxSegSpinner)); }}
                    className="w-full bg-muted/30 border-0 rounded-lg h-10 px-3 pr-12 text-sm focus:ring-2 focus:ring-primary/20 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"/>
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">stuks</span>
           </div>
