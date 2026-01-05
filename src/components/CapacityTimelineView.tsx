@@ -96,7 +96,6 @@ function DraggablePlanting({
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `planting-${planting.id}`,
-    activationConstraint: { distance: 5 },
   });
 
   const bg = isDragging ? hexToRgba(color, 0.18) : color;
