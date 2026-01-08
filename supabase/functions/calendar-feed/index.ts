@@ -93,6 +93,7 @@ CALSCALE:GREGORIAN\r
 METHOD:PUBLISH\r
 X-WR-CALNAME:Moestuin Acties\r
 X-WR-TIMEZONE:Europe/Amsterdam\r
+X-PUBLISHED-TTL:PT15M\r
 `;
 
   for (const task of tasks) {
