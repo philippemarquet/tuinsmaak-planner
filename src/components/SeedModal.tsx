@@ -123,6 +123,13 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
     return (ct?.icon_key ?? null) as string | null;
   }, [form.crop_type_id, cropTypes]);
 
+  // Check if selected crop type is "Bloem"
+  const isFlowerType = useMemo(() => {
+    if (!form.crop_type_id) return false;
+    const ct = cropTypes.find(c => c.id === form.crop_type_id);
+    return ct?.name?.toLowerCase() === 'bloem';
+  }, [form.crop_type_id, cropTypes]);
+
   const effectiveIconKey = form.icon_key ?? inheritedIconKey;
 
   const effectiveIconUrl = useMemo(() => {
@@ -379,19 +386,23 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
           </div>
 
           {/* Afstanden + Duur */}
-          <div className="grid grid-cols-5 gap-2">
-            <NumberInput
-              label="Rij"
-              suffix="cm"
-              value={form.row_spacing_cm}
-              onChange={(v) => handleChange("row_spacing_cm", v)}
-            />
-            <NumberInput
-              label="Plant"
-              suffix="cm"
-              value={form.plant_spacing_cm}
-              onChange={(v) => handleChange("plant_spacing_cm", v)}
-            />
+          <div className={cn("grid gap-2", isFlowerType ? "grid-cols-3" : "grid-cols-5")}>
+            {!isFlowerType && (
+              <>
+                <NumberInput
+                  label="Rij"
+                  suffix="cm"
+                  value={form.row_spacing_cm}
+                  onChange={(v) => handleChange("row_spacing_cm", v)}
+                />
+                <NumberInput
+                  label="Plant"
+                  suffix="cm"
+                  value={form.plant_spacing_cm}
+                  onChange={(v) => handleChange("plant_spacing_cm", v)}
+                />
+              </>
+            )}
             <NumberInput
               label="Voorzaai"
               suffix="wk"
@@ -406,7 +417,7 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
               onChange={(v) => handleChange("grow_duration_weeks", v)}
             />
             <NumberInput
-              label="Oogst"
+              label={isFlowerType ? "Bloei" : "Oogst"}
               suffix="wk"
               value={form.harvest_duration_weeks}
               onChange={(v) => handleChange("harvest_duration_weeks", v)}
@@ -425,7 +436,7 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
               label="In de kas"
               value={((form as any).greenhouse_months ?? []) as number[]}
               onChange={(val) => handleChange("greenhouse_months", val)}
-              disabled={!form.greenhouse_compatible}
+              disabled={isFlowerType || !form.greenhouse_compatible}
             />
             <MonthSelector
               label="Volle grond"
@@ -433,7 +444,7 @@ export function SeedModal({ gardenId, seed, onClose, onSaved }: SeedModalProps) 
               onChange={(val) => handleChange("direct_plant_months", val)}
             />
             <MonthSelector
-              label="Oogsten"
+              label={isFlowerType ? "Bloeien" : "Oogsten"}
               value={(form.harvest_months ?? []) as number[]}
               onChange={(val) => handleChange("harvest_months", val)}
             />
