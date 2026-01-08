@@ -60,6 +60,7 @@ Deno.serve(async (req) => {
           garden_bed_id,
           start_segment,
           segments_used,
+          method,
           seeds!inner (
             name
           ),
@@ -104,15 +105,20 @@ X-WR-TIMEZONE:Europe/Amsterdam\r
       ? ` • Segment ${planting.start_segment === 0 ? '1' : planting.start_segment}-${planting.start_segment + planting.segments_used - 1}`
       : '';
 
-    const typeLabels: Record<string, string> = {
-      presow: '🌱 Voorzaaien',
-      sow: '🌱 Zaaien',
-      plant_out: '🌿 Uitplanten',
-      harvest_start: '🥕 Oogsten',
-      harvest_end: '🎯 Oogst afronden',
+    // Determine the correct label based on task type and planting method
+    const getTaskLabel = (taskType: string, method: string | null) => {
+      if (taskType === 'sow') {
+        return method === 'presow' ? '🌱 Voorzaaien' : '🌱 Zaaien';
+      }
+      const typeLabels: Record<string, string> = {
+        plant_out: '🌿 Uitplanten',
+        harvest_start: '🥕 Oogsten',
+        harvest_end: '🎯 Oogst afronden',
+      };
+      return typeLabels[taskType] || taskType;
     };
 
-    const summary = `${typeLabels[task.type] || task.type}: ${seedName}`;
+    const summary = `${getTaskLabel(task.type, planting.method)}: ${seedName}`;
     const description = `${bedName}${segment}`;
     const status = task.status === 'done' ? 'CONFIRMED' : 'TENTATIVE';
     const uid = `task-${task.id}@moestuinplanner`;
