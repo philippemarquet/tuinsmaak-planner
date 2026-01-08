@@ -105,6 +105,7 @@ X-WR-TIMEZONE:Europe/Amsterdam\r
       : '';
 
     const typeLabels: Record<string, string> = {
+      presow: '🌱 Voorzaaien',
       sow: '🌱 Zaaien',
       plant_out: '🌿 Uitplanten',
       harvest_start: '🥕 Oogsten',
