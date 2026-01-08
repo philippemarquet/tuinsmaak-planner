@@ -54,6 +54,7 @@ Deno.serve(async (req) => {
         type,
         due_date,
         status,
+        updated_at,
         planting_id,
         plantings!inner (
           id,
@@ -61,6 +62,7 @@ Deno.serve(async (req) => {
           start_segment,
           segments_used,
           method,
+          updated_at,
           seeds!inner (
             name
           ),
@@ -84,7 +86,7 @@ Deno.serve(async (req) => {
 
 function generateICS(tasks: any[]) {
   const now = new Date();
-  const dtstamp = formatICSDate(now);
+  const dtstamp = formatICSDatetime(now);
 
   let ical = `BEGIN:VCALENDAR\r
 VERSION:2.0\r
@@ -101,15 +103,21 @@ X-PUBLISHED-TTL:PT15M\r
     if (!planting || !planting.seeds) continue;
 
     const seedName = planting.seeds.name;
-    const bedName = planting.garden_beds?.name || 'Onbekend';
-    const segment = planting.start_segment !== null && planting.segments_used !== null
-      ? ` • Segment ${planting.start_segment === 0 ? '1' : planting.start_segment}-${planting.start_segment + planting.segments_used - 1}`
-      : '';
+
+    const method = typeof planting.method === 'string' ? planting.method.trim().toLowerCase() : null;
+    const isPresowAction = task.type === 'sow' && method === 'presow';
+
+    // Bed/segment info is only relevant when something goes into the ground (zaaien / uitplanten)
+    const bedName = planting.garden_beds?.name ?? null;
+    const segment =
+      !isPresowAction && planting.start_segment !== null && planting.segments_used !== null
+        ? ` • Segment ${planting.start_segment + 1}-${planting.start_segment + planting.segments_used}`
+        : '';
 
     // Determine the correct label based on task type and planting method
-    const getTaskLabel = (taskType: string, method: string | null) => {
+    const getTaskLabel = (taskType: string, m: string | null) => {
       if (taskType === 'sow') {
-        return method === 'presow' ? '🌱 Voorzaaien' : '🌱 Zaaien';
+        return m === 'presow' ? '🌱 Voorzaaien' : '🌱 Zaaien';
       }
       const typeLabels: Record<string, string> = {
         plant_out: '🌿 Uitplanten',
@@ -119,19 +127,26 @@ X-PUBLISHED-TTL:PT15M\r
       return typeLabels[taskType] || taskType;
     };
 
-    const summary = `${getTaskLabel(task.type, planting.method)}: ${seedName}`;
-    const description = `${bedName}${segment}`;
+    const summary = `${getTaskLabel(task.type, method)}: ${seedName}`;
+    const description = isPresowAction ? '' : `${bedName || 'Onbekend'}${segment}`;
+    const descriptionLine = description ? `DESCRIPTION:${description}\r\n` : '';
+
     const status = task.status === 'done' ? 'CONFIRMED' : 'TENTATIVE';
     const uid = `task-${task.id}@moestuinplanner`;
     const dtstart = formatICSDate(new Date(task.due_date));
 
+    const updatedAt = task.updated_at || planting.updated_at || task.due_date;
+    const lastModified = formatICSDatetime(new Date(updatedAt));
+    const sequence = Math.floor(new Date(updatedAt).getTime() / 1000);
+
     ical += `BEGIN:VEVENT\r
 UID:${uid}\r
 DTSTAMP:${dtstamp}\r
+LAST-MODIFIED:${lastModified}\r
+SEQUENCE:${sequence}\r
 DTSTART;VALUE=DATE:${dtstart}\r
 SUMMARY:${summary}\r
-DESCRIPTION:${description}\r
-STATUS:${status}\r
+${descriptionLine}STATUS:${status}\r
 TRANSP:TRANSPARENT\r
 END:VEVENT\r
 `;
@@ -145,6 +160,10 @@ END:VEVENT\r
       ...corsHeaders,
       'Content-Type': 'text/calendar; charset=utf-8',
       'Content-Disposition': 'inline; filename="moestuin.ics"',
+      // Try to prevent calendar apps from caching stale titles
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      Pragma: 'no-cache',
+      Expires: '0',
     },
   });
 }
@@ -154,4 +173,14 @@ function formatICSDate(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}${month}${day}`;
+}
+
+function formatICSDatetime(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const hour = String(date.getUTCHours()).padStart(2, '0');
+  const minute = String(date.getUTCMinutes()).padStart(2, '0');
+  const second = String(date.getUTCSeconds()).padStart(2, '0');
+  return `${year}${month}${day}T${hour}${minute}${second}Z`;
 }
