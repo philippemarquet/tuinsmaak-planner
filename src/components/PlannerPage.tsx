@@ -786,9 +786,21 @@ export function PlannerPage({
 
         <DragOverlay dropAnimation={{ duration:200, easing:"ease-out" }}>
           {activeSeed ? (
-            <div className="px-3 py-2 rounded-lg border-2 border-primary bg-card text-sm flex items-center gap-3 pointer-events-none shadow-xl">
-              <div className="w-4 h-4 rounded-full shadow-inner ring-2 ring-white" style={{ background: activeSeed.default_color?.startsWith("#") ? activeSeed.default_color : "#22c55e" }}/>
-              <span className="font-medium">{activeSeed.name}</span>
+            <div 
+              className="w-8 h-8 rounded-lg border-2 border-white/80 shadow-xl pointer-events-none flex items-center justify-center -rotate-12"
+              style={{ 
+                background: activeSeed.default_color?.startsWith("#") ? activeSeed.default_color : "#22c55e",
+                transform: "translate(-50%, -100%) rotate(-12deg)",
+                marginTop: "-8px"
+              }}
+            >
+              {activeSeed.icon_key ? (
+                <span className="text-base drop-shadow-sm" style={{ color: getContrastTextColor(activeSeed.default_color || "#22c55e") }}>
+                  {activeSeed.icon_key}
+                </span>
+              ) : (
+                <div className="w-3 h-3 rounded-full bg-white/40" />
+              )}
             </div>
           ) : null}
         </DragOverlay>
