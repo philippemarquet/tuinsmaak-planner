@@ -201,10 +201,11 @@ export default function CapacityTimelineView({
   );
 
   // layout
-  const DAY_W = 28;      // 28px per dag
-  const ROW_H = 22;      // 22px per segment
-  const TOOLBAR_H = 56;  // sticky maandselector hoogte
-  const DAY_HDR_H = 32;  // sticky dagheader hoogte
+  const DAY_W = 28;       // 28px per dag
+  const ROW_H = 22;       // 22px per segment
+  const TOOLBAR_H = 56;   // sticky maandselector hoogte
+  const DAY_HDR_H = 32;   // sticky dagheader hoogte
+  const LABEL_W = 120;    // breedte linker kolom (bakken/segmenten)
   const daysWidth = totalDays * DAY_W;
 
   const seedsById = useMemo(
@@ -275,29 +276,29 @@ export default function CapacityTimelineView({
 
   return (
     <div className="space-y-4">
-      {/* Sticky Header — (1) maandselector + (2) dagheader */}
-      <div className="overflow-x-auto rounded-lg border relative">
-        <div style={{ minWidth: 240 + daysWidth }}>
-          {/* (1) Maandselector — sticky top:0 */}
+      {/* Scrollable container */}
+      <div className="overflow-auto rounded-lg border relative max-h-[calc(100vh-200px)]">
+        <div style={{ minWidth: LABEL_W + daysWidth }}>
+          {/* (1) Maandselector — sticky top:0 left:0 */}
           <div
-            className="sticky top-0 z-30 bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b"
-            style={{ height: TOOLBAR_H }}
+            className="sticky top-0 left-0 z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b"
+            style={{ height: TOOLBAR_H, width: LABEL_W + daysWidth }}
           >
             <div className="h-full flex items-center justify-between px-1 sm:px-2">
               <div className="flex items-center gap-2">
                 <div className="flex items-center p-0.5 bg-muted/40 rounded-lg">
                   <button
-                    className="px-3 py-2 text-sm font-medium rounded-md hover:bg-background transition-colors"
+                    className="px-2 py-1.5 text-sm font-medium rounded-md hover:bg-background transition-colors"
                     onClick={prevMonth}
                     title="Vorige maand"
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
-                  <span className="px-4 py-2 font-semibold text-sm min-w-[180px] text-center">
+                  <span className="px-2 py-1.5 font-semibold text-sm min-w-[140px] text-center">
                     {monthStart.toLocaleString("nl-NL", { month: "long", year: "numeric" })}
                   </span>
                   <button
-                    className="px-3 py-2 text-sm font-medium rounded-md hover:bg-background transition-colors"
+                    className="px-2 py-1.5 text-sm font-medium rounded-md hover:bg-background transition-colors"
                     onClick={nextMonth}
                     title="Volgende maand"
                   >
@@ -306,7 +307,7 @@ export default function CapacityTimelineView({
                 </div>
 
                 <button
-                  className="ml-2 px-3 py-2 text-sm font-medium rounded-lg bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
+                  className="px-2 py-1.5 text-xs font-medium rounded-lg bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
                   onClick={thisMonth}
                   title="Terug naar huidige maand"
                 >
@@ -315,40 +316,52 @@ export default function CapacityTimelineView({
               </div>
 
               <button
-                className={`px-3 py-2 text-sm font-medium rounded-lg transition-all ${
+                className={`px-2 py-1.5 text-xs font-medium rounded-lg transition-all ${
                   expanded.size === safeBeds.length
                     ? "bg-muted/50 hover:bg-muted"
                     : "bg-primary text-primary-foreground hover:bg-primary/90"
                 }`}
                 onClick={expanded.size === safeBeds.length ? collapseAll : expandAll}
               >
-                {expanded.size === safeBeds.length ? "Alles inklappen" : "Alles uitklappen"}
+                {expanded.size === safeBeds.length ? "Inklappen" : "Uitklappen"}
               </button>
             </div>
           </div>
 
           {/* (2) Dagheader — sticky direct onder maandselector */}
           <div
-            className="grid sticky z-20 bg-background border-b"
-            style={{
-              gridTemplateColumns: `240px repeat(${totalDays}, ${DAY_W}px)`,
-              top: TOOLBAR_H,
-              height: DAY_HDR_H,
-            }}
+            className="sticky z-30 bg-background border-b flex"
+            style={{ top: TOOLBAR_H, height: DAY_HDR_H }}
           >
-            <div className="flex items-end pl-3 text-xs text-muted-foreground">Dag</div>
-            {dayDates.map((d, idx) => (
-              <div key={idx} className="text-[10px] flex items-end justify-center text-muted-foreground">
-                <div className="pb-1">{d.getDate()}</div>
-              </div>
-            ))}
+            {/* Frozen label cell */}
+            <div 
+              className="sticky left-0 z-10 bg-background flex items-end pl-2 text-[10px] text-muted-foreground border-r"
+              style={{ width: LABEL_W, minWidth: LABEL_W }}
+            >
+              Bak / Seg
+            </div>
+            {/* Day numbers */}
+            <div className="flex">
+              {dayDates.map((d, idx) => (
+                <div 
+                  key={idx} 
+                  className="text-[10px] flex items-end justify-center text-muted-foreground"
+                  style={{ width: DAY_W }}
+                >
+                  <div className="pb-1">{d.getDate()}</div>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Groepen + bedden */}
           {groups.map((group) => (
-            <div key={group.key} style={{ minWidth: 240 + daysWidth }}>
+            <div key={group.key}>
               {group.items.length > 0 && (
-                <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide bg-muted/40 border-y">
+                <div 
+                  className="sticky left-0 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide bg-muted/40 border-y"
+                  style={{ width: LABEL_W + daysWidth }}
+                >
                   {group.label}
                 </div>
               )}
@@ -361,41 +374,34 @@ export default function CapacityTimelineView({
                 return (
                   <div key={bed.id} className="border-b bg-card/50">
                     {/* Titelrij */}
-                    <button
-                      className="w-full px-3 py-2 text-sm font-medium flex items-center justify-between border-b bg-muted/40"
-                      onClick={() => toggleBed(bed.id)}
-                      title={isOpen ? "Inklappen" : "Uitklappen"}
-                    >
-                      <span className="flex items-center gap-2">
+                    <div className="flex">
+                      <button
+                        className="sticky left-0 z-10 bg-muted/40 px-2 py-1.5 text-xs font-medium flex items-center gap-1 border-r"
+                        style={{ width: LABEL_W, minWidth: LABEL_W }}
+                        onClick={() => toggleBed(bed.id)}
+                        title={isOpen ? "Inklappen" : "Uitklappen"}
+                      >
                         {isOpen ? (
-                          <ChevronDown className="w-4 h-4" />
+                          <ChevronDown className="w-3 h-3 flex-shrink-0" />
                         ) : (
-                          <ChevronRight className="w-4 h-4" />
+                          <ChevronRight className="w-3 h-3 flex-shrink-0" />
                         )}
-                        <span className="truncate">{bed.name}</span>
+                        <span className="truncate text-left flex-1">{bed.name}</span>
                         {bed.is_greenhouse && (
-                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-600 text-white">Kas</span>
+                          <span className="text-[8px] px-1 py-0.5 rounded bg-emerald-600 text-white flex-shrink-0">Kas</span>
                         )}
-                      </span>
-                      <span className="text-xs text-muted-foreground">{occ.avgPct}% gemiddeld bezet</span>
-                    </button>
-
-                    {/* Collapsed: bezettingsgradaties (één rij) */}
-                    <div
-                      className="grid"
-                      style={{ gridTemplateColumns: `240px repeat(${totalDays}, ${DAY_W}px)` }}
-                    >
-                      <div className="bg-background/60 border-r px-3 py-2 text-[11px] text-muted-foreground">
-                        Bezetting per dag
+                      </button>
+                      {/* Bezettingsbalk */}
+                      <div className="flex">
+                        {occ.values.map((bg, i) => (
+                          <div
+                            key={i}
+                            className="h-[28px] border-r border-muted-foreground/10"
+                            style={{ background: bg, width: DAY_W }}
+                            title={`${toISO(dayDates[i])}: ${occ.pcts[i]}%`}
+                          />
+                        ))}
                       </div>
-                      {occ.values.map((bg, i) => (
-                        <div
-                          key={i}
-                          className="h-[22px] border-r border-muted-foreground/10"
-                          style={{ background: bg }}
-                          title={`${toISO(dayDates[i])}: ${occ.pcts[i]}%`}
-                        />
-                      ))}
                     </div>
 
                     {/* Expanded: segmenten + blokken */}
@@ -413,6 +419,7 @@ export default function CapacityTimelineView({
                         onPlantDelete={onPlantDelete}
                         DAY_W={DAY_W}
                         ROW_H={ROW_H}
+                        LABEL_W={LABEL_W}
                       />
                     )}
                   </div>
@@ -440,6 +447,7 @@ function BedExpandedRow({
   onPlantDelete,
   DAY_W,
   ROW_H,
+  LABEL_W,
 }: {
   bed: GardenBed;
   segCount: number;
@@ -453,21 +461,26 @@ function BedExpandedRow({
   onPlantDelete: (p: Planting) => void | Promise<void>;
   DAY_W: number;
   ROW_H: number;
+  LABEL_W: number;
 }) {
   const gridCols = `repeat(${totalDays}, ${DAY_W}px)`;
   const gridRows = `repeat(${segCount}, ${ROW_H}px)`;
 
   return (
-    <div className="relative" style={{ display: "grid", gridTemplateColumns: `240px 1fr` }}>
-      <div className="border-r bg-background/60">
+    <div className="flex">
+      {/* Frozen segment labels */}
+      <div 
+        className="sticky left-0 z-10 border-r bg-background/95"
+        style={{ width: LABEL_W, minWidth: LABEL_W }}
+      >
         <div className="grid" style={{ gridTemplateRows: gridRows }}>
           {Array.from({ length: segCount }, (_, r) => (
             <div
               key={r}
-              className="h-[22px] text-[10px] text-muted-foreground flex items-center justify-end pr-2 border-b border-dashed border-muted-foreground/20"
+              className="h-[22px] text-[9px] text-muted-foreground flex items-center justify-end pr-2 border-b border-dashed border-muted-foreground/20"
               title={`Segment ${r + 1}`}
             >
-              Seg {r + 1}
+              {r + 1}
             </div>
           ))}
         </div>
