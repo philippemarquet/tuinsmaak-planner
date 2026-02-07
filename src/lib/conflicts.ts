@@ -29,18 +29,19 @@ export function occupancyWindow(p: Planting, seed?: Seed): Window {
   let startISO: string | null = null;
   let endISO: string | null = null;
 
-  // START
+  // START: wanneer neemt het gewas de bak in beslag?
   if (p.actual_ground_date) {
     startISO = p.actual_ground_date;
+  } else if (p.planned_date) {
+    startISO = p.planned_date;
   } else if (p.actual_presow_date && seed?.presow_duration_weeks) {
+    // Alleen als fallback: bereken gronddatum vanuit voorzaaidatum
     const base = new Date(p.actual_presow_date);
     if (!isNaN(base.getTime())) {
       const g = new Date(base);
       g.setDate(g.getDate() + seed.presow_duration_weeks * 7);
       startISO = g.toISOString().slice(0, 10);
     }
-  } else {
-    startISO = p.planned_date ?? null;
   }
 
   // END
