@@ -651,11 +651,81 @@ export function PlannerPage({
   }
 
   /* ===== conflicts view ===== */
-  const conflictsView = (
-    <div className="space-y-2">
-      <p className="text-sm text-muted-foreground">Ga door met je bestaande Conflicten-weergave. Deze Planner toont geen details in list/map, alleen hier.</p>
-    </div>
-  );
+  const conflictsView = useMemo(() => {
+    if (conflictCount === 0) {
+      return <div className="p-6 text-center text-muted-foreground">Geen conflicten gevonden. 🎉</div>;
+    }
+    // Build unique conflict pairs with details
+    const seen = new Set<string>();
+    const pairs: Array<{ a: Planting; b: Planting; aSeed: Seed | undefined; bSeed: Seed | undefined; aBed: GardenBed | undefined; bBed: GardenBed | undefined }> = [];
+    const bedsById = Object.fromEntries(beds.map(b => [b.id, b]));
+    for (const [id, arr] of conflictsMap) {
+      for (const other of arr) {
+        const key = id < other.id ? `${id}::${other.id}` : `${other.id}::${id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const a = plantings.find(p => p.id === id)!;
+        const b = other;
+        pairs.push({ a, b, aSeed: seedsById[a.seed_id], bSeed: seedsById[b.seed_id], aBed: bedsById[a.garden_bed_id], bBed: bedsById[b.garden_bed_id] });
+      }
+    }
+    return (
+      <div className="space-y-4">
+        <h3 className="text-lg font-semibold">{conflictCount} conflict{conflictCount !== 1 ? "en" : ""}</h3>
+        {pairs.map(({ a, b, aSeed, bSeed, aBed }, idx) => {
+          const aStart = parseISO(a.planned_date);
+          const aEnd = parseISO(a.planned_harvest_end);
+          const bStart = parseISO(b.planned_date);
+          const bEnd = parseISO(b.planned_harvest_end);
+          // Calculate overlap
+          let overlapDays = 0;
+          if (aStart && aEnd && bStart && bEnd) {
+            const oStart = aStart > bStart ? aStart : bStart;
+            const oEnd = aEnd < bEnd ? aEnd : bEnd;
+            overlapDays = Math.max(0, Math.round((oEnd.getTime() - oStart.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+          }
+          const overlapWeeks = Math.ceil(overlapDays / 7);
+          const aSegStart = (a.start_segment ?? 0) + 1;
+          const aSegEnd = aSegStart + (a.segments_used ?? 1) - 1;
+          const bSegStart = (b.start_segment ?? 0) + 1;
+          const bSegEnd = bSegStart + (b.segments_used ?? 1) - 1;
+          const overlapSegStart = Math.max(aSegStart, bSegStart);
+          const overlapSegEnd = Math.min(aSegEnd, bSegEnd);
+
+          return (
+            <div key={idx} className="p-4 rounded-lg border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/20 space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-red-800 dark:text-red-300">
+                <AlertTriangle className="w-4 h-4" />
+                Conflict in {aBed?.name ?? "onbekende bak"}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-2 rounded-md bg-card border border-border space-y-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full" style={{ background: a.color ?? aSeed?.default_color ?? "#22c55e" }} />
+                    <span className="text-sm font-medium">{aSeed?.name ?? "—"}</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">{fmtDMY(a.planned_date)} → {fmtDMY(a.planned_harvest_end)}</p>
+                  <p className="text-[11px] text-muted-foreground">Segment {aSegStart}{aSegEnd !== aSegStart ? `–${aSegEnd}` : ""}</p>
+                </div>
+                <div className="p-2 rounded-md bg-card border border-border space-y-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full" style={{ background: b.color ?? bSeed?.default_color ?? "#22c55e" }} />
+                    <span className="text-sm font-medium">{bSeed?.name ?? "—"}</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">{fmtDMY(b.planned_date)} → {fmtDMY(b.planned_harvest_end)}</p>
+                  <p className="text-[11px] text-muted-foreground">Segment {bSegStart}{bSegEnd !== bSegStart ? `–${bSegEnd}` : ""}</p>
+                </div>
+              </div>
+              <div className="text-xs text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900/30 rounded-md p-2 space-y-0.5">
+                <p className="font-medium">Overlap: {overlapDays} dagen ({overlapWeeks} {overlapWeeks === 1 ? "week" : "weken"})</p>
+                <p>Overlappende segmenten: {overlapSegStart}{overlapSegEnd !== overlapSegStart ? `–${overlapSegEnd}` : ""}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }, [conflictCount, conflictsMap, plantings, seedsById, beds]);
 
   return (
     <div className="h-[calc(100vh-6rem)] flex flex-col overflow-hidden -mx-6 -mb-6">
@@ -817,6 +887,7 @@ export function PlannerPage({
 
             <div className="p-5">
               <PlantingForm
+                seedsById={seedsById}
                 mode={popup.mode}
                 seed={popup.seed}
                 bed={popup.bed}
@@ -855,10 +926,10 @@ export function PlannerPage({
 
 /* ===== PlantingForm ===== */
 function PlantingForm({
-  mode, seed, bed, defaultSegment, defaultDateISO, existing, beds, allPlantings, onCancel, onConfirm,
+  mode, seed, bed, defaultSegment, defaultDateISO, existing, beds, allPlantings, seedsById: seedsByIdProp, onCancel, onConfirm,
 }:{
   mode:"create"|"edit"; seed:Seed; bed:GardenBed; defaultSegment:number; defaultDateISO:string; existing?:Planting;
-  beds:GardenBed[]; allPlantings:Planting[]; onCancel:()=>void;
+  beds:GardenBed[]; allPlantings:Planting[]; seedsById:Record<string,Seed|undefined>; onCancel:()=>void;
   onConfirm:(startSegment:number,segmentsUsed:number,method:"direct"|"presow",dateISO:string,color:string,bedId:string)=>void;
 }){
   const [segmentsUsedStr,setSegmentsUsedStr]=useState<string>(String(existing?.segments_used ?? 1));
@@ -960,7 +1031,32 @@ function PlantingForm({
             ))}
           </SelectContent>
         </Select>
-        {validBeds.length===0 && <p className="text-[11px] text-red-500">Geen alternatieve bakken beschikbaar op deze datum.</p>}
+        {validBeds.length===0 && (
+          <div className="text-[11px] text-red-600 space-y-1 mt-1">
+            <p className="font-medium">Geen bakken beschikbaar op deze datum.</p>
+            {(() => {
+              const overlaps = listOverlaps(allPlantings, seedsByIdProp, selectedBed.id, startSegment, segmentsUsed, plantDate, he, existing?.id);
+              if (overlaps.length === 0) return null;
+              return (
+                <div className="p-2 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
+                  <p className="font-medium mb-1">Blokkerende teelten:</p>
+                  {overlaps.map((o, idx) => {
+                    const overlapStart = parseISO(o.fromISO)!;
+                    const overlapEnd = parseISO(o.toISO)!;
+                    const overlapDays = Math.round((overlapEnd.getTime() - overlapStart.getTime()) / (1000*60*60*24)) + 1;
+                    return (
+                      <div key={idx} className="flex items-center gap-1 text-[10px] text-red-700 dark:text-red-400">
+                        <span>• "{o.seedName}"</span>
+                        <span className="text-muted-foreground">{fmtDMY(o.fromISO)} – {fmtDMY(o.toISO)}</span>
+                        <span className="font-medium">({overlapDays} dgn overlap, seg {o.segFrom}–{o.segTo})</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </div>
 
       {/* Segment + Aantal */}
@@ -975,7 +1071,26 @@ function PlantingForm({
               {startSegmentOptions.map(s=> (<SelectItem key={s} value={String(s)}>Segment {s+1}</SelectItem>))}
             </SelectContent>
           </Select>
-          {startSegmentOptions.length===0 && <p className="text-[11px] text-red-500">Geen vrij segment beschikbaar.</p>}
+          {startSegmentOptions.length===0 && (
+            <div className="text-[11px] text-red-600 space-y-0.5">
+              <p className="font-medium">Geen vrij segment.</p>
+              {(() => {
+                const overlaps = listOverlaps(allPlantings, seedsByIdProp, selectedBed.id, startSegment, segmentsUsed, plantDate, he, existing?.id);
+                if (overlaps.length === 0) return null;
+                return overlaps.map((o, idx) => {
+                  const overlapStart = parseISO(o.fromISO)!;
+                  const overlapEnd = parseISO(o.toISO)!;
+                  const overlapDays = Math.round((overlapEnd.getTime() - overlapStart.getTime()) / (1000*60*60*24)) + 1;
+                  const overlapWeeks = Math.ceil(overlapDays / 7);
+                  return (
+                    <p key={idx} className="text-[10px] text-red-700 dark:text-red-400">
+                      • "{o.seedName}" blokkeert seg {o.segFrom}–{o.segTo} ({overlapDays} dgn / {overlapWeeks} wk overlap)
+                    </p>
+                  );
+                });
+              })()}
+            </div>
+          )}
         </div>
 
         <div className="space-y-1.5">
@@ -1029,6 +1144,33 @@ function PlantingForm({
             </PopoverContent>
           </Popover>
           <p className="text-[10px] text-muted-foreground">Bezet t/m {fmtDMY(toISO(he))}</p>
+          {/* Voorzaai informatie */}
+          {method === "presow" && seed.presow_duration_weeks && seed.presow_duration_weeks > 0 && date && (() => {
+            const presowDate = addWeeks(plantDate, -(seed.presow_duration_weeks!));
+            const presowMonth = presowDate.getMonth() + 1;
+            const presowMonths = seed.presow_months ?? [];
+            const monthNames = ["","jan","feb","mrt","apr","mei","jun","jul","aug","sep","okt","nov","dec"];
+            const monthOk = presowMonths.length === 0 || presowMonths.includes(presowMonth);
+            return (
+              <div className={`mt-1 p-2 rounded-md text-[11px] space-y-0.5 ${monthOk ? "bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800" : "bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800"}`}>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium">{monthOk ? "🌱" : "⚠️"} Voorzaaien:</span>
+                  <span className="font-semibold">{format(presowDate, "d MMM yyyy", { locale: nl })}</span>
+                  <span className="text-muted-foreground">({seed.presow_duration_weeks} wk voor plantdatum)</span>
+                </div>
+                {monthOk ? (
+                  <p className="text-muted-foreground">
+                    ✓ {monthNames[presowMonth]} valt binnen voorzaaimaanden
+                    {presowMonths.length > 0 && <span> ({presowMonths.map(m => monthNames[m]).join(", ")})</span>}
+                  </p>
+                ) : (
+                  <p className="text-red-700 dark:text-red-400 font-medium">
+                    ✗ {monthNames[presowMonth]} valt NIET in voorzaaimaanden ({presowMonths.map(m => monthNames[m]).join(", ")})
+                  </p>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         <div className="space-y-1.5">
