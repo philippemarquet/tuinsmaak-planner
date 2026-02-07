@@ -307,7 +307,7 @@ export default function PlantingEditor({ gardenId, planting, onClose, onSaved }:
                 ? addWeeks(parseISO(sowDate)!, presowWeeks)
                 : baseDate;
               const expectedHarvestStart = addWeeks(groundDate, growWeeks);
-              const expectedHarvestEnd = addWeeks(expectedHarvestStart, harvestWeeks);
+              const expectedHarvestEnd = addDays(addWeeks(expectedHarvestStart, harvestWeeks), -1);
               
               const formatDate = (d: Date) => d.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' });
               
