@@ -669,14 +669,55 @@ export function PlannerPage({
         pairs.push({ a, b, aSeed: seedsById[a.seed_id], bSeed: seedsById[b.seed_id], aBed: bedsById[a.garden_bed_id], bBed: bedsById[b.garden_bed_id] });
       }
     }
+
+    // Helper: effective occupancy dates (using actuals when available, like occupancyWindow)
+    const effectiveDates = (p: Planting, s: Seed | undefined) => {
+      const growW = s?.grow_duration_weeks ?? 0;
+      const harvestW = s?.harvest_duration_weeks ?? 0;
+      const presowW = s?.presow_duration_weeks ?? 0;
+
+      // Determine effective ground date
+      let groundISO: string | null = null;
+      if (p.actual_ground_date) {
+        groundISO = p.actual_ground_date;
+      } else if (p.actual_presow_date && presowW > 0) {
+        const base = parseISO(p.actual_presow_date);
+        if (base) {
+          const g = new Date(base);
+          g.setDate(g.getDate() + presowW * 7);
+          groundISO = toISO(g);
+        }
+      }
+      if (!groundISO) groundISO = p.planned_date;
+
+      // Determine effective harvest end
+      let endISO: string | null = null;
+      if (p.actual_harvest_end) {
+        endISO = p.actual_harvest_end;
+      } else if (groundISO && growW > 0) {
+        const g = parseISO(groundISO)!;
+        const hs = new Date(g);
+        hs.setDate(hs.getDate() + growW * 7);
+        const he = new Date(hs);
+        he.setDate(he.getDate() + harvestW * 7 - 1);
+        endISO = toISO(he);
+      }
+      if (!endISO) endISO = p.planned_harvest_end;
+
+      return { start: parseISO(groundISO), end: parseISO(endISO) };
+    };
+
     return (
       <div className="space-y-4">
         <h3 className="text-lg font-semibold">{conflictCount} conflict{conflictCount !== 1 ? "en" : ""}</h3>
+        <p className="text-xs text-muted-foreground">Datums zijn berekend op basis van de meest recente actuele datums.</p>
         {pairs.map(({ a, b, aSeed, bSeed, aBed }, idx) => {
-          const aStart = parseISO(a.planned_date);
-          const aEnd = parseISO(a.planned_harvest_end);
-          const bStart = parseISO(b.planned_date);
-          const bEnd = parseISO(b.planned_harvest_end);
+          const aDates = effectiveDates(a, aSeed);
+          const bDates = effectiveDates(b, bSeed);
+          const aStart = aDates.start;
+          const aEnd = aDates.end;
+          const bStart = bDates.start;
+          const bEnd = bDates.end;
           // Calculate overlap
           let overlapDays = 0;
           if (aStart && aEnd && bStart && bEnd) {
@@ -692,6 +733,15 @@ export function PlannerPage({
           const overlapSegStart = Math.max(aSegStart, bSegStart);
           const overlapSegEnd = Math.min(aSegEnd, bSegEnd);
 
+          const fmtRange = (start: Date | null, end: Date | null) => {
+            if (!start || !end) return "—";
+            return `${fmtDMY(toISO(start))} → ${fmtDMY(toISO(end))}`;
+          };
+
+          // Show which dates are based on actuals
+          const aHasActual = !!(a.actual_ground_date || a.actual_presow_date);
+          const bHasActual = !!(b.actual_ground_date || b.actual_presow_date);
+
           return (
             <div key={idx} className="p-4 rounded-lg border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/20 space-y-3">
               <div className="flex items-center gap-2 text-sm font-semibold text-red-800 dark:text-red-300">
@@ -704,7 +754,10 @@ export function PlannerPage({
                     <div className="w-3 h-3 rounded-full" style={{ background: a.color ?? aSeed?.default_color ?? "#22c55e" }} />
                     <span className="text-sm font-medium">{aSeed?.name ?? "—"}</span>
                   </div>
-                  <p className="text-[11px] text-muted-foreground">{fmtDMY(a.planned_date)} → {fmtDMY(a.planned_harvest_end)}</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {fmtRange(aStart, aEnd)}
+                    {aHasActual && <span className="ml-1 text-blue-600 dark:text-blue-400">(actueel)</span>}
+                  </p>
                   <p className="text-[11px] text-muted-foreground">Segment {aSegStart}{aSegEnd !== aSegStart ? `–${aSegEnd}` : ""}</p>
                 </div>
                 <div className="p-2 rounded-md bg-card border border-border space-y-1">
@@ -712,7 +765,10 @@ export function PlannerPage({
                     <div className="w-3 h-3 rounded-full" style={{ background: b.color ?? bSeed?.default_color ?? "#22c55e" }} />
                     <span className="text-sm font-medium">{bSeed?.name ?? "—"}</span>
                   </div>
-                  <p className="text-[11px] text-muted-foreground">{fmtDMY(b.planned_date)} → {fmtDMY(b.planned_harvest_end)}</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {fmtRange(bStart, bEnd)}
+                    {bHasActual && <span className="ml-1 text-blue-600 dark:text-blue-400">(actueel)</span>}
+                  </p>
                   <p className="text-[11px] text-muted-foreground">Segment {bSegStart}{bSegEnd !== bSegStart ? `–${bSegEnd}` : ""}</p>
                 </div>
               </div>

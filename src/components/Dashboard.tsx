@@ -59,7 +59,7 @@ function computePlanFromAnchor(params: {
     if (growW != null) {
       const hs = addWeeks(ground, growW);
       planned_harvest_start = toISO(hs);
-      if (harvestW != null) planned_harvest_end = toISO(addWeeks(hs, harvestW));
+      if (harvestW != null) planned_harvest_end = toISO(addDays(addWeeks(hs, harvestW), -1));
     }
   } else if (anchorType === "ground") {
     planned_date = anchorISO;
@@ -68,12 +68,12 @@ function computePlanFromAnchor(params: {
     if (growW != null) {
       const hs = addWeeks(new Date(anchorISO), growW);
       planned_harvest_start = toISO(hs);
-      if (harvestW != null) planned_harvest_end = toISO(addWeeks(hs, harvestW));
+      if (harvestW != null) planned_harvest_end = toISO(addDays(addWeeks(hs, harvestW), -1));
     }
   } else if (anchorType === "harvest_start") {
     planned_harvest_start = anchorISO;
 
-    if (harvestW != null) planned_harvest_end = toISO(addWeeks(A, harvestW));
+    if (harvestW != null) planned_harvest_end = toISO(addDays(addWeeks(A, harvestW), -1));
 
     if (growW != null) {
       const ground = addWeeks(A, -growW);
@@ -404,8 +404,11 @@ export function Dashboard({
         anchorISO: performedISO,
       });
 
+      // Always update planned dates based on actual, to keep conflicts accurate
       try {
         await updatePlanting(task.planting_id, plan as any);
+        // Update local state to reflect new planned dates
+        setPlantings(prev => prev.map(x => x.id === task.planting_id ? { ...x, ...plan } as any : x));
       } catch (e) {
         console.warn("Plan update gaf fout (waarschijnlijk overlap):", e);
       }
@@ -1013,13 +1016,25 @@ export function Dashboard({
                           )}
                         >
                           <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-                          {dialog.dateISO ? format(new Date(dialog.dateISO), "d MMMM yyyy", { locale: nl }) : "Kies datum"}
+                          {dialog.dateISO ? (() => {
+                            const [y, m, d] = dialog.dateISO.split("-").map(Number);
+                            return format(new Date(y, m - 1, d), "d MMMM yyyy", { locale: nl });
+                          })() : "Kies datum"}
                         </button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0 bg-popover/95 backdrop-blur-md border-border/50" align="start">
                         <Calendar
                           mode="single"
-                          selected={dialog.dateISO ? new Date(dialog.dateISO) : undefined}
+                          selected={(() => {
+                            if (!dialog.dateISO) return undefined;
+                            const [y, m, d] = dialog.dateISO.split("-").map(Number);
+                            return new Date(y, m - 1, d);
+                          })()}
+                          defaultMonth={(() => {
+                            if (!dialog.dateISO) return new Date();
+                            const [y, m] = dialog.dateISO.split("-").map(Number);
+                            return new Date(y, m - 1, 1);
+                          })()}
                           onSelect={(d) => {
                             if (d) {
                               setDialog(prev => prev ? { ...prev, dateISO: toISO(d) } : prev);
