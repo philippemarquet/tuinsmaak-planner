@@ -4,6 +4,7 @@ import type { Seed, CropType } from "../lib/types";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Checkbox } from "./ui/checkbox";
 import { cn } from "../lib/utils";
+import { Slider } from "./ui/slider";
 import { ChevronDown, Search, Info } from "lucide-react";
 import { useDraggable } from "@dnd-kit/core";
 
@@ -94,6 +95,7 @@ export function SeedsSidebar({
     const saved = localStorage.getItem("plannerCropTypes");
     return saved ? JSON.parse(saved) : [];
   });
+  const [maxOccupationWeeks, setMaxOccupationWeeks] = useState<number>(0); // 0 = no filter
 
   // Popover open state - controlled
   const [monthsOpen, setMonthsOpen] = useState(false);
@@ -173,6 +175,13 @@ export function SeedsSidebar({
         const hasGreenhouseMatch = Array.isArray(greenhouseMonths) && 
           greenhouseMonths.some((m) => selectedMonths.includes(m));
         return hasDirectPlantMatch || hasGreenhouseMatch;
+      });
+    }
+
+    if (maxOccupationWeeks > 0) {
+      arr = arr.filter((s) => {
+        const total = (s.grow_duration_weeks ?? 0) + (s.harvest_duration_weeks ?? 0);
+        return total > 0 && total <= maxOccupationWeeks;
       });
     }
 
@@ -358,6 +367,34 @@ export function SeedsSidebar({
               </div>
             </PopoverContent>
           </Popover>
+
+          {/* Max bezettingsduur filter */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-muted-foreground">Max bezetting (groei + oogst)</span>
+              {maxOccupationWeeks > 0 && (
+                <button
+                  onClick={() => setMaxOccupationWeeks(0)}
+                  className="text-[10px] text-primary hover:underline"
+                >
+                  Wis
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Slider
+                min={0}
+                max={52}
+                step={1}
+                value={[maxOccupationWeeks]}
+                onValueChange={([v]) => setMaxOccupationWeeks(v)}
+                className="flex-1"
+              />
+              <span className="text-[11px] font-medium text-foreground w-10 text-right">
+                {maxOccupationWeeks === 0 ? "—" : `≤${maxOccupationWeeks}wk`}
+              </span>
+            </div>
+          </div>
         </div>
         
         {/* Scrollable seed list */}
