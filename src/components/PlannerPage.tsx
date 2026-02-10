@@ -444,9 +444,40 @@ export function PlannerPage({
                           const s=p.start_segment??0, u=p.segments_used??1;
                           return i>=s && i<s+u;
                         });
+
+                        // Calculate empty weeks for this segment
+                        let emptyWeeksLabel: string | null = null;
+                        if (here.length === 0) {
+                          const weekEnd = addDays(currentWeek, 6);
+                          // Find next planting in this segment after current week
+                          const futurePlantings = plantings
+                            .filter(p => {
+                              if (p.garden_bed_id !== bed.id) return false;
+                              const ps = p.start_segment ?? 0, pu = p.segments_used ?? 1;
+                              if (!(i >= ps && i < ps + pu)) return false;
+                              const s = parseISO(p.planned_date);
+                              return s && s > weekEnd;
+                            })
+                            .sort((a, b) => (a.planned_date ?? "").localeCompare(b.planned_date ?? ""));
+                          
+                          if (futurePlantings.length === 0) {
+                            emptyWeeksLabel = "∞ wk";
+                          } else {
+                            const nextStart = parseISO(futurePlantings[0].planned_date)!;
+                            const diffMs = nextStart.getTime() - currentWeek.getTime();
+                            const diffWeeks = Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000));
+                            emptyWeeksLabel = `${diffWeeks} wk`;
+                          }
+                        }
+
                         return (
                           <DroppableSegment key={i} id={`bed__${bed.id}__segment__${i}`} occupied={here.length>0}>
                             <div className="flex flex-col gap-0.5 w-full px-0.5">
+                              {here.length === 0 && emptyWeeksLabel && (
+                                <span className="text-[9px] text-muted-foreground/50 text-center py-0.5 select-none">
+                                  leeg {emptyWeeksLabel}
+                                </span>
+                              )}
                               {here.map((p)=>{
                                 const seed=seedsById[p.seed_id];
                                 const color = p.color?.startsWith("#") ? p.color : "#22c55e";
