@@ -59,7 +59,7 @@ function computePlanFromAnchor(params: {
     if (growW != null) {
       const hs = addWeeks(ground, growW);
       planned_harvest_start = toISO(hs);
-      if (harvestW != null) planned_harvest_end = toISO(addDays(addWeeks(hs, harvestW), -1));
+      if (harvestW != null) planned_harvest_end = toISO(addWeeks(hs, harvestW));
     }
   } else if (anchorType === "ground") {
     planned_date = anchorISO;
@@ -68,12 +68,12 @@ function computePlanFromAnchor(params: {
     if (growW != null) {
       const hs = addWeeks(new Date(anchorISO), growW);
       planned_harvest_start = toISO(hs);
-      if (harvestW != null) planned_harvest_end = toISO(addDays(addWeeks(hs, harvestW), -1));
+      if (harvestW != null) planned_harvest_end = toISO(addWeeks(hs, harvestW));
     }
   } else if (anchorType === "harvest_start") {
     planned_harvest_start = anchorISO;
 
-    if (harvestW != null) planned_harvest_end = toISO(addDays(addWeeks(A, harvestW), -1));
+    if (harvestW != null) planned_harvest_end = toISO(addWeeks(A, harvestW));
 
     if (growW != null) {
       const ground = addWeeks(A, -growW);

@@ -50,7 +50,7 @@ export function occupancyWindow(p: Planting, seed?: Seed): Window {
     const g = new Date(startISO);
     if (!isNaN(g.getTime())) {
       const e = new Date(g);
-      e.setDate(e.getDate() + (seed.grow_duration_weeks + seed.harvest_duration_weeks) * 7 - 1);
+      e.setDate(e.getDate() + (seed.grow_duration_weeks + seed.harvest_duration_weeks) * 7);
       endISO = e.toISOString().slice(0, 10);
     }
   } else {
