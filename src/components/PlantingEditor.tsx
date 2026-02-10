@@ -94,7 +94,7 @@ export default function PlantingEditor({ gardenId, planting, onClose, onSaved }:
     if (!curSeed) return null;
     const ground = plantDate ? new Date(plantDate) : new Date(base);
     const hs = addWeeks(ground, curSeed.grow_duration_weeks ?? 0);
-    const he = addDays(addWeeks(hs, curSeed.harvest_duration_weeks ?? 0), -1);
+    const he = addWeeks(hs, curSeed.harvest_duration_weeks ?? 0);
     return { start: ground, end: he, used: Math.max(1, planting?.segments_used ?? 1) };
   }, [plantDate, sowDate, harvestStart, harvestEnd, curSeed, planting?.segments_used]);
 
@@ -307,7 +307,7 @@ export default function PlantingEditor({ gardenId, planting, onClose, onSaved }:
                 ? addWeeks(parseISO(sowDate)!, presowWeeks)
                 : baseDate;
               const expectedHarvestStart = addWeeks(groundDate, growWeeks);
-              const expectedHarvestEnd = addDays(addWeeks(expectedHarvestStart, harvestWeeks), -1);
+              const expectedHarvestEnd = addWeeks(expectedHarvestStart, harvestWeeks);
               
               const formatDate = (d: Date) => d.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' });
               

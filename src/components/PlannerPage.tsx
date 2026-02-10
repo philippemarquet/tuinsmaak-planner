@@ -309,7 +309,7 @@ export function PlannerPage({
 
     const plantDate = parseISO(dateISO)!;
     const hs = addWeeks(plantDate, seed.grow_duration_weeks ?? 0);
-    const he = addDays(addWeeks(hs, seed.harvest_duration_weeks ?? 0), -1);
+    const he = addWeeks(hs, seed.harvest_duration_weeks ?? 0);
     const segUsed = Math.max(1, segmentsUsed);
 
     const overlaps = listOverlaps(plantings, seedsById, bedToUse.id, startSegment, segUsed, plantDate, he, planting?.id);
@@ -360,7 +360,7 @@ export function PlannerPage({
     const newStartSeg=clamp(targetSeg,0,Math.max(0,(bed.segments??1)-segUsed));
     const plantDate=parseISO(dateISO)!;
     const hs=addWeeks(plantDate, seed.grow_duration_weeks??0);
-    const he=addDays(addWeeks(hs, seed.harvest_duration_weeks??0), -1);
+    const he=addWeeks(hs, seed.harvest_duration_weeks??0);
 
     const overlaps=listOverlaps(plantings, seedsById, bedId, newStartSeg, segUsed, plantDate, he, p.id);
     if(overlaps.length>0){
@@ -699,7 +699,7 @@ export function PlannerPage({
         const hs = new Date(g);
         hs.setDate(hs.getDate() + growW * 7);
         const he = new Date(hs);
-        he.setDate(he.getDate() + harvestW * 7 - 1);
+        he.setDate(he.getDate() + harvestW * 7);
         endISO = toISO(he);
       }
       if (!endISO) endISO = p.planned_harvest_end;
@@ -1003,7 +1003,7 @@ function PlantingForm({
   const addWeeks=(d:Date,w:number)=>{ const x=new Date(d); x.setDate(x.getDate()+w*7); return x; };
   const addDays=(d:Date,n:number)=>{ const x=new Date(d); x.setDate(x.getDate()+n); return x; };
   const hs=useMemo(()=> addWeeks(plantDate, seed.grow_duration_weeks ?? 0),[plantDate, seed.grow_duration_weeks]);
-  const he=useMemo(()=> addDays(addWeeks(hs, seed.harvest_duration_weeks ?? 0), -1),[hs, seed.harvest_duration_weeks]);
+  const he=useMemo(()=> addWeeks(hs, seed.harvest_duration_weeks ?? 0),[hs, seed.harvest_duration_weeks]);
 
   const findAllStartSegments = (plantings: Planting[], bed: GardenBed, segUsed: number, start: Date, end: Date, ignoreId?: string) => {
     const intervalOverlap=(aS:Date,aE:Date,bS:Date,bE:Date)=> aS<=bE && bS<=aE;
